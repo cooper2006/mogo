@@ -1,43 +1,39 @@
 <script setup lang="ts">
-import PasswordLoginForm from './login/PasswordLoginForm.vue'
-import InvitationRegistrationForm from './login/InvitationRegistrationForm.vue'
 import { ref } from 'vue'
+import PasswordLoginForm from './login/PasswordLoginForm.vue'
+import RegisterForm from './login/RegisterForm.vue'
 import DesktopLoginServerSwitch from './desktop/DesktopLoginServerSwitch.vue'
-import DesktopCompatibilityNotice from './desktop/DesktopCompatibilityNotice.vue'
 import { t } from '../composables/i18n'
-import type { UserProfile } from '../api/auth'
+import type { TenantCandidate, UserProfile } from '../api/auth'
 
 defineProps<{
   open: boolean
   savedUsers: string[]
+  challengeToken?: string
+  tenantCandidates?: TenantCandidate[]
 }>()
 
 const emit = defineEmits<{
   (event: 'close'): void
   (event: 'login-success', payload: { token: string; username: string; profile?: UserProfile }): void
 }>()
-const initialCode = typeof window === 'undefined' ? '' : new URLSearchParams(window.location.search).get('invite_code') || ''
-const registering = ref(Boolean(initialCode))
-const registeredUsername = ref('')
-function completeRegistration(username: string) {
-  registeredUsername.value = username
-  registering.value = false
-  const url = new URL(window.location.href)
-  url.searchParams.delete('invite_code')
-  url.searchParams.delete('register')
-  window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`)
+
+const mode = ref<'login' | 'register'>('login')
+
+function handleAuthSuccess(payload: { token: string; username: string; profile?: UserProfile }) {
+  emit('login-success', payload)
 }
 </script>
 
 <template>
-  <div v-if="open" class="login-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-    <div class="login-modal-panel max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-3xl border border-transparent bg-white p-6 shadow-2xl">
+  <div v-if="open" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+    <div class="max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
       <div class="flex items-start justify-between gap-4">
         <div class="flex items-start gap-3">
-          <img src="/movo-logo.png" alt="MOVO" class="mt-0.5 h-10 w-12 shrink-0 object-contain" />
+          <img src="/mogo-logo.png" alt="MOGO" class="mt-0.5 h-10 w-12 shrink-0 object-contain" />
           <div>
-            <div class="text-xl font-semibold text-slate-900">{{ registering ? t('invite.title') : t('login.title') }}</div>
-            <div class="mt-1 text-sm leading-5 text-slate-500">{{ registering ? t('invite.description') : t('login.password_desc') }}</div>
+            <div class="text-xl font-semibold text-slate-900">{{ t('login.title') }}</div>
+            <div class="mt-1 text-sm leading-5 text-slate-500">{{ t('login.password_desc') }}</div>
           </div>
         </div>
         <button
@@ -52,62 +48,40 @@ function completeRegistration(username: string) {
         </button>
       </div>
 
-      <InvitationRegistrationForm v-if="registering" :initial-code="initialCode" @success="completeRegistration" />
-      <div v-else-if="registeredUsername" class="mt-5 rounded-xl bg-green-50 px-4 py-3 text-sm text-green-800">{{ t('invite.success') }}</div>
-      <PasswordLoginForm v-if="!registering"
-        class="mt-6"
-        :suggested-username="registeredUsername || savedUsers[0]"
-        @login-success="emit('login-success', $event)"
+      <div class="mt-6 flex gap-1 rounded-2xl bg-slate-100 p-1">
+        <button
+          type="button"
+          class="flex-1 rounded-xl px-4 py-2 text-sm font-medium transition-colors"
+          :class="mode === 'login' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
+          @click="mode = 'login'"
+        >
+          {{ t('login.tab_login') }}
+        </button>
+        <button
+          type="button"
+          class="flex-1 rounded-xl px-4 py-2 text-sm font-medium transition-colors"
+          :class="mode === 'register' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
+          @click="mode = 'register'"
+        >
+          {{ t('login.tab_register') }}
+        </button>
+      </div>
+
+      <PasswordLoginForm
+        v-if="mode === 'login'"
+        class="mt-5"
+        :suggested-username="savedUsers[0]"
+        :challenge-token="challengeToken"
+        :tenant-candidates="tenantCandidates"
+        @login-success="handleAuthSuccess"
       />
-      <button type="button" class="mt-4 text-sm text-blue-600 hover:underline" @click="registering = !registering">{{ registering ? t('invite.back_login') : t('invite.open_registration') }}</button>
-      <DesktopLoginServerSwitch v-if="!registering" />
-      <DesktopCompatibilityNotice v-if="!registering" inline />
+      <RegisterForm
+        v-else
+        class="mt-5"
+        @register-success="handleAuthSuccess"
+        @switch-to-login="mode = 'login'"
+      />
+      <DesktopLoginServerSwitch />
     </div>
   </div>
 </template>
-
-<style>
-html.platform-desktop.theme-dark .login-modal-backdrop {
-  background: rgba(2, 6, 15, .74) !important;
-  backdrop-filter: blur(3px);
-}
-
-html.platform-desktop.theme-dark .login-modal-panel {
-  border-color: #3b4b62 !important;
-  color: #dbe7f5;
-  background: #1b2637 !important;
-  box-shadow: 0 28px 80px rgba(0, 0, 0, .56), 0 0 0 1px rgba(148, 163, 184, .08) !important;
-}
-
-html.platform-desktop.theme-dark .login-modal-panel input,
-html.platform-desktop.theme-dark .login-modal-panel select {
-  border-color: #52627a !important;
-  color: #f8fafc !important;
-  background: #111b2a !important;
-}
-
-html.platform-desktop.theme-dark .login-modal-panel input::placeholder {
-  color: #8fa0b7 !important;
-}
-
-html.platform-desktop.theme-dark .login-modal-panel input:focus,
-html.platform-desktop.theme-dark .login-modal-panel select:focus {
-  border-color: #7aa7f8 !important;
-  box-shadow: 0 0 0 3px rgba(96, 165, 250, .2);
-}
-
-html.platform-desktop.theme-dark .login-modal-panel button[type='submit'] {
-  color: #fff !important;
-  background: #2563eb !important;
-}
-
-html.platform-desktop.theme-dark .login-modal-panel button[type='submit']:hover:not(:disabled) {
-  background: #3b82f6 !important;
-}
-
-html.platform-desktop.theme-dark .login-modal-panel form > p:not([role='alert']),
-html.platform-desktop.theme-dark .login-modal-panel #desktop-login-server-settings {
-  border-color: #36475e !important;
-  background: #152033 !important;
-}
-</style>

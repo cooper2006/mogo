@@ -1,4 +1,4 @@
-export type SearchProviderId = 'deepseek' | 'tavily' | 'serper' | 'serpapi' | 'baidu_qianfan' | 'volc_ark';
+export type SearchProviderId = 'deepseek' | 'tavily' | 'serper' | 'serpapi' | 'baidu_qianfan' | 'volc_ark' | 'claw_search';
 
 export interface SearchProviderGuide {
   url: string;
@@ -9,30 +9,35 @@ export interface SearchProviderGuide {
 export const searchProviderGuides: Record<SearchProviderId, SearchProviderGuide> = {
   deepseek: {
     url: 'https://platform.deepseek.com/api_keys',
-    steps: ['search.deepseek.signIn', 'search.deepseek.createKey', 'search.deepseek.test'],
-    note: 'search.deepseek.billing',
+    steps: ['注册或登录 DeepSeek 开放平台', '在 API Keys 页面创建 Key', '复制 Key 到 MOGO 并测试连接'],
+    note: 'DeepSeek Search 按成功请求次数计费，请留意用量。',
   },
   tavily: {
     url: 'https://app.tavily.com/',
-    steps: ['legacy.sign_up_for_or_sign_in_to_tavily', 'legacy.create_an_api_key_in_the_dashboard', 'legacy.copy_the_key_to_movo_and_test_the_connection'],
+    steps: ['注册或登录 Tavily', '在控制台创建 API Key', '复制 Key 到 MOGO 并测试连接'],
   },
   serper: {
     url: 'https://serper.dev/',
-    steps: ['legacy.sign_up_for_or_sign_in_to_serper', 'legacy.get_the_api_key_from_the_dashboard', 'legacy.copy_the_key_to_movo_and_test_the_connection'],
+    steps: ['注册或登录 Serper', '进入 Dashboard 获取 API Key', '复制 Key 到 MOGO 并测试连接'],
   },
   serpapi: {
     url: 'https://serpapi.com/manage-api-key',
-    steps: ['legacy.sign_up_for_or_sign_in_to_serpapi', 'legacy.open_the_api_key_page_in_the_dashboard', 'legacy.copy_the_private_api_key_to_movo_and_test'],
+    steps: ['注册或登录 SerpAPI', '进入 Dashboard 的 API Key 页面', '复制 Private API Key 到 MOGO 并测试连接'],
   },
   baidu_qianfan: {
     url: 'https://console.bce.baidu.com/qianfan/ais/console/apiKey',
-    steps: ['legacy.sign_in_to_the_baidu_qianfan_console', 'legacy.create_an_api_key_under_security_authentication', 'legacy.enable_baidu_search_for_the_key_then_copy_it'],
-    note: 'legacy.baidu_search_may_require_billing_the_default_endpoint_normally',
+    steps: ['登录百度智能云千帆控制台', '在安全认证中创建 API Key', '为 Key 开通百度搜索能力后复制到 MOGO'],
+    note: '百度搜索能力可能需要开通计费；Endpoint 通常保持默认值。',
   },
   volc_ark: {
     url: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apikey',
-    steps: ['legacy.sign_in_to_volcengine_ark_and_create_an_api', 'legacy.create_an_application_bot_with_web_access_enabled', 'legacy.enter_the_api_key_and_the_bot_application_id'],
-    note: 'legacy.an_api_key_alone_is_not_enough_enter_a',
+    steps: ['登录火山方舟并创建 API Key', '创建启用了联网能力的应用 Bot', '将 API Key 与 bot- 开头的应用 ID 填入 MOGO'],
+    note: '仅有 API Key 不够，还需要填写已启用联网能力的 Bot Model。',
+  },
+  claw_search: {
+    url: 'https://www.claw-search.com/',
+    steps: ['Claw Search 免费开源，无需 API Key', '保持默认 Endpoint 即可', '选择 Claw Search 并测试连接'],
+    note: '无需填写 API Key，保存后即可将 Claw Search 设为默认搜索源。',
   },
 };
 

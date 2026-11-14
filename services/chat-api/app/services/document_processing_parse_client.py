@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import logging
 from typing import Any, Dict
@@ -36,8 +37,8 @@ class DocumentProcessingParseClient:
         if storage_type == "local" and storage_key:
             try:
                 return str(ObjectStorageClient().internal_url(storage_key) or "").strip()
-            except Exception:
-                return ""
+            except Exception as exc:
+                log_print(f"[services.document_processing_parse_client] silent exception caught: {exc}", flush=True)
         return ""
 
     async def parse_markdown(self, document: Dict[str, Any], *, timeout_seconds: float | None = None) -> Dict[str, Any]:

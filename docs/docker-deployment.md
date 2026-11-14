@@ -1,0 +1,232 @@
+# Docker deployment
+
+## Install from GitHub Container Registry
+
+Clone the GitHub repository at a release tag and run:
+
+```bash
+git clone --branch vX.Y.Z https://github.com/cooper2006/mogo.git
+cd mogo
+./mogo up
+```
+
+Both `./mogo up` and `docker compose up -d` pull the seven official MOGO images
+from `ghcr.io/mogoai/*` by default. Neither command requires an `.env`
+file. The MOGO launcher pulls images sequentially and keeps retrying registry
+failures until they succeed or the user presses `Ctrl+C`; native Compose retains
+Docker's default parallel pull behavior.
+
+Windows users should follow the [Windows installation guide](windows-installation.md)
+and run the launcher from Ubuntu WSL or Git Bash. The Docker Desktop internal
+`docker-desktop` distribution is not a user shell and does not include the Bash
+environment required by `./mogo`.
+
+To pin a production deployment to the checked-out release, set:
+
+```env
+MOGO_VERSION=vX.Y.Z
+```
+
+Do not use `latest` for a production deployment. Upgrade only after reading the
+release notes, taking a backup and confirming the rollback image tag.
+
+## Build from source
+
+For development or before public images are available:
+
+```bash
+./mogo up --build
+```
+
+This loads `docker-compose.build.yml` in addition to the default Compose file.
+It downloads and builds Playwright, LibreOffice, Docling and model assets, so it
+needs substantially more time and disk space than the prebuilt-image path.
+
+To build without starting services:
+
+```bash
+./mogo build
+```
+
+### The DSH Runtime Host is not built by default
+
+`./mogo build` builds six images. The seventh — `dsh-runtime-host` — is **not**
+one of them: its Compose service carries `profiles: [single-host]`, so the
+default (pool) topology never asks Compose to build it.
+
+This matters because both topologies share one image reference. The pool
+replicas (`dsh-runtime-host-{1,2,3}`) and the single-host service all resolve
+`dsh-runtime-host:<tag>`, and `./mogo` exports exactly that name for a source
+build. So a bare `./mogo build` followed by `./mogo up` leaves the replicas
+pointing at a tag that was never produced locally, and start-up falls back to
+pulling `ghcr.io/mogoai/dsh-runtime-host:<tag>` — which either fails on an
+offline host or silently runs a published image that does not match your
+working tree. `./mogo up --build` has the same gap, for the same reason.
+
+Build it explicitly:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.build.yml \
+  --profile single-host build dsh-runtime-host
+```
+
+> `--profile` is a **global** Compose flag and must precede the subcommand.
+> `./mogo build --profile single-host dsh-runtime-host` fails with
+> `unknown flag: --profile` because the flag is forwarded after `build`.
+
+Both build paths reuse the base images already present in the local Docker
+store (for example the ones Kiri has cached) and reach the registry only
+for base images that are genuinely missing. This keeps a rebuild that changed
+only application code off the network. `MOGO_BASE_IMAGE_POLICY` changes that
+behaviour:
+
+| Value | Behaviour |
+| --- | --- |
+| `reuse` (default) | Use local base images; pull only what is missing |
+| `pull` | Always refresh base images from the registry |
+| `local` | Never use the network; fail when a base image is missing |
+
+When `registry-1.docker.io` is unreachable, point the base-image pulls at a
+pull-through cache. The mirror proxies the Docker Hub namespace, so a
+single-component reference is resolved as `library/<name>`:
+
+```bash
+MOGO_BASE_IMAGE_MIRROR=docker.m.daocloud.io ./mogo build
+```
+
+References that already name a registry (`ghcr.io/...`) are passed through
+untouched. The mirror must serve the same digests as Docker Hub; a mirrored
+pull is tagged back to the canonical name, which is what the Dockerfiles and
+BuildKit resolve.
+
+The distro security refresh (`apt-get upgrade` / `apk upgrade`) is off by
+default so its layer stays cacheable: a rebuild that changed only application
+code then reuses the cached dependency installation instead of downloading
+everything again. The release workflow sets `MOGO_SECURITY_REFRESH` to its run
+id, which re-enables the refresh for published images. To apply the patches to
+a local build as well, pass a non-empty value:
+
+```bash
+MOGO_SECURITY_REFRESH=1 ./mogo build
+```
+
+### Moving base images to another machine
+
+To build on a host without registry access, export the base images from a
+machine that already has them and import the archives on the target:
+
+```bash
+# On the machine that has the images
+scripts/export_base_images.sh save ./base-images
+# Copy the directory across, then on the target
+scripts/export_base_images.sh load ./base-images
+```
+
+`save` writes one `.tar` per image plus a `manifest.txt` recording the exported
+platform. The image set is derived from the build Dockerfiles, so it always
+matches the current requirements; `load` reads the platform back out of each
+archive, and `scripts/export_base_images.sh list` shows which required images
+are present locally.
+
+#### Exporting for another architecture
+
+An Apple Silicon machine exports `linux/arm64` by default, which an x86_64
+server cannot use. Pass the target platform explicitly; the export fetches the
+missing architecture and verifies it before writing the archive:
+
+```bash
+scripts/export_base_images.sh save --platform linux/amd64 ./base-images-amd64
+```
+
+Combined with a mirror, when `docker.io` is also unreachable:
+
+```bash
+scripts/export_base_images.sh save --platform linux/amd64 \
+  --mirror docker.m.daocloud.io ./base-images-amd64
+```
+
+Archives are single-platform, and `docker save` needs `--platform` to produce
+one out of an image whose local store also holds other architectures, so Docker
+28 or newer is required on the exporting host.
+
+`load` refuses archives built for a different platform than the target host,
+because they would import successfully and only fail later at build time. Pass
+`--allow-platform-mismatch` to override when the host can run them under
+emulation. Note that importing replaces the tag locally: a multi-platform tag
+becomes a single-platform one.
+
+## Operations
+
+```bash
+./mogo status
+./mogo logs chat-api
+./mogo restart
+./mogo update
+./mogo backup /path/on/a/large-disk/mogo-backup
+./mogo down
+```
+
+`./mogo update` pulls the configured image tag and recreates services. Pin a new
+`MOGO_VERSION` before running it. It does not migrate or delete data volumes.
+
+### 升级路径矩阵 (Upgrade Path Matrix)
+
+声明支持的版本跨越范围（QF-875）：
+
+| 起始版本 | 目标版本 | 允许直升 | 前置步骤 |
+| --- | --- | --- | --- |
+| `v0.1.x` | `v0.2.0` | ✅ | ① `./mogo backup` ② 检查 CHANGELOG breaking changes ③ 升级 MongoDB 至 6.0+ |
+| `v0.1.x` | `v0.3.0` | ❌ | 必须先升级到 `v0.2.0`，再升级到 `v0.3.0` |
+| `v0.2.0` | `v0.3.0` | ✅ | 检查 DB schema 变更，可能需要手动迁移脚本 |
+| `vX.Y.Z` | `latest` | ❌ | `latest` 不稳定，禁止生产使用 |
+
+**升级顺序**（破坏性变更累积）：
+1. 数据库 schema 变更（MongoDB 索引、字段改名）
+2. 配置文件变更（`.env` 新增键）
+3. 镜像标签升级（`MOGO_VERSION=vX.Y.Z`）
+4. `./mogo update` 重启服务
+
+**回滚**：
+- 若升级后发现问题，将 `MOGO_VERSION` 改回旧 tag，执行 `./mogo update`。
+- 数据层变更需先执行 `./mogo restore /path/to/mogo-backup --yes`。
+- 详见 `specs/024-deployment-hardening/spec.md` US3（灰度与回滚）。
+
+**兼容性检查清单**：
+- [ ] 数据库版本符合要求（MongoDB ≥ 6.0）
+- [ ] `.env` 中新增必需键已填写
+- [ ] 备份已完成且可恢复（在非生产环境演练）
+- [ ] 已阅读目标版本的 CHANGELOG 中 breaking changes 段落
+- [ ] 已确认旧版本镜像 tag 可用于回滚
+
+`./mogo down -v` permanently deletes all MOGO data and now requires an explicit
+interactive confirmation. Automation must pass `./mogo down -v --yes`.
+
+`./mogo backup` briefly stops the deployment and archives all eight named
+volumes, including deployment secrets. Because the archive can be large, put
+it on a disk with sufficient free space. Verify restoration only on a
+disposable host:
+
+```bash
+./mogo restore /path/to/mogo-backup --yes
+```
+
+Restore verifies SHA-256 checksums and requires the configured volume prefix to
+match the backup. It replaces all data in the target volumes; it is not a merge.
+
+## Production baseline
+
+- Terminate TLS in an external reverse proxy and expose only the gateway port.
+- Keep MongoDB, Redis and Weaviate on the internal Compose network.
+- Keep `MOGO_VOLUME_PREFIX` unchanged throughout the installation lifecycle.
+- Back up deployment secrets together with MongoDB, generated files, knowledge
+  documents, Weaviate and DSH state.
+- Restrict Docker daemon access; Docker access is equivalent to root access on
+  the host in common installations.
+- Monitor free disk, memory, container health and gateway error rates.
+- Test backup restoration and release rollback with non-production data before
+  every production upgrade.
+
+The default Compose file is a single-host baseline. Operators requiring
+high-availability databases, external object storage, centralized secrets or
+orchestrated rolling updates should replace the bundled stateful services with
+managed equivalents and validate those integrations independently.

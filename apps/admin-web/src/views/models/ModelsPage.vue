@@ -20,37 +20,36 @@
         type="warning"
         closable
         class="quota-warning-alert"
-        :title="t('legacy.enterprise_quota_alert')"
+        :title="t('企业额度警示')"
         style="margin-bottom: 16px;"
       >
-        {{ t('legacy.current_enterprise_total_tokens_limit_is_0_all_models') }}
-        <router-link to="/organizations/traffic?open=quota" class="alert-link">
-          {{ t('legacy.traffic_allocation') }}
+        {{ t('当前企业本周期总额度为 0，所有模型将无法被调用。请先前往') }}
+        <router-link to="/organizations/traffic?open=tenant" class="alert-link" style="color: var(--mg-brand-text); font-weight: 600; text-decoration: underline;">
+          {{ t('流量分配') }}
         </router-link>
-        {{ t('legacy.to_configure_enterprise_and_member_quotas') }}
+        {{ t('配置企业总额度与成员额度。') }}
       </n-alert>
 
       <div class="list-filter-row">
 
-        <div class="filter-toolbar">
           <n-space align="center" :size="10" class="filter-left">
-            <n-input v-model:value="filters.keyword" :placeholder="t('legacy.search_by_name_model_id_base_url')" clearable class="keyword-input" />
+            <n-input v-model:value="filters.keyword" :placeholder="t('搜索名称 / 模型 ID / Base URL')" clearable class="keyword-input" />
             <n-select
               v-model:value="filters.providerId"
               :options="providerOptions"
-              :placeholder="t('legacy.provider_703c9eb')"
+              :placeholder="t('供应商')"
               clearable
               style="width: 160px"
             />
             <n-select
               v-model:value="filters.status"
               :options="statusOptions"
-              :placeholder="t('legacy.status')"
+              :placeholder="t('状态')"
               clearable
               style="width: 120px"
             />
           </n-space>
-          <n-space :size="10" class="filter-right">
+        <n-space :size="10" class="filter-right">
             <n-button secondary @click="reload">
               <template #icon>
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -60,20 +59,19 @@
                   <path d="M16 16h5v5" />
                 </svg>
               </template>
-              {{ t('legacy.refresh') }}
+              {{ t('刷新') }}
             </n-button>
             <n-button secondary @click="openGroupCreate">{{ t('modelGroup.create') }}</n-button>
-            <n-button type="primary" strong @click="openCreate()">
+            <n-button type="primary" strong @click="openCreate">
               <template #icon>
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M5 12h14" />
                   <path d="M12 5v14" />
                 </svg>
               </template>
-              {{ t('legacy.new_model') }}
+              {{ t('新增模型') }}
             </n-button>
-          </n-space>
-        </div>
+        </n-space>
       </div>
 
       <div class="list-body">
@@ -100,7 +98,7 @@
                 <span class="provider-badge">{{ providerLabel({ code: model.providerCode, name: model.providerName, providerType: model.providerType }) }}</span>
                 <n-space :size="6" class="state-tags">
                   <n-tag :type="model.status === 'active' ? 'success' : 'default'" size="small" :bordered="false">
-                    {{ model.status === 'active' ? t('legacy.active') : t('legacy.disabled_be70be5') }}
+                    {{ model.status === 'active' ? t('启用') : t('禁用') }}
                   </n-tag>
                 </n-space>
               </div>
@@ -123,32 +121,33 @@
               </div>
 
               <div class="card-footnote">
-                {{ t('legacy.last_updated') }}{{ formatAdminDateTime(model.updatedAt, t('legacy.unknown')) }}
+                {{ t('最近更新：') }}{{ formatAdminDateTime(model.updatedAt, t('未知')) }}
               </div>
 
               <div class="card-bottom">
                 <div class="card-actions">
-                  <n-button size="small" tertiary @click.stop="runTest(model)">{{ t('legacy.test') }}</n-button>
-                  <n-button size="small" tertiary type="error" @click.stop="confirmDelete(model)">{{ t('legacy.delete') }}</n-button>
+                  <n-button size="small" tertiary @click.stop="runTest(model)">{{ t('测试') }}</n-button>
+                  <n-button size="small" tertiary type="error" @click.stop="confirmDelete(model)">{{ t('删除') }}</n-button>
                 </div>
               </div>
             </button>
 
-            <button class="model-config-card add-model-card" type="button" @click="openCreate()">
+            <button class="model-config-card add-model-card" type="button" @click="openCreate">
               <div class="add-symbol">+</div>
-              <div class="add-title">{{ t('legacy.new_model') }}</div>
-              <div class="add-copy">{{ t('legacy.configure_openai_azure_openai_qwen_deepseek_or_custom_compatible') }}</div>
+              <div class="add-title">{{ t('新增模型') }}</div>
+              <div class="add-copy">{{ t('配置 OpenAI、Azure OpenAI、通义千问、DeepSeek 或自定义兼容接口。') }}</div>
             </button>
           </div>
 
-          <n-empty v-else :description="t('legacy.no_model_configurations')">
+          <n-empty v-else :description="t('暂无模型配置')">
             <template #extra>
-              <n-button type="primary" @click="openCreate()">{{ t('legacy.add_first_model') }}</n-button>
+              <n-button type="primary" @click="openCreate">{{ t('新增第一个模型') }}</n-button>
             </template>
           </n-empty>
         </n-spin>
       </div>
     </n-card>
+
     <ModelGroupEditor
       v-model:show="groupEditorVisible"
       :group="editingGroup"
@@ -165,41 +164,44 @@
     <div class="editor-layout" :class="{ 'single-column': editorMode === 'create' }">
       <n-form class="editor-form" :model="form" label-placement="left" label-width="96">
         <n-grid :cols="2" :x-gap="14">
-          <n-grid-item v-if="!form.groupId">
-            <n-form-item :label="t('legacy.provider_703c9eb')">
+          <n-grid-item>
+            <n-form-item :label="t('供应商')">
               <n-select
                 v-model:value="form.providerId"
                 :options="providerOptions"
-                :placeholder="t('legacy.select_provider')"
+                :placeholder="t('选择供应商')"
               />
             </n-form-item>
           </n-grid-item>
           <n-grid-item>
-            <n-form-item :label="t('legacy.display_name')">
-              <n-input v-model:value="form.displayName" :placeholder="t('legacy.example_openai_main_model')" />
+            <n-form-item :label="t('显示名称')">
+              <n-input v-model:value="form.displayName" :placeholder="t('如: OpenAI 主模型')" />
             </n-form-item>
           </n-grid-item>
           <n-grid-item>
             <n-form-item :label="modelFieldLabel">
-              <n-input v-model:value="form.modelName" :placeholder="modelFieldPlaceholder" />
+              <n-input-group>
+                <n-input v-model:value="form.modelName" :placeholder="modelFieldPlaceholder" />
+                <n-button :loading="discoverLoading" @click="openModelPicker">{{ t('获取列表') }}</n-button>
+              </n-input-group>
             </n-form-item>
           </n-grid-item>
           <n-grid-item>
-            <n-form-item :label="t('legacy.status')">
+            <n-form-item :label="t('状态')">
               <n-select v-model:value="form.status" :options="statusOptions" />
             </n-form-item>
           </n-grid-item>
-          <n-grid-item v-if="!form.groupId" :span="2">
+          <n-grid-item :span="2">
             <n-form-item label="Base URL">
               <n-input v-model:value="form.baseUrl" :placeholder="baseUrlPlaceholder" />
             </n-form-item>
           </n-grid-item>
-          <n-grid-item v-if="isAzureProvider && !form.groupId">
+          <n-grid-item v-if="isAzureProvider">
             <n-form-item label="API Version">
-              <n-input v-model:value="form.apiVersion" :placeholder="t('models.apiVersionExample')" />
+              <n-input v-model:value="form.apiVersion" placeholder="如: 2024-10-21" />
             </n-form-item>
           </n-grid-item>
-          <n-grid-item v-if="!form.groupId">
+          <n-grid-item>
             <n-form-item label="API Key">
               <n-input
                 v-model:value="form.apiKey"
@@ -210,14 +212,10 @@
             </n-form-item>
           </n-grid-item>
           <n-grid-item>
-            <n-form-item :label="t('legacy.capabilities')">
+            <n-form-item :label="t('能力')">
               <n-select v-model:value="form.capabilities" multiple :options="capabilityOptions" />
             </n-form-item>
           </n-grid-item>
-          <n-grid-item v-if="form.groupId" :span="2">
-            <n-alert type="info" :bordered="false">{{ t('modelGroup.sharedConnection', { name: groups.find((item) => item.id === form.groupId)?.name || '' }) }}</n-alert>
-          </n-grid-item>
-          <n-grid-item :span="2"><ModelPricingFields v-model="form.pricing" /></n-grid-item>
           <n-grid-item v-if="hasImageCapability" :span="2">
             <ImageModelRuntimeFields
               v-model:runtimeKind="form.runtimeKind"
@@ -226,52 +224,41 @@
             />
           </n-grid-item>
         </n-grid>
-        <ModelAccessExtensionPanel
-          v-if="modelAccess.enabled && isUserSelectableModel"
-          v-model="modelAccessValue"
-          :loading="modelAccessLoading"
-          :grouped="Boolean(form.groupId)"
-          class="model-access-panel"
-        />
       </n-form>
 
       <aside v-if="editorMode === 'edit'" class="test-panel">
-        <div class="test-title">{{ t('legacy.configuration_test') }}</div>
+        <div class="test-title">{{ t('配置测试') }}</div>
         <div class="test-summary">
           <div>
-            <span>{{ t('legacy.provider_703c9eb') }}</span>
+            <span>{{ t('供应商') }}</span>
             <strong>{{ providerLabel(currentProvider) }}</strong>
           </div>
           <div>
-            <span>{{ t('legacy.model_id') }}</span>
-            <strong>{{ form.modelName || t('legacy.not_filled') }}</strong>
+            <span>{{ t('模型 ID') }}</span>
+            <strong>{{ form.modelName || t('未填写') }}</strong>
           </div>
           <div>
             <span>Base URL</span>
-            <strong>{{ form.baseUrl || currentProvider?.defaultBaseUrl || t('legacy.not_set') }}</strong>
+            <strong>{{ form.baseUrl || currentProvider?.defaultBaseUrl || t('未设置') }}</strong>
           </div>
           <div v-if="isAzureProvider">
             <span>API Version</span>
-            <strong>{{ form.apiVersion || t('legacy.not_filled_default_2024_10_21') }}</strong>
+            <strong>{{ form.apiVersion || t('未填写（默认 2024-10-21）') }}</strong>
           </div>
           <div>
-            <span>{{ t('legacy.key_status') }}</span>
+            <span>{{ t('Key 状态') }}</span>
             <strong>{{ keyStateText }}</strong>
           </div>
         </div>
 
         <n-input
-          v-if="modelTestKind === 'chat' || modelTestKind === 'image'"
           v-model:value="testPrompt"
           type="textarea"
           :rows="4"
-          :placeholder="t('legacy.test_prompt_used_to_trigger_a_light_call')"
+          :placeholder="t('测试提示词，后续接入 runtime 后用于发起一次轻量调用')"
         />
-        <n-alert v-else type="info" :bordered="false">
-          {{ modelTestKind === 'embedding' ? t('legacy.the_embedding_endpoint_will_be_called_and_its_vector') : t('legacy.the_rerank_endpoint_will_be_called_and_its_ranking') }}
-        </n-alert>
         <n-button block type="primary" secondary :loading="testing" :disabled="!form.id" @click="runEditorTest">
-          {{ t('legacy.test_configuration') }}
+          {{ t('测试当前配置') }}
         </n-button>
         <div class="test-result" :class="{ success: testResultType === 'success', failed: testResultType === 'failed' }">
           {{ testResultText }}
@@ -280,19 +267,55 @@
           v-if="testImageUrl"
           class="test-image-preview"
           :src="testImageUrl"
-          :alt="t('additional.image_model_test_result')"
+          :alt="t('图片模型测试结果')"
         />
       </aside>
     </div>
 
     <template #footer>
       <n-space justify="space-between" align="center">
-        <n-button v-if="editorMode === 'edit'" tertiary type="error" @click="confirmDeleteFromEditor">{{ t('legacy.delete_model') }}</n-button>
+        <n-button v-if="editorMode === 'edit'" tertiary type="error" @click="confirmDeleteFromEditor">{{ t('删除模型') }}</n-button>
         <span v-else />
         <n-space>
-          <n-button @click="editorVisible = false">{{ t('legacy.cancel') }}</n-button>
-          <n-button type="primary" :loading="saving" @click="saveModel">{{ t('legacy.save') }}</n-button>
+          <n-button @click="editorVisible = false">{{ t('取消') }}</n-button>
+          <n-button type="primary" :loading="saving" @click="saveModel">{{ t('保存') }}</n-button>
         </n-space>
+      </n-space>
+    </template>
+  </n-modal>
+
+  <n-modal v-model:show="modelPickerVisible" preset="card" :title="t('选择模型')" style="width: 640px">
+    <n-spin :show="discoverLoading">
+      <div v-if="discoveredModels.length" class="model-picker-list">
+        <button
+          v-for="row in discoveredModels"
+          :key="row.id"
+          class="model-picker-item"
+          :class="{ 'is-selected': pickedModelIds.includes(row.id) }"
+          type="button"
+          @click="togglePickModel(row.id)"
+        >
+          <span class="mp-check" aria-hidden="true">
+            <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M3.5 8.5L6.5 11.5L12.5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
+          <span class="mp-id">{{ row.id }}</span>
+          <span v-if="row.ownedBy" class="mp-owner">{{ row.ownedBy }}</span>
+        </button>
+      </div>
+      <n-empty
+        v-else
+        :description="discoverLoading ? t('正在获取模型列表...') : t('暂无可选项，请检查 Base URL 与 API Key 是否正确')"
+      />
+    </n-spin>
+    <template #footer>
+      <n-space justify="end">
+        <span class="mp-footer-hint">{{ pickedModelIds.length ? t('已选 {n} 个', { n: pickedModelIds.length }) : '' }}</span>
+        <n-button @click="modelPickerVisible = false">{{ t('取消') }}</n-button>
+        <n-button type="primary" :loading="bulkSaving" :disabled="!pickedModelIds.length" @click="confirmPickModels">
+          {{ t('确定') }}
+        </n-button>
       </n-space>
     </template>
   </n-modal>
@@ -302,41 +325,35 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import axios from 'axios';
-import { NAlert, useDialog, useMessage } from 'naive-ui';
+import { NInputGroup, useDialog, useMessage } from 'naive-ui';
 import PageIntro from '@/components/PageIntro.vue';
 import { t } from '@/composables/i18n';
-import { localizedServerText } from '@/utils/serverText';
 import { formatAdminDateTime } from '@/composables/adminTimezone';
 import ImageModelRuntimeFields from '@/components/models/ImageModelRuntimeFields.vue';
-import ModelPricingFields from '@/components/models/ModelPricingFields.vue';
-import ModelGroupCard from '@/components/models/ModelGroupCard.vue';
-import ModelGroupEditor from '@/components/models/ModelGroupEditor.vue';
 import {
   createModelInstance,
-  fetchModelGroups,
   deleteModelInstance,
+  discoverProviderModels,
   fetchModelInstances,
   fetchModelProviders,
+  fetchModelGroups,
   streamModelInstanceTest,
   testImageModelInstance,
-  testKnowledgeModelInstance,
   updateModelInstance,
-  type ModelInstanceItem,
+  type DiscoveredModel,
   type ModelGroupItem,
+  type ModelInstanceItem,
   type ModelInstancePayload,
   type ModelProviderItem,
   type ModelStatus,
   type ImageModelSettings,
   type ImageRuntimeKind,
-  type ModelPricing,
 } from '@/api/models';
 import { fetchTrafficAllocationOverview } from '@/api/traffic-allocations';
 import { capabilityLabel } from '@/components/models/capabilityLabels';
 import { providerLabel } from '@/components/models/providerLabels';
-import { resolveModelTestKind } from '@/components/models/modelTestKind';
-import ModelAccessExtensionPanel from '@/components/models/ModelAccessExtensionPanel.vue';
-import { useModelAccessExtension } from '@/composables/useModelAccessExtension';
-import { useVisionCapabilitySuggestion } from '@/composables/useVisionCapabilitySuggestion';
+import ModelGroupCard from '@/components/models/ModelGroupCard.vue';
+import ModelGroupEditor from '@/components/models/ModelGroupEditor.vue';
 
 
 interface ModelForm extends ModelInstancePayload {
@@ -344,7 +361,6 @@ interface ModelForm extends ModelInstancePayload {
   apiKeyMasked: string;
   runtimeKind: ImageRuntimeKind | '';
   imageSettings: ImageModelSettings;
-  pricing: ModelPricing | null;
 }
 
 const loading = ref(false);
@@ -352,7 +368,6 @@ const saving = ref(false);
 const testing = ref(false);
 const message = useMessage();
 const dialog = useDialog();
-const visionSuggestion = useVisionCapabilitySuggestion();
 const router = useRouter();
 const providers = ref<ModelProviderItem[]>([]);
 const instances = ref<ModelInstanceItem[]>([]);
@@ -363,13 +378,17 @@ const selectedGroupModelId = ref('');
 const editorVisible = ref(false);
 const editorMode = ref<'create' | 'edit'>('create');
 const suppressProviderChange = ref(false);
-const testPrompt = ref(t('legacy.reply_in_one_sentence_to_test_the_current_model'));
-const testResultText = ref(t('legacy.save_the_model_configuration_before_testing'));
+const testPrompt = ref(t('测试模型默认提示'));
+const testResultText = ref(t('测试模型未保存'));
 const testResultType = ref<'idle' | 'success' | 'failed'>('idle');
 const testImageUrl = ref('');
-const modelAccess = useModelAccessExtension();
-const modelAccessValue = modelAccess.value;
-const modelAccessLoading = modelAccess.loading;
+
+const discoverLoading = ref(false);
+const discoveredModels = ref<DiscoveredModel[]>([]);
+const modelPickerVisible = ref(false);
+/** 「选择模型」弹窗内勾选的模型 ID（支持多选） */
+const pickedModelIds = ref<string[]>([]);
+const bulkSaving = ref(false);
 
 const filters = ref({
   keyword: '',
@@ -379,7 +398,6 @@ const filters = ref({
 
 const defaultForm = (): ModelForm => ({
   id: '',
-  groupId: '',
   providerId: '',
   orgId: '',
   displayName: '',
@@ -391,7 +409,6 @@ const defaultForm = (): ModelForm => ({
   capabilities: ['chat'],
   runtimeKind: '',
   imageSettings: {},
-  pricing: null,
   status: 'active',
   isDefault: false,
 });
@@ -401,8 +418,8 @@ const orgQuota = ref<number | null>(null);
 
 
 const statusOptions = computed(() => [
-  { label: t('legacy.active'), value: 'active' },
-  { label: t('legacy.disabled_be70be5'), value: 'disabled' },
+  { label: t('启用'), value: 'active' },
+  { label: t('禁用'), value: 'disabled' },
 ]);
 
 const capabilityOptions = computed(() => [
@@ -426,29 +443,53 @@ const providerMap = computed(() => new Map(providers.value.map((item) => [item.i
 const currentProvider = computed(() => providerMap.value.get(form.value.providerId));
 const isAzureProvider = computed(() => currentProvider.value?.providerType === 'azure_openai');
 const hasImageCapability = computed(() => form.value.capabilities.includes('image_generation'));
-const modelTestKind = computed(() => resolveModelTestKind(form.value.capabilities));
-const isUserSelectableModel = computed(() => form.value.capabilities.some((item) => ['chat', 'text', 'image_generation'].includes(item)));
-const editorTitle = computed(() => (editorMode.value === 'create' ? t('legacy.add_model') : t('legacy.model_configuration_details')));
+const editorTitle = computed(() => (editorMode.value === 'create' ? t('新增模型配置') : t('模型配置详情')));
 const apiKeyPlaceholder = computed(() =>
-  editorMode.value === 'create' ? t('legacy.please_enter_api_key') : t('legacy.leave_blank_to_retain_current_key'),
+  editorMode.value === 'create' ? t('请输入 API Key') : t('留空则保留当前 Key'),
 );
-const modelFieldLabel = computed(() => (isAzureProvider.value ? t('legacy.deployment_name') : t('legacy.model_id')));
-const modelFieldPlaceholder = computed(() =>
-  hasImageCapability.value
-    ? (isAzureProvider.value ? t('additional.e_g_gpt_image_2_prod_azure_deployment_name') : t('additional.e_g_qwen_image_plus_gpt_image_1'))
-    : (isAzureProvider.value ? t('legacy.example_gpt_4o_mini_prod_azure_deploy_name') : t('legacy.example_gpt_4_1_qwen_plus_deepseek_chat_8435735')),
-);
-const baseUrlPlaceholder = computed(() =>
-  isAzureProvider.value ? 'https://YOUR-RESOURCE-NAME.openai.azure.com' : 'https://api.openai.com/v1',
-);
+const providerType = computed(() => currentProvider.value?.providerType || '');
+const modelFieldLabel = computed(() => (isAzureProvider.value ? t('Deployment 名称') : t('模型 ID')));
+const modelFieldPlaceholder = computed(() => {
+  if (hasImageCapability.value) {
+    return providerType.value === 'azure_openai'
+      ? t('如: gpt-image-2-prod（Azure 部署名）')
+      : t('如: qwen-image-plus / gpt-image-1');
+  }
+  switch (providerType.value) {
+    case 'azure_openai':
+      return t('如: gpt-4o-mini-prod（Azure 部署名）');
+    case 'anthropic':
+      return t('如: claude-3-5-sonnet-20241022');
+    case 'gemini':
+      return t('如: gemini-1.5-pro');
+    case 'ollama':
+      return t('如: llama3.1');
+    default:
+      return t('如: gpt-4.1 / qwen-plus / deepseek-chat');
+  }
+});
+const baseUrlPlaceholder = computed(() => {
+  switch (providerType.value) {
+    case 'azure_openai':
+      return 'https://YOUR-RESOURCE-NAME.openai.azure.com';
+    case 'anthropic':
+      return 'https://api.anthropic.com';
+    case 'gemini':
+      return 'https://generativelanguage.googleapis.com';
+    case 'ollama':
+      return 'http://localhost:11434';
+    default:
+      return 'https://api.openai.com/v1';
+  }
+});
 const keyStateText = computed(() => {
   if (form.value.apiKey.trim()) {
-    return t('legacy.new_key_entered');
+    return t('已填写新 Key');
   }
   if (form.value.apiKeyMasked) {
     return form.value.apiKeyMasked;
   }
-  return t('legacy.not_configured');
+  return t('未配置');
 });
 
 const metricCards = computed(() => {
@@ -456,10 +497,10 @@ const metricCards = computed(() => {
   const chatModels = instances.value.filter((item) => item.status === 'active' && item.capabilities.includes('chat')).length;
   const configuredProviders = new Set(instances.value.map((item) => item.providerId)).size;
   return [
-    { key: 'total', icon: '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" /><line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" /><line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" /><line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="15" x2="23" y2="15" /><line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="15" x2="4" y2="15" /></svg>', label: t('legacy.models_configured'), value: instances.value.length, note: t('legacy.model_instances_under_current_master_account') },
-    { key: 'active', icon: '<svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /></svg>', label: t('legacy.active_25d2843'), value: enabled, note: t('legacy.can_be_routed_by_runtime') },
-    { key: 'chat', icon: '<svg viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" /><path d="M8 9h8M8 13h5" /></svg>', label: t('legacy.chat_model'), value: chatModels, note: t('legacy.only_organization_configured_models_are_used') },
-    { key: 'providers', icon: '<svg viewBox="0 0 24 24"><rect width="20" height="8" x="2" y="2" rx="2" ry="2" /><rect width="20" height="8" x="2" y="14" rx="2" ry="2" /><line x1="6" x2="6.01" y1="6" y2="6" /><line x1="6" x2="6.01" y1="18" y2="18" /></svg>', label: t('legacy.provider_703c9eb'), value: configuredProviders, note: t('legacy.openai_azure_qwen_deepseek_etc') },
+    { key: 'total', icon: '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" /><line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" /><line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" /><line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="15" x2="23" y2="15" /><line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="15" x2="4" y2="15" /></svg>', label: t('模型配置'), value: instances.value.length, note: t('当前主账号下的模型实例') },
+    { key: 'active', icon: '<svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /></svg>', label: t('已启用'), value: enabled, note: t('可被后续 runtime 路由选用') },
+    { key: 'chat', icon: '<svg viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" /><path d="M8 9h8M8 13h5" /></svg>', label: t('对话模型'), value: chatModels, note: t('仅使用企业已配置的模型') },
+    { key: 'providers', icon: '<svg viewBox="0 0 24 24"><rect width="20" height="8" x="2" y="2" rx="2" ry="2" /><rect width="20" height="8" x="2" y="14" rx="2" ry="2" /><line x1="6" x2="6.01" y1="6" y2="6" /><line x1="6" x2="6.01" y1="18" y2="18" /></svg>', label: t('供应商'), value: configuredProviders, note: t('OpenAI / Azure OpenAI / Qwen / DeepSeek 等') },
   ];
 });
 
@@ -488,28 +529,126 @@ const filteredGroups = computed(() => {
   });
 });
 
-function openGroupCreate() { selectedGroupModelId.value = ''; editingGroup.value = null; groupEditorVisible.value = true; }
-function openGroupEdit(group: ModelGroupItem) { selectedGroupModelId.value = ''; editingGroup.value = group; groupEditorVisible.value = true; }
-function openGroupModelEdit(model: ModelInstanceItem) {
-  const group = groups.value.find((item) => item.id === model.groupId);
-  if (!group) return;
-  selectedGroupModelId.value = model.id;
-  editingGroup.value = group;
-  groupEditorVisible.value = true;
-}
-async function onGroupSaved(group: ModelGroupItem) {
-  editingGroup.value = group;
-  await reload();
-}
-
 function providerInitial(name: string) {
   return (name || 'M').slice(0, 1).toUpperCase();
 }
 
-function resetTestState(text = t('legacy.available_to_test_after_saving_configuration')) {
+function resetTestState(text = t('保存模型配置后可测试。')) {
   testResultText.value = text;
   testResultType.value = 'idle';
   testImageUrl.value = '';
+}
+
+/** 参考 dsh 的模型库交互：带凭据探测 provider 真实可用模型，弹出列表供点选。 */
+async function openModelPicker() {
+  if (!currentProvider.value) {
+    message.warning(t('请先选择供应商'));
+    return;
+  }
+  if (!form.value.baseUrl.trim()) {
+    message.warning(t('请先填写 Base URL'));
+    return;
+  }
+  // Ollama 本地部署无需 Key；编辑已保存配置时 Key 留空将由后端取已存密钥解密复用，
+  // 无需每次重新输入（否则会强制用户重填 API Key）。
+  const needsKey = currentProvider.value.providerType !== 'ollama' && !form.value.apiKey.trim() && !form.value.id;
+  if (needsKey) {
+    message.warning(t('请先填写 API Key 以获取模型列表'));
+    return;
+  }
+  discoverLoading.value = true;
+  modelPickerVisible.value = true;
+  pickedModelIds.value = [];
+  try {
+    discoveredModels.value = await discoverProviderModels({
+      providerType: currentProvider.value.providerType,
+      baseUrl: form.value.baseUrl.trim(),
+      apiKey: form.value.apiKey,
+      apiVersion: form.value.apiVersion,
+      instanceId: form.value.id || '',
+    });
+    if (!discoveredModels.value.length) {
+      message.warning(t('未获取到模型列表，请检查凭据是否有效，或手动输入模型 ID'));
+    }
+  } catch (error) {
+    message.error(readError(error, t('获取模型列表失败')));
+  } finally {
+    discoverLoading.value = false;
+  }
+}
+
+/** 弹窗内切换单个模型的勾选状态（多选） */
+function togglePickModel(id: string) {
+  const idx = pickedModelIds.value.indexOf(id);
+  if (idx >= 0) {
+    pickedModelIds.value.splice(idx, 1);
+  } else {
+    pickedModelIds.value.push(id);
+  }
+}
+
+/** 弹窗「确定」：单选填入表单；新增态多选基于当前配置批量创建实例（编辑态多选只填首个模型）。 */
+async function confirmPickModels() {
+  const picked = pickedModelIds.value;
+  if (!picked.length) {
+    message.warning(t('请先选择模型'));
+    return;
+  }
+  // 单选：保留原行为，把模型 ID 填入输入框
+  if (picked.length === 1) {
+    form.value.modelName = picked[0];
+    modelPickerVisible.value = false;
+    message.success(t('已选择模型：{name}', { name: picked[0] }));
+    return;
+  }
+  // 编辑已有配置时，表单里的 API Key 是留空的（密钥已加密保存、不回显），
+  // 此时若继续走「批量创建」，每个模型都会因缺 Key 被后端以 400 拒绝。
+  // 编辑模式只把第一个模型填入当前表单，其余需保存后再逐个添加。
+  if (form.value.id) {
+    form.value.modelName = picked[0];
+    modelPickerVisible.value = false;
+    message.warning(t('编辑已有配置时只能替换为单个模型，已填入 {name}；如需新增多个模型，请先保存当前配置再逐个添加', { name: picked[0] }));
+    return;
+  }
+  if (!form.value.providerId) {
+    message.warning(t('请先选择供应商'));
+    return;
+  }
+  // 批量创建前先校验凭据（Ollama 本地部署无需 Key），避免逐个模型各报一次 400
+  if (currentProvider.value?.providerType !== 'ollama' && !form.value.apiKey.trim()) {
+    message.warning(t('请先填写 API Key 再批量创建模型'));
+    return;
+  }
+  const baseDisplay = form.value.displayName.trim();
+  bulkSaving.value = true;
+  try {
+    let created = 0;
+    const failures: string[] = [];
+    for (const modelId of picked) {
+      const payload = buildModelPayload();
+      payload.modelName = modelId;
+      // displayName 加模型名后缀以区分同批创建的多个实例
+      payload.displayName = baseDisplay ? `${baseDisplay} · ${modelId}` : modelId;
+      try {
+        await createModelInstance(payload);
+        created += 1;
+      } catch (error) {
+        failures.push(`${modelId}: ${readError(error, '')}`);
+      }
+    }
+    await reload();
+    if (created === picked.length) {
+      message.success(t('已批量创建 {n} 个模型', { n: created }));
+    } else if (created > 0) {
+      message.warning(t('批量创建完成：成功 {ok} 个，失败 {fail} 个', { ok: created, fail: failures.length }));
+    } else {
+      message.error(t('批量创建失败：{msg}', { msg: failures[0] || '未知错误' }));
+    }
+  } finally {
+    bulkSaving.value = false;
+    modelPickerVisible.value = false;
+    pickedModelIds.value = [];
+  }
 }
 
 function recommendedImageRuntime(provider?: ModelProviderItem): ImageRuntimeKind {
@@ -518,7 +657,7 @@ function recommendedImageRuntime(provider?: ModelProviderItem): ImageRuntimeKind
 }
 
 function defaultProviderDisplayName(provider: ModelProviderItem) {
-  return `${provider.name} ${t('legacy.model')}`;
+  return `${provider.name} ${t('模型')}`;
 }
 
 function isAutoProviderDisplayName(value: string, previousProvider?: ModelProviderItem) {
@@ -562,20 +701,31 @@ function suppressNextProviderChangeTick() {
   });
 }
 
-function openCreate(group?: ModelGroupItem) {
+function openGroupCreate() { selectedGroupModelId.value = ''; editingGroup.value = null; groupEditorVisible.value = true; }
+function openGroupEdit(group: ModelGroupItem) { selectedGroupModelId.value = ''; editingGroup.value = group; groupEditorVisible.value = true; }
+function openGroupModelEdit(model: ModelInstanceItem) {
+  const group = groups.value.find((item) => item.id === model.groupId);
+  if (!group) return;
+  selectedGroupModelId.value = model.id;
+  editingGroup.value = group;
+  groupEditorVisible.value = true;
+}
+async function onGroupSaved(group: ModelGroupItem) {
+  editingGroup.value = group;
+  await reload();
+}
+
+function openCreate() {
   editorMode.value = 'create';
   suppressNextProviderChangeTick();
   form.value = defaultForm();
-  const firstProvider = group ? providerMap.value.get(group.providerId) : providers.value.find((item) => item.status === 'active');
+  const firstProvider = providers.value.find((item) => item.status === 'active');
   if (firstProvider) {
-    form.value.groupId = group?.id || '';
     form.value.providerId = firstProvider.id;
-    form.value.baseUrl = group?.baseUrl || firstProvider.defaultBaseUrl;
-    form.value.apiVersion = group?.apiVersion || '';
-    form.value.displayName = group ? '' : defaultProviderDisplayName(firstProvider);
+    form.value.baseUrl = firstProvider.defaultBaseUrl;
+    form.value.displayName = defaultProviderDisplayName(firstProvider);
   }
-  resetTestState(t('legacy.available_to_test_after_saving_new_configuration'));
-  modelAccess.reset(Boolean(group));
+  resetTestState(t('新增配置保存后可测试。'));
   editorVisible.value = true;
 }
 
@@ -584,7 +734,6 @@ function openEdit(row: ModelInstanceItem) {
   suppressNextProviderChangeTick();
   form.value = {
     id: row.id,
-    groupId: row.groupId || '',
     providerId: row.providerId,
     orgId: row.orgId,
     displayName: row.displayName,
@@ -596,93 +745,81 @@ function openEdit(row: ModelInstanceItem) {
     capabilities: [...row.capabilities],
     runtimeKind: row.runtimeKind || recommendedImageRuntime(providerMap.value.get(row.providerId)),
     imageSettings: { ...(row.imageSettings || {}) },
-    pricing: row.pricing ? { ...row.pricing } : null,
     status: row.status,
     isDefault: false,
   };
-  resetTestState(t('legacy.you_can_test_the_saved_configuration_on_the_right'));
-  if (row.capabilities.some((item) => ['chat', 'text', 'image_generation'].includes(item))) {
-    void modelAccess.load(row.id).catch((error) => {
-      message.error(readError(error, t('additional.failed_to_load')));
-    });
-  }
+  resetTestState(t('可在右侧测试当前已保存的配置。'));
   editorVisible.value = true;
 }
 
-async function saveModel() {
-  const accessValidation = isUserSelectableModel.value ? modelAccess.validate() : null;
-  if (accessValidation) {
-    message.warning(t(accessValidation));
-    return;
+/** 解析图片扩展参数 JSON：必须是对象，非法时返回 null。 */
+function readExtraParamsJson(): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(String(form.value.imageSettings.extraParamsJson || '{}').trim() || '{}');
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') return null;
+    return parsed;
+  } catch {
+    return null;
   }
-  if (!form.value.providerId || (!form.value.groupId && !form.value.displayName.trim()) || !form.value.modelName.trim()) {
-    message.warning(t('legacy.please_complete_provider_display_name_and_model_id'));
-    return;
-  }
-  if (editorMode.value === 'create' && !form.value.groupId && !form.value.apiKey.trim()) {
-    message.warning(t('legacy.api_key_is_required_for_new_models'));
-    return;
+}
+
+/** 校验模型表单：返回需要提示的错误文案，通过时返回 null。 */
+function validateModelForm(): string | null {
+  if (!form.value.providerId || !form.value.displayName.trim() || !form.value.modelName.trim()) {
+    return t('请补齐供应商、显示名称和模型 ID');
   }
   if (isAzureProvider.value && !form.value.apiVersion.trim()) {
-    message.warning(t('legacy.api_version_is_required_for_azure_openai'));
-    return;
+    return t('Azure OpenAI 需要填写 API Version');
   }
   if (hasImageCapability.value && form.value.runtimeKind === 'custom_images') {
-    try {
-      const parsed = JSON.parse(String(form.value.imageSettings.extraParamsJson || '{}').trim() || '{}');
-      if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw new Error();
-    } catch {
-      message.warning(t('legacy.enter_a_valid_json_object'));
-      return;
-    }
+    return readExtraParamsJson() ? null : t('请输入有效的 JSON 对象');
+  }
+  return null;
+}
+
+/** 组装模型实例保存载荷：能力相关字段按是否启用图片能力取值。 */
+function buildModelPayload(): ModelInstancePayload {
+  return {
+    providerId: form.value.providerId,
+    orgId: form.value.orgId,
+    displayName: form.value.displayName.trim(),
+    modelName: form.value.modelName.trim(),
+    baseUrl: form.value.baseUrl.trim(),
+    apiVersion: form.value.apiVersion.trim(),
+    apiKey: form.value.apiKey.trim(),
+    capabilities: form.value.capabilities.length ? form.value.capabilities : ['chat'],
+    runtimeKind: hasImageCapability.value ? form.value.runtimeKind || recommendedImageRuntime(currentProvider.value) : '',
+    imageSettings: hasImageCapability.value ? { ...form.value.imageSettings } : {},
+    maxContextTokens: 0,
+    status: form.value.status,
+    isDefault: false,
+  };
+}
+
+async function saveModel() {
+  const problem = validateModelForm();
+  if (problem) {
+    message.warning(problem);
+    return;
   }
   saving.value = true;
   try {
     const isCreatingFirstModel = editorMode.value === 'create' && instances.value.length === 0;
-    const payload: ModelInstancePayload = {
-      providerId: form.value.providerId,
-      groupId: form.value.groupId,
-      orgId: form.value.orgId,
-      displayName: form.value.displayName.trim() || form.value.modelName.trim(),
-      modelName: form.value.modelName.trim(),
-      baseUrl: form.value.baseUrl.trim(),
-      apiVersion: form.value.apiVersion.trim(),
-      apiKey: form.value.apiKey.trim(),
-      capabilities: form.value.capabilities.length ? form.value.capabilities : ['chat'],
-      runtimeKind: hasImageCapability.value ? form.value.runtimeKind || recommendedImageRuntime(currentProvider.value) : '',
-      imageSettings: hasImageCapability.value ? { ...form.value.imageSettings } : {},
-      pricing: form.value.pricing,
-      maxContextTokens: 0,
-      status: form.value.status,
-      isDefault: false,
-    };
+    const payload = buildModelPayload();
     const saved = editorMode.value === 'create'
       ? await createModelInstance(payload)
       : await updateModelInstance(form.value.id, payload);
-    try {
-      if (isUserSelectableModel.value) {
-        await modelAccess.save(saved.id);
-      }
-    } catch (error) {
-      editorMode.value = 'edit';
-      form.value.id = saved.id;
-      form.value.apiKey = '';
-      form.value.apiKeyMasked = saved.apiKeyMasked;
-      await reload();
-      message.error(`${t('legacy.the_model_was_saved_but_its_access_policy_could')}：${readError(error, t('legacy.failed_to_save'))}`);
-      return;
-    }
     await reload();
     openEdit(saved);
-    testResultText.value = t('legacy.configuration_saved_you_can_continue_testing');
+    testResultText.value = t('模型配置已保存，可以继续测试。');
     testResultType.value = 'success';
     if (isCreatingFirstModel) {
       showFirstModelTrafficAllocationPrompt();
     } else {
-      message.success(t('additional.model_configuration_saved'));
+      message.success(t('模型配置已保存'));
     }
   } catch (error) {
-    message.error(readError(error, t('legacy.failed_to_save')));
+    message.error(readError(error, t('保存失败')));
   } finally {
     saving.value = false;
   }
@@ -690,12 +827,12 @@ async function saveModel() {
 
 function showFirstModelTrafficAllocationPrompt() {
   dialog.success({
-    title: t('legacy.model_added'),
-    content: t('legacy.the_first_model_has_been_added_to_let_users'),
-    positiveText: t('legacy.go_to_traffic_allocation'),
-    negativeText: t('legacy.later'),
+    title: t('模型已添加'),
+    content: t('已添加第一个模型。为了让用户正常使用模型，请前往流量分配页面设置企业总额度和成员额度。'),
+    positiveText: t('前往分配流量'),
+    negativeText: t('稍后处理'),
     onPositiveClick: () => {
-      void router.push('/organizations/traffic?open=quota');
+      void router.push('/organizations/traffic?open=tenant');
     },
   });
 }
@@ -716,41 +853,34 @@ async function runEditorTest() {
   testResultType.value = 'idle';
   testImageUrl.value = '';
   try {
-    if (modelTestKind.value === 'image') {
+    if (hasImageCapability.value) {
       const result = await testImageModelInstance(form.value.id, testPrompt.value);
-      testResultText.value = localizedServerText(result.message, result.success ? t('additional.image_generation_test_succeeded') : t('additional.image_generation_test_failed'));
+      testResultText.value = result.message || (result.success ? t('图片生成测试成功。') : t('图片生成测试失败。'));
       testResultType.value = result.success ? 'success' : 'failed';
       testImageUrl.value = result.imageUrl || '';
       await reload();
       return;
     }
-    if (modelTestKind.value === 'embedding' || modelTestKind.value === 'rerank') {
-      const result = await testKnowledgeModelInstance(form.value.id, modelTestKind.value);
-      testResultText.value = localizedServerText(result.message, result.success ? t('legacy.model_connection_tested_successfully') : t('legacy.test_failed'));
-      testResultType.value = result.success ? 'success' : 'failed';
-      await reload();
-      return;
-    }
     await streamModelInstanceTest(form.value.id, testPrompt.value, (event) => {
       if (event.type === 'start') {
-        testResultText.value = localizedServerText(event.message, t('legacy.connecting_to_model'));
+        testResultText.value = event.message || t('正在连接模型...');
         return;
       }
       if (event.type === 'delta') {
-        if (testResultText.value === t('legacy.connecting_to_model')) {
+        if (testResultText.value === t('正在连接模型...')) {
           testResultText.value = '';
         }
         testResultText.value += event.content || '';
         return;
       }
       if (event.type === 'error') {
-        testResultText.value = localizedServerText(event.message, t('legacy.test_failed'));
+        testResultText.value = event.message || t('测试失败');
         testResultType.value = 'failed';
         return;
       }
       if (event.type === 'done') {
         if (!testResultText.value) {
-          testResultText.value = localizedServerText(event.message, t('legacy.model_connection_tested_successfully'));
+          testResultText.value = event.message || t('模型连接测试成功。');
         }
         testResultType.value = 'success';
       }
@@ -759,14 +889,8 @@ async function runEditorTest() {
       testResultType.value = 'success';
     }
     await reload();
-    if (testResultType.value === 'success') {
-      await visionSuggestion.check(instances.value.find((item) => item.id === form.value.id), async () => {
-        form.value.capabilities = [...new Set([...form.value.capabilities, 'vision'])];
-        await reload();
-      });
-    }
   } catch (error) {
-    testResultText.value = readError(error, t('legacy.test_failed'));
+    testResultText.value = readError(error, t('测试失败'));
     testResultType.value = 'failed';
   } finally {
     testing.value = false;
@@ -774,7 +898,7 @@ async function runEditorTest() {
 }
 
 function confirmDelete(row: ModelInstanceItem) {
-  if (!window.confirm(t('legacy.are_you_sure_to_delete_routing_will_no_longer', { name: row.displayName }))) {
+  if (!window.confirm(t('确认删除「{name}」？删除后后续路由将不能再使用该模型配置。', { name: row.displayName }))) {
     return;
   }
   deleteModelInstance(row.id)
@@ -782,7 +906,7 @@ function confirmDelete(row: ModelInstanceItem) {
       await reload();
     })
     .catch((error) => {
-      window.alert(readError(error, t('legacy.failed_to_delete')));
+      window.alert(readError(error, t('删除失败')));
     });
 }
 
@@ -791,7 +915,7 @@ function confirmDeleteFromEditor() {
   if (!row) {
     return;
   }
-  if (!window.confirm(t('legacy.are_you_sure_to_delete_routing_will_no_longer', { name: row.displayName }))) {
+  if (!window.confirm(t('确认删除「{name}」？删除后后续路由将不能再使用该模型配置。', { name: row.displayName }))) {
     return;
   }
   deleteModelInstance(row.id)
@@ -800,7 +924,7 @@ function confirmDeleteFromEditor() {
       await reload();
     })
     .catch((error) => {
-      window.alert(readError(error, t('legacy.failed_to_delete')));
+      window.alert(readError(error, t('删除失败')));
     });
 }
 
@@ -820,7 +944,7 @@ async function reload() {
       orgQuota.value = allocationOverview.orgPolicy.totalTokens;
     }
   } catch (error) {
-    window.alert(readError(error, t('legacy.failed_to_load_model_configurations')));
+    window.alert(readError(error, t('模型配置加载失败')));
   } finally {
     loading.value = false;
   }
@@ -829,7 +953,7 @@ async function reload() {
 
 function readError(error: unknown, fallback: string) {
   if (axios.isAxiosError(error)) {
-    return localizedServerText(error.response?.data?.detail || error.message, fallback);
+    return String(error.response?.data?.detail || error.message || fallback);
   }
   return fallback;
 }
@@ -849,13 +973,13 @@ watch(
   (enabled) => {
     if (enabled) {
       form.value.runtimeKind = form.value.runtimeKind || recommendedImageRuntime(currentProvider.value);
-      if (testPrompt.value === t('legacy.reply_in_one_sentence_to_test_the_current_model')) {
-        testPrompt.value = t('legacy.generate_a_clean_futuristic_presentation_cover_image_without_text');
+      if (testPrompt.value === t('测试模型默认提示')) {
+        testPrompt.value = t('测试模型图片提示');
       }
-    } else if (testPrompt.value === t('legacy.generate_a_clean_futuristic_presentation_cover_image_without_text')) {
-      testPrompt.value = t('legacy.reply_in_one_sentence_to_test_the_current_model');
+    } else if (testPrompt.value === t('测试模型图片提示')) {
+      testPrompt.value = t('测试模型默认提示');
     }
-    resetTestState(editorMode.value === 'edit' ? t('legacy.you_can_test_the_saved_configuration_on_the_right') : t('legacy.available_to_test_after_saving_configuration'));
+    resetTestState(editorMode.value === 'edit' ? t('可在右侧测试当前已保存的配置。') : t('保存模型配置后可测试。'));
   },
 );
 
@@ -863,13 +987,8 @@ onMounted(reload);
 </script>
 
 <style scoped>
-.alert-link {
-  color: #2563eb;
-  font-weight: 600;
-  text-decoration: underline;
-}
 .model-page {
-  height: calc(100vh - 92px);
+  height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -878,8 +997,8 @@ onMounted(reload);
 
 .shell-card {
   border-radius: 14px;
-  border: 1px solid #e6ebf5;
-  background: #fff;
+  border: 1px solid var(--mg-border);
+  background: var(--mg-bg-surface);
   box-shadow: 0 6px 20px rgba(16, 38, 84, 0.05);
 }
 
@@ -887,7 +1006,6 @@ onMounted(reload);
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
-  padding: 12px;
 }
 
 .metric-card,
@@ -896,8 +1014,8 @@ onMounted(reload);
 }
 
 .list-card {
-  width: calc(100% - 24px);
-  margin: -16px 12px 0;
+  width: 100%;
+  margin: 0 0 0;
   flex: 1;
   min-height: 0;
   overflow: hidden;
@@ -910,8 +1028,8 @@ onMounted(reload);
 }
 
 .metric-card {
-  border: 1px solid #e6ebf5;
-  background: #fff;
+  border: 1px solid var(--mg-border);
+  background: var(--mg-bg-surface);
   box-shadow: 0 4px 12px rgba(29, 54, 110, 0.04);
 }
 
@@ -948,33 +1066,33 @@ onMounted(reload);
 }
 
 .metric-icon-total {
-  color: #2d63ff;
-  background: #eaf0ff;
+  color: var(--mg-brand);
+  background: var(--mg-brand-soft);
 }
 
 .metric-icon-active {
-  color: #0f9964;
-  background: #e8f8ef;
+  color: var(--mg-success-text);
+  background: var(--mg-success-bg);
 }
 
 .metric-icon-default {
-  color: #d9860a;
-  background: #fff2df;
+  color: var(--mg-warning-text);
+  background: var(--mg-warning-bg);
 }
 
 .metric-icon-providers {
-  color: #7456e0;
-  background: #f0ebff;
+  color: var(--mg-accent-violet-text);
+  background: var(--mg-accent-violet-bg);
 }
 
 .metric-label {
-  color: #606f8a;
+  color: var(--mg-text-2);
   font-size: 12px;
   line-height: 1.3;
 }
 
 .metric-value {
-  color: #0f1f45;
+  color: var(--mg-text-1);
   font-size: 24px;
   font-weight: 600;
   line-height: 1.1;
@@ -982,15 +1100,8 @@ onMounted(reload);
 
 .metric-note {
   margin-top: 6px;
-  color: #708099;
+  color: var(--mg-text-2);
   font-size: 12px;
-}
-
-.filter-toolbar {
-  align-items: center;
-  display: flex;
-  justify-content: space-between;
-  gap: 14px;
 }
 
 .filter-left {
@@ -1016,15 +1127,21 @@ onMounted(reload);
 }
 
 .list-filter-row {
-  padding: 0 44px 12px;
-  margin: 0 -44px 12px;
-  border-bottom: 1px solid #edf1f7;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 0 32px 16px;
+  margin: 0 -32px 16px;
+  border-bottom: 1px solid var(--mg-border);
 }
 
 .list-body {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
 }
 
 .model-grid {
@@ -1038,7 +1155,7 @@ onMounted(reload);
   padding: 16px;
   border: 1px solid rgba(28, 45, 82, 0.1);
   border-radius: 8px;
-  background: #fff;
+  background: var(--mg-bg-surface);
   color: inherit;
   text-align: left;
   cursor: pointer;
@@ -1070,7 +1187,7 @@ onMounted(reload);
 }
 
 .provider-badge {
-  color: #366aff;
+  color: var(--mg-brand);
   font-size: 12px;
   font-weight: 700;
 }
@@ -1080,14 +1197,14 @@ onMounted(reload);
 }
 
 .card-title {
-  color: #17233d;
+  color: var(--mg-text-1);
   font-size: 16px;
   font-weight: 800;
 }
 
 .card-model-id {
   margin-top: 3px;
-  color: #687789;
+  color: var(--mg-text-2);
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 12px;
 }
@@ -1101,12 +1218,12 @@ onMounted(reload);
 }
 
 .capability-tag {
-  background: #f1f5f9;
+  background: var(--mg-bg-subtle);
 }
 
 .card-footnote {
   margin-top: auto;
-  color: #7a8797;
+  color: var(--mg-text-3);
   font-size: 12px;
 }
 
@@ -1116,23 +1233,23 @@ onMounted(reload);
 }
 
 .test-summary span {
-  color: #7a8797;
+  color: var(--mg-text-3);
   font-size: 12px;
 }
 
 .test-image-preview {
   width: 100%;
   max-height: 260px;
-  border: 1px solid #e6ebf5;
+  border: 1px solid var(--mg-border);
   border-radius: 8px;
   object-fit: contain;
-  background: #f8fafc;
+  background: var(--mg-bg-subtle);
 }
 
 .test-summary strong {
   min-width: 0;
   overflow: hidden;
-  color: #23324f;
+  color: var(--mg-text-1);
   font-size: 12px;
   font-weight: 650;
   text-overflow: ellipsis;
@@ -1153,7 +1270,7 @@ onMounted(reload);
   place-content: center;
   justify-items: center;
   border-style: dashed;
-  background: rgba(247, 250, 255, 0.8);
+  background: var(--mg-bg-dashed);
   text-align: center;
 }
 
@@ -1163,7 +1280,7 @@ onMounted(reload);
   height: 38px;
   place-items: center;
   border-radius: 8px;
-  background: #366aff;
+  background: var(--mg-brand);
   color: #fff;
   font-size: 26px;
   line-height: 1;
@@ -1171,14 +1288,14 @@ onMounted(reload);
 
 .add-title {
   margin-top: 12px;
-  color: #17233d;
+  color: var(--mg-text-1);
   font-weight: 800;
 }
 
 .add-copy {
   max-width: 230px;
   margin-top: 6px;
-  color: #687789;
+  color: var(--mg-text-2);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -1200,11 +1317,11 @@ onMounted(reload);
   padding: 14px;
   border: 1px solid rgba(28, 45, 82, 0.1);
   border-radius: 8px;
-  background: #f8fbff;
+  background: var(--mg-bg-surface);
 }
 
 .test-title {
-  color: #17233d;
+  color: var(--mg-text-1);
   font-size: 15px;
   font-weight: 800;
 }
@@ -1218,20 +1335,105 @@ onMounted(reload);
   min-height: 54px;
   padding: 10px;
   border-radius: 8px;
-  background: #fff;
-  color: #687789;
+  background: var(--mg-bg-surface);
+  color: var(--mg-text-2);
   font-size: 12px;
   line-height: 1.5;
 }
 
 .test-result.success {
-  color: #147447;
-  background: #ecfdf5;
+  color: var(--mg-success-text);
+  background: var(--mg-success-bg);
 }
 
 .test-result.failed {
-  color: #b42318;
-  background: #fff1f2;
+  color: var(--mg-danger-text);
+  background: var(--mg-danger-bg);
+}
+
+.model-picker-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  max-height: 420px;
+  overflow: auto;
+  padding: 2px;
+}
+
+.model-picker-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 34px 10px 12px;
+  border: 1px solid rgba(28, 45, 82, 0.12);
+  border-radius: 8px;
+  background: var(--mg-bg-surface);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.model-picker-item:hover {
+  border-color: rgba(54, 106, 255, 0.4);
+  box-shadow: 0 6px 18px rgba(33, 58, 126, 0.08);
+  background: var(--mg-bg-surface-hover);
+}
+
+.model-picker-item.is-selected {
+  border-color: #366aff;
+  box-shadow: 0 0 0 1px #366aff inset, 0 6px 18px rgba(54, 106, 255, 0.14);
+  background: rgba(54, 106, 255, 0.06);
+}
+
+.model-picker-item.is-selected .mp-check {
+  opacity: 1;
+}
+
+.mp-check {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #366aff;
+  color: #fff;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.mp-check svg {
+  width: 12px;
+  height: 12px;
+  display: block;
+}
+
+.mp-footer-hint {
+  align-self: center;
+  color: var(--mg-text-3);
+  font-size: 12px;
+  min-width: 0;
+}
+
+.mp-id {
+  color: var(--mg-text-1);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.mp-owner {
+  color: var(--mg-text-3);
+  font-size: 12px;
 }
 
 </style>

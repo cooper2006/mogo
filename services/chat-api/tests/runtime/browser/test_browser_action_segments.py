@@ -27,7 +27,7 @@ def test_scroll_then_observe_executes_scroll_as_one_turn() -> None:
 def test_search_segment_discards_redundant_trailing_observe() -> None:
     decision = decision_from_output(
         _output(
-            ("browser_fill", {"ref": "search", "value": "MOVO"}),
+            ("browser_fill", {"ref": "search", "value": "MOGO"}),
             ("browser_press", {"ref": "search", "key": "Enter"}),
             ("browser_observe", {}),
         ),
@@ -129,7 +129,7 @@ def _observation() -> Observation:
             {
                 "ref": "result",
                 "role": "link",
-                "name": "MOVO",
+                "name": "MOGO",
                 "editable": False,
                 "visible": True,
                 "disabled": False,

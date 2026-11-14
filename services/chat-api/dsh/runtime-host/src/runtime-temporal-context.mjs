@@ -40,7 +40,7 @@ export function normalizeTemporalContext(value) {
 
 export function renderTemporalContext(value) {
   if (value === undefined) return ''
-  return `Trusted time context supplied by MOVO for this turn:
+  return `Trusted time context supplied by MOGO for this turn:
 - Current UTC time: ${value.capturedAtUtc}
 - User local time: ${value.userLocalTime}
 - User timezone: ${value.userTimezone}

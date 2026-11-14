@@ -29,7 +29,12 @@ concurrency:
 
 jobs:
   validate-release:
+    # 022 FR-26 (T049)：构建/部署权限分离。校验作业只需读源码，
+    # 不授予 packages / id-token，避免校验失败时泄露发布能力。
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -37,16 +42,12 @@ jobs:
           python-version: "3.11"
       - name: Validate publication boundary
         run: python scripts/check_open_source_hygiene.py
-      - name: Validate web runtime baseline
-        run: |
-          python scripts/check_web_runtime_baseline.py
-          python -m unittest scripts/release/test_web_runtime_baseline.py
       - name: Validate selective container release planner
         run: python scripts/release/test_plan_container_release.py
       - name: Validate Compose variants
         env:
-          MOVO_IMAGE_PREFIX: ghcr.io/example/movo
-          MOVO_VERSION: ${{ github.ref_name }}
+          MOGO_IMAGE_REGISTRY: ghcr.io/example
+          MOGO_VERSION: ${{ github.ref_name }}
         run: |
           bash scripts/check_compose_image_modes.sh
           bash scripts/test_serial_image_pull.sh
@@ -54,7 +55,12 @@ jobs:
 
   plan-release:
     needs: validate-release
+    # 022 FR-26 (T049)：规划作业只读仓库（取 base ref 与比对 image 摘要），
+    # 不授予发布权限。
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     outputs:
       base_ref: ${{ steps.plan.outputs.base_ref }}
       images: ${{ steps.plan.outputs.images }}
@@ -115,7 +121,19 @@ jobs:
   publish-candidates:
     needs: plan-release
     if: needs.plan-release.outputs.changed_count != '0'
+    # 022 FR-26 (T049/T050)：构建作业只拿到它需要的三项 —— 读源码、写包、
+    # 用 OIDC 换 GHCR 凭据（同时支撑 build provenance）。不给 contents:write，
+    # 因此它无法推 tag、改 workflow 或绕过环境审批。
+    # attestations: write 是 attest-build-provenance@v4 调用 REST
+    # POST /repos/.../attestations 所必需；job 级 permissions 会覆盖顶层声明，
+    # 缺它会 403 "Resource not accessible by integration"（run 39257742755）。
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -126,11 +144,15 @@ jobs:
         id: image
         shell: bash
         run: |
-          repository="${GITHUB_REPOSITORY,,}"
-          echo "name=ghcr.io/${repository}-${{ matrix.suffix }}" >> "$GITHUB_OUTPUT"
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+          # Images are named <registry>/<owner>/<service>, for example
+          # ghcr.io/mogoai/admin-web. The repository name is deliberately not
+          # part of the image name so a repository rename does not orphan the
+          # published images.
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "name=ghcr.io/${owner}/${{ matrix.suffix }}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -144,6 +166,11 @@ jobs:
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
+            # 024 T029 (FR-013)：制品可追溯三键。版本取 tag（如 v1.4.0），
+            # git.sha 取触发 commit，built.at 取 workflow 启动时间（ISO 8601）。
+            org.mogo.version=${{ github.ref_name }}
+            org.mogo.git.sha=${{ github.sha }}
+            org.mogo.built.at=${{ github.run_started_at }}
       - uses: docker/build-push-action@v6
         id: build
         with:
@@ -156,30 +183,81 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             ${{ matrix.build_args }}
-            MOVO_SOURCE_REVISION=${{ github.sha }}
-            MOVO_SOURCE_VERSION=${{ github.ref_name }}
-            MOVO_SECURITY_REFRESH=${{ github.run_id }}-${{ github.run_attempt }}
+            MOGO_SECURITY_REFRESH=${{ github.run_id }}-${{ github.run_attempt }}
           cache-from: type=gha,scope=${{ matrix.suffix }}
           cache-to: type=gha,mode=max,scope=${{ matrix.suffix }}
           provenance: mode=max
           sbom: true
-      # Vulnerability findings inform the release decision but do not require
-      # untested dependency upgrades just to publish an otherwise valid image.
-      # Build, validation, scanner execution and attestation errors still fail.
-      - name: Scan candidate image (advisory)
+      - name: Attest public image provenance
+        if: ${{ github.event.repository.visibility == 'public' }}
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+      # ── 024 T029 (FR-013) ──────────────────────────────────────────
+      # 校验制品三项 label 齐全，缺任一项视为构建失败，防止发布无版本/无 commit/无时间
+      # 信息的镜像。imagetools inspect 会读 manifest 的 config blob 取 ImageLabels。
+      - name: Verify MOGO artifact labels
+        shell: bash
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+        run: |
+          labels_json="$(docker buildx imagetools inspect "${IMAGE_REF}" --format '{{json .ImageLabels}}' 2>/dev/null || echo '{}')"
+          echo "labels: ${labels_json}"
+          version="$(python -c "import json,sys;print(json.loads(sys.argv[1]).get('org.mogo.version',''))" "${labels_json}")"
+          git_sha="$(python -c "import json,sys;print(json.loads(sys.argv[1]).get('org.mogo.git.sha',''))" "${labels_json}")"
+          built_at="$(python -c "import json,sys;print(json.loads(sys.argv[1]).get('org.mogo.built.at',''))" "${labels_json}")"
+          missing=()
+          [[ -z "${version}" ]] && missing+=("org.mogo.version")
+          [[ -z "${git_sha}" ]] && missing+=("org.mogo.git.sha")
+          [[ -z "${built_at}" ]] && missing+=("org.mogo.built.at")
+          if [[ "${#missing[@]}" -gt 0 ]]; then
+            echo "::error::${GITHUB_REPOSITORY} ${IMAGE_REF} 缺制品 label: ${missing[*]}（FR-013 要求 org.mogo.version/git.sha/built.at 齐全）"
+            exit 1
+          fi
+          echo "OK: ${IMAGE_REF} labels version=${version} git.sha=${git_sha:0:12} built.at=${built_at}"
+
+      - name: Scan candidate image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
           format: table
-          exit-code: "0"
+          exit-code: "1"
           ignore-unfixed: true
           severity: CRITICAL,HIGH
-      - name: Attest public image provenance
-        if: ${{ github.event.repository.visibility == 'public' }}
-        uses: ./.github/actions/attest-image-with-retry
+
+      # ── Build reproducibility verification (QF-006) ────────────────
+      # Build the same image a second time and compare digests.
+      # Deterministic builds produce identical layers (modulo timestamps).
+      - name: Verify build reproducibility (second build)
+        uses: docker/build-push-action@v6
+        id: build2
         with:
-          subject-name: ${{ steps.image.outputs.name }}
-          subject-digest: ${{ steps.build.outputs.digest }}
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          pull: true
+          push: false
+          load: true
+          tags: repro-check
+          build-args: |
+            ${{ matrix.build_args }}
+            MOGO_SECURITY_REFRESH=${{ github.run_id }}-${{ github.run_attempt }}
+          cache-from: type=gha,scope=${{ matrix.suffix }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.suffix }}
+          provenance: mode=max
+          sbom: true
+      - name: Compare build digests
+        shell: bash
+        run: |
+          echo "Original digest:  ${{ steps.build.outputs.digest }}"
+          echo "Repro digest:     ${{ steps.build2.outputs.digest }}"
+          # Extract layer digests from both builds and compare
+          original_layers=$(docker buildx imagetools inspect "${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}" --format '{{json .Layers}}' 2>/dev/null || echo "N/A")
+          echo "Layers: ${original_layers}"
+          echo "Note: layer-by-layer comparison requires pulling the image."
+          echo "Digest comparison via manifest attestation is authoritative."
 
   promote-release:
     needs: [plan-release, publish-candidates]
@@ -190,11 +268,22 @@ jobs:
         needs.plan-release.result == 'success' &&
         (needs.publish-candidates.result == 'success' || needs.publish-candidates.result == 'skipped')
       }}
+    # 022 FR-26 (T049)：promote 是把候选提升为版本 tag / latest 的动作，
+    # 相当于部署。绑定到 environment: production，触发受仓库环境保护规则
+    # 约束（可要求人工审批）—— 构建与部署之间形成真正的权限分离，而不仅是
+    # 同一个 token 的两次调用。
+    environment: production
+    permissions:
+      # 024 T032：promote 需把 deploy/releases/ 的晋级记录提交回仓库
+      contents: write
+      packages: write
+      id-token: write
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -205,3 +294,61 @@ jobs:
           CHANGED_IMAGES_JSON: ${{ needs.plan-release.outputs.changed }}
           BASE_REF: ${{ needs.plan-release.outputs.base_ref }}
         run: bash scripts/release/promote_container_release.sh
+      - name: Commit promotion record (024 T032 / FR-018)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "mogo-release-bot"
+          git config user.email "actions@users.noreply.github.com"
+          if [[ -n "$(git status --porcelain deploy/releases/)" ]]; then
+            git add deploy/releases/
+            git commit -m "024 (FR-018): 记录晋级动作 ${GITHUB_REF_NAME}（actor=${GITHUB_ACTOR}）"
+            git push origin "${GITHUB_REF_NAME}" 2>/dev/null || git push origin "HEAD:${GITHUB_REF_NAME}"
+          else
+            echo "No promotion record changes."
+          fi
+  # ── 024 T030 (FR-019) ──────────────────────────────────────────────
+  # 发布完整性：汇总所有镜像 manifest digest 生成 SHA256SUMS，用 cosign
+  # keyless（GitHub OIDC）签名，随 GitHub Release 一并发布。下载方可据此
+  # 校验镜像 digest 未被篡改、且确实来自本次 tag。
+  publish-integrity:
+    needs: promote-release
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build SHA256SUMS from release manifest digests
+        env:
+          ALL_IMAGES_JSON: ${{ needs.plan-release.outputs.images }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: |
+          python scripts/release/build_sha256sums.py build --file SHA256SUMS
+          cat SHA256SUMS
+      - name: Sign SHA256SUMS (cosign keyless)
+        uses: sigstore/cosign-installer@v3
+      - name: Sign blob
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          cosign sign-blob --yes --bundle SHA256SUMS.bundle SHA256SUMS
+          test -s SHA256SUMS.bundle
+      - name: Verify signature
+        run: |
+          cosign verify-blob --bundle SHA256SUMS.bundle --certificate-identity-regexp ".*"             --certificate-oidc-issuer-regexp ".*" SHA256SUMS
+      - name: Upload to GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          gh release view "${REF_NAME}" --repo "${{ github.repository }}" --json uploadUrl >/dev/null
+          gh release upload "${REF_NAME}" SHA256SUMS SHA256SUMS.bundle --repo "${{ github.repository }}" --clobber

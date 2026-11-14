@@ -10,13 +10,13 @@ from app.services.member_identity import public_identity
 class OrganizationSkillFeedbackService:
     """Read the shared discussion attached to an enterprise Skill identity."""
 
-    async def list(self, *, main_id: str, skill_id: str, limit: int = 100) -> dict[str, Any]:
+    async def list(self, *, tenant_id: str, skill_id: str, limit: int = 100) -> dict[str, Any]:
         db = get_db()
-        skill = await db.skills.find_one({"_id": skill_id, "main_id": main_id}, {"_id": 1})
+        skill = await db.skills.find_one({"_id": skill_id, "tenant_id": tenant_id}, {"_id": 1})
         if skill is None:
             raise LookupError("技能不存在")
         query = {
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "resource_type": "organization_skill",
             "resource_id": skill_id,
         }
@@ -24,7 +24,7 @@ class OrganizationSkillFeedbackService:
         rows = await db.resource_comments.find({**query, "status": "active"}).sort("created_at", 1).limit(size).to_list(length=size)
         comment_ids = [str(row.get("_id") or "") for row in rows]
         reactions = await db.resource_comment_reactions.find({
-            "main_id": main_id, "comment_id": {"$in": comment_ids}, "reaction": "like",
+            "tenant_id": tenant_id, "comment_id": {"$in": comment_ids}, "reaction": "like",
         }).to_list(length=max(len(comment_ids) * 1000, 1)) if comment_ids else []
         comment_likes: dict[str, int] = {}
         for reaction in reactions:

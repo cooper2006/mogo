@@ -1,0 +1,37 @@
+# ═══════════════════════════════════════════════════════════════════════
+# scripts/backup/crontab.example — 备份与清理的定时配置（T096）
+# ═══════════════════════════════════════════════════════════════════════
+#
+# 安装方式（宿主机 cron，或容器化后把同一份 crontab 挂进 cron 容器）：
+#   crontab -l > /tmp/mogo.cron 2>/dev/null || true
+#   sed "s#@REPO@#${PWD}#g" scripts/backup/crontab.example >> /tmp/mogo.cron
+#   crontab /tmp/mogo.cron
+#
+# 为什么小时级用 oplog 模式：MongoDB 社区版没有原生增量备份，小时级 dump
+# 加上 --oplog 可以在 RPO ≤ 15min 的目标下做点对点回放；真正的增量要
+# Percona Backup for MongoDB 之类的工具，见 docs/observability/rto-rpo.md。
+#
+# 所有口令走环境变量 MOGO_BACKUP_PASSPHRASE / MOGO_BACKUP_PASSPHRASE_FILE，
+# 由 cron 环境或 systemd EnvironmentFile 注入，绝不写进本文件。
+#
+# 时间说明：cron 用宿主机时区。这里按 UTC 规划（与备份文件名的时间戳一致），
+# 宿主机是 Asia/Shanghai 时请把整列往前挪 8 小时，或给 cron 设 CRON_TZ=UTC
+# （cronie 支持，Vixie cron 不支持——不支持时按本地时间手算）。
+
+CRON_TZ=UTC
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# 失败要能在日志里看见，而不是静默丢备份
+MAILTO=ops@example.com
+
+# 小时级：带 oplog 的 dump，每 15 分钟一次（配合 --oplogReplay，RPO ≤ 15min）
+*/15 * * * * @REPO@/scripts/backup/backup_mongo.sh --mode oplog >> @REPO@/backups/backup.log 2>&1
+
+# 每日全量：02:30 UTC（= 10:30 北京时间，避开业务高峰）
+30 2 * * * @REPO@/scripts/backup/backup_mongo.sh --mode full >> @REPO@/backups/backup.log 2>&1
+
+# 每日清理：本地 30 天 / 异地 90 天
+0 4 * * * @REPO@/scripts/backup/rotate_backups.sh >> @REPO@/backups/rotate.log 2>&1
+
+# 每周演练：从异地副本恢复到演练库并记录 RTO/RPO
+0 5 * * 1 @REPO@/scripts/drill/drill_recovery.sh --from-offsite >> @REPO@/backups/drill.log 2>&1

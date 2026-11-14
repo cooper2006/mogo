@@ -28,16 +28,16 @@ const form = reactive({
 })
 
 const scheduleOptions = computed(() => [
-  { label: t('legacy.once_0984db4'), value: 'once' }, { label: t('legacy.daily'), value: 'daily' }, { label: t('legacy.weekly'), value: 'weekly' },
+  { label: t('仅执行一次'), value: 'once' }, { label: t('每天'), value: 'daily' }, { label: t('每周'), value: 'weekly' },
 ])
 const sessionModeOptions = computed(() => [
-  { label: t('legacy.write_to_a_specific_chat'), value: 'fixed' }, { label: t('legacy.create_a_new_chat_each_run'), value: 'new_per_run' },
+  { label: t('写入指定会话'), value: 'fixed' }, { label: t('每次执行新建会话'), value: 'new_per_run' },
 ])
 const weekdayOptions = computed(() => [
-  { label: t('legacy.mon'), value: 0 }, { label: t('legacy.tue'), value: 1 }, { label: t('legacy.wed'), value: 2 },
-  { label: t('legacy.thu'), value: 3 }, { label: t('legacy.fri'), value: 4 }, { label: t('legacy.sat'), value: 5 }, { label: t('legacy.sun'), value: 6 },
+  { label: t('周一'), value: 0 }, { label: t('周二'), value: 1 }, { label: t('周三'), value: 2 },
+  { label: t('周四'), value: 3 }, { label: t('周五'), value: 4 }, { label: t('周六'), value: 5 }, { label: t('周日'), value: 6 },
 ])
-const sessionOptions = computed(() => props.sessions.map((item) => ({ label: item.title || t('legacy.new_chat'), value: item.id })))
+const sessionOptions = computed(() => props.sessions.map((item) => ({ label: item.title || t('新对话'), value: item.id })))
 const startOfToday = () => {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -50,20 +50,61 @@ const canSave = computed(() => Boolean(
   (form.scheduleKind !== 'weekly' || form.weekdays.length),
 ))
 
+/** 任务名称：任务名优先，其次截断初始提示词到 30 字，最后回退默认标题。 */
+function resolveFormName(job: ScheduledJob | null): string {
+  if (job?.name) return job.name
+  return props.initialPrompt ? props.initialPrompt.trim().slice(0, 30) : t('新的定时任务')
+}
+
+/** 任务提示词：任务提示词 → 初始提示词 → 空串。 */
+function resolveFormPrompt(job: ScheduledJob | null): string {
+  return job?.prompt || props.initialPrompt || ''
+}
+
+/** 执行时区：任务时区 → 页面时区 → 默认时区。 */
+function resolveFormTimezone(job: ScheduledJob | null): string {
+  return job?.timezone || props.timezone || 'Asia/Shanghai'
+}
+
+/** 首次执行时间：任务时间解析失败时回退到时区默认时间。 */
+function resolveFormRunAt(job: ScheduledJob | null, timezone: string): number {
+  return (job?.run_at ? instantToPickerValue(job.run_at, timezone) : null) ?? defaultPickerValue(timezone)
+}
+
+/** 执行星期：任务星期优先，缺失时按首次执行时间所在星期兜底（周日 0 转 6）。 */
+function resolveFormWeekdays(job: ScheduledJob | null, runAt: number): number[] {
+  if (job?.weekdays?.length) return [...job.weekdays]
+  const day = new Date(runAt).getDay()
+  return [day === 0 ? 6 : day - 1]
+}
+
+/** 结果写入方式：任务设置优先，其次按是否指定初始会话决定。 */
+function resolveFormSessionMode(job: ScheduledJob | null): string {
+  return job?.session_mode || (props.initialSessionId ? 'fixed' : 'new_per_run')
+}
+
+/** 目标会话：任务会话优先，其次初始会话。 */
+function resolveFormSessionId(job: ScheduledJob | null): string | null {
+  return job?.session_id || props.initialSessionId || null
+}
+
+/** 新会话标题模板：任务模板优先，缺失时用默认模板。 */
+function resolveFormTitleTemplate(job: ScheduledJob | null): string {
+  return job?.session_title_template || '{name} · {date}'
+}
+
 watch(() => props.open, (open) => {
   if (!open) return
-  const job = props.job
-  form.name = job?.name || (props.initialPrompt ? props.initialPrompt.trim().slice(0, 30) : t('legacy.new_scheduled_task'))
-  form.prompt = job?.prompt || props.initialPrompt || ''
+  const job = props.job ?? null
+  form.name = resolveFormName(job)
+  form.prompt = resolveFormPrompt(job)
   form.scheduleKind = job?.schedule_kind || 'daily'
-  form.timezone = job?.timezone || props.timezone || 'Asia/Shanghai'
-  const parsedRunAt = job?.run_at ? instantToPickerValue(job.run_at, form.timezone) : null
-  form.runAt = parsedRunAt ?? defaultPickerValue(form.timezone)
-  const defaultDay = new Date(form.runAt).getDay()
-  form.weekdays = job?.weekdays?.length ? [...job.weekdays] : [defaultDay === 0 ? 6 : defaultDay - 1]
-  form.sessionMode = job?.session_mode || (props.initialSessionId ? 'fixed' : 'new_per_run')
-  form.sessionId = job?.session_id || props.initialSessionId || null
-  form.sessionTitleTemplate = job?.session_title_template || '{name} · {date}'
+  form.timezone = resolveFormTimezone(job)
+  form.runAt = resolveFormRunAt(job, form.timezone)
+  form.weekdays = resolveFormWeekdays(job, form.runAt)
+  form.sessionMode = resolveFormSessionMode(job)
+  form.sessionId = resolveFormSessionId(job)
+  form.sessionTitleTemplate = resolveFormTitleTemplate(job)
   form.enabled = job?.enabled ?? true
 }, { immediate: true })
 
@@ -88,34 +129,34 @@ function submit() {
 <template>
   <n-modal :show="open" :mask-closable="!saving" @update:show="(value) => !value && emit('close')">
     <n-card class="w-[680px] max-w-[calc(100vw-32px)]" :bordered="false" role="dialog" aria-modal="true">
-      <template #header>{{ job ? t('legacy.edit_scheduled_task') : t('legacy.create_scheduled_task') }}</template>
+      <template #header>{{ job ? t('编辑定时任务') : t('创建定时任务') }}</template>
       <n-form label-placement="top" class="max-h-[72vh] overflow-y-auto pr-2">
-        <n-form-item :label="t('legacy.task_name')" required><n-input v-model:value="form.name" maxlength="120" show-count /></n-form-item>
-        <n-form-item :label="t('legacy.prompt_to_send_automatically')" required><n-input v-model:value="form.prompt" type="textarea" :autosize="{ minRows: 4, maxRows: 10 }" maxlength="20000" show-count /></n-form-item>
+        <n-form-item :label="t('任务名称')" required><n-input v-model:value="form.name" maxlength="120" show-count /></n-form-item>
+        <n-form-item :label="t('自动发送的提示词')" required><n-input v-model:value="form.prompt" type="textarea" :autosize="{ minRows: 4, maxRows: 10 }" maxlength="20000" show-count /></n-form-item>
         <div class="grid grid-cols-1 gap-x-4 md:grid-cols-2">
-          <n-form-item :label="t('legacy.frequency')" required><n-select v-model:value="form.scheduleKind" :options="scheduleOptions" /></n-form-item>
-          <n-form-item :label="t('legacy.first_next_run')" required><n-date-picker v-model:value="form.runAt" type="datetime" class="w-full" :is-date-disabled="isPastDate" /></n-form-item>
+          <n-form-item :label="t('执行频率')" required><n-select v-model:value="form.scheduleKind" :options="scheduleOptions" /></n-form-item>
+          <n-form-item :label="t('首次/下次执行时间')" required><n-date-picker v-model:value="form.runAt" type="datetime" class="w-full" :is-date-disabled="isPastDate" /></n-form-item>
         </div>
-        <div class="-mt-3 mb-3 text-xs text-slate-500">{{ t('legacy.execution_timezone') }}：{{ form.timezone }}</div>
-        <n-form-item v-if="form.scheduleKind === 'weekly'" :label="t('legacy.days_of_week')" required>
+        <div class="-mt-3 mb-3 text-xs text-slate-500">{{ t('执行时区') }}：{{ form.timezone }}</div>
+        <n-form-item v-if="form.scheduleKind === 'weekly'" :label="t('执行星期')" required>
           <n-select v-model:value="form.weekdays" multiple :options="weekdayOptions" />
         </n-form-item>
-        <n-form-item :label="t('legacy.result_destination')" required><n-select v-model:value="form.sessionMode" :options="sessionModeOptions" /></n-form-item>
-        <n-form-item v-if="form.sessionMode === 'fixed'" :label="t('legacy.target_chat')" required>
-          <n-select v-model:value="form.sessionId" filterable :options="sessionOptions" :placeholder="t('legacy.select_one_of_your_chats')" />
+        <n-form-item :label="t('结果写入方式')" required><n-select v-model:value="form.sessionMode" :options="sessionModeOptions" /></n-form-item>
+        <n-form-item v-if="form.sessionMode === 'fixed'" :label="t('目标会话')" required>
+          <n-select v-model:value="form.sessionId" filterable :options="sessionOptions" :placeholder="t('选择一个属于你的会话')" />
         </n-form-item>
-        <n-form-item v-else :label="t('legacy.new_chat_title_template')">
+        <n-form-item v-else :label="t('新会话标题模板')">
           <n-input v-model:value="form.sessionTitleTemplate" placeholder="{name} · {date}" />
         </n-form-item>
         <div class="flex min-h-11 items-center justify-between rounded-xl border border-slate-200 px-4">
-          <div><div class="text-sm font-medium text-slate-800">{{ t('legacy.enable_after_creation') }}</div><div class="text-xs text-slate-500">{{ t('legacy.when_off_the_configuration_is_saved_but_will_not') }}</div></div>
+          <div><div class="text-sm font-medium text-slate-800">{{ t('创建后启用') }}</div><div class="text-xs text-slate-500">{{ t('关闭时仅保存配置，不会自动执行') }}</div></div>
           <n-switch v-model:value="form.enabled" />
         </div>
       </n-form>
       <template #footer>
         <div class="flex justify-end gap-3">
-          <n-button :disabled="saving" @click="emit('close')">{{ t('legacy.cancel') }}</n-button>
-          <n-button type="primary" :loading="saving" :disabled="!canSave" @click="submit">{{ job ? t('legacy.save_changes') : t('legacy.create_task') }}</n-button>
+          <n-button :disabled="saving" @click="emit('close')">{{ t('取消') }}</n-button>
+          <n-button type="primary" :loading="saving" :disabled="!canSave" @click="submit">{{ job ? t('保存修改') : t('创建任务') }}</n-button>
         </div>
       </template>
     </n-card>

@@ -1,4 +1,4 @@
-export type ChatDocumentKind = 'pdf' | 'docx' | 'ppt' | 'pptx' | 'md' | 'html' | 'xlsx' | 'presentation_preview_bundle'
+export type ChatDocumentKind = 'pdf' | 'docx' | 'ppt' | 'pptx' | 'md' | 'txt' | 'html' | 'xlsx' | 'presentation_preview_bundle'
 
 export interface PendingDocument {
   file: File

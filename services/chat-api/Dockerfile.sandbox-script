@@ -1,36 +1,25 @@
-ARG NODE_RUNTIME_IMAGE=node:22-bookworm-slim
-ARG PYTHON_BASE_IMAGE=python:3.10-slim-bookworm
-FROM ${NODE_RUNTIME_IMAGE} AS node-runtime
+FROM node:22-bookworm-slim AS node-runtime
 
-FROM ${PYTHON_BASE_IMAGE}
+FROM python:3.10-slim-bookworm
 
-ARG MOVO_PIP_INDEX_URL=
-ARG MOVO_APT_MIRROR=
+ARG MOGO_PIP_INDEX_URL=
+ARG MOGO_APT_MIRROR=
 ENV PYTHONUNBUFFERED=1 PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_PROGRESS_BAR=off
 WORKDIR /app
-
-RUN mkdir -p /job/home
 
 COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
 COPY --from=node-runtime /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
-    && if [ -n "${MOVO_APT_MIRROR}" ]; then \
-      sed -i "s|http://deb.debian.org/debian-security|${MOVO_APT_MIRROR%/}/debian-security|g; s|http://deb.debian.org/debian|${MOVO_APT_MIRROR%/}/debian|g" /etc/apt/sources.list.d/debian.sources; \
+    && if [ -n "${MOGO_APT_MIRROR}" ]; then \
+      sed -i "s|http://deb.debian.org/debian-security|${MOGO_APT_MIRROR%/}/debian-security|g; s|http://deb.debian.org/debian|${MOGO_APT_MIRROR%/}/debian|g" /etc/apt/sources.list.d/debian.sources; \
     fi
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-      ca-certificates curl dnsutils file git iproute2 jq netcat-openbsd \
-      openssh-client rsync unzip wget zip \
-    && rm -rf /var/lib/apt/lists/* \
-    && printf 'Host *\n    ProxyCommand nc -X connect -x sandbox-egress:3128 %%h %%p\n' > /etc/ssh/ssh_config.d/movo-sandbox.conf
-
 COPY requirements.txt /tmp/requirements.txt
-RUN if [ -n "${MOVO_PIP_INDEX_URL}" ]; then \
-      python -m pip install --no-cache-dir --index-url "${MOVO_PIP_INDEX_URL}" -r /tmp/requirements.txt; \
+RUN if [ -n "${MOGO_PIP_INDEX_URL}" ]; then \
+      python -m pip install --no-cache-dir --index-url "${MOGO_PIP_INDEX_URL}" -r /tmp/requirements.txt; \
     else \
       python -m pip install --no-cache-dir -r /tmp/requirements.txt; \
     fi
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
-COPY sandbox_script /opt/movo-sandbox
+COPY sandbox_script /opt/mogo-sandbox

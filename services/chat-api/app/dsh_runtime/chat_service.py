@@ -1,9 +1,5 @@
 """Application use case for the formal DSH-backed ASKAI Chat API."""
 
-# allow: SIZE_OK — the plan pins this file as the todo-13/14 seam (the DSH
-# turn admission and the run-initiator continuation address it by line
-# number); a split is a later todo's decision, not todo 13's.
-
 from __future__ import annotations
 
 import asyncio
@@ -13,13 +9,10 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
-from pymongo.errors import DuplicateKeyError
-
-from app.core.db import get_db
 from app.dsh_runtime.bindings import BindingReplacementConflict, KernelBindingRepository
+from app.infrastructure.observability.config import log_print
 from app.dsh_runtime.contracts import CancelSessionRequest
 from app.dsh_runtime.conversation import ConversationRepository
-from app.dsh_runtime.conversation.participants_repository import SessionParticipantsRepository
 from app.dsh_runtime.events import KernelEventRepository
 from app.dsh_runtime.events.live_stream import LiveTurnStream
 from app.dsh_runtime.events.projection_writer import ProjectionScope
@@ -27,22 +20,14 @@ from app.dsh_runtime.events.turn_channel import TurnEventRegistry
 from app.dsh_runtime.gateway import DshAgentKernelGateway
 from app.dsh_runtime.locale import resolve_turn_locale
 from app.dsh_runtime.profile.service import RuntimeProfilePublisher
-from app.dsh_runtime.plugin_management.invocation import PluginInvocationRecorder
 from app.dsh_runtime.profile.synchronizer import ConversationProfileSynchronizer
 from app.dsh_runtime.runtime_coordinator import RuntimeCoordinator
-from app.dsh_runtime.session_access import (
-    AccessLease,
-    SessionReadAuthorizer,
-    SessionReadDeniedError,
-)
 from app.dsh_runtime.temporal_context import build_temporal_context
 from app.dsh_runtime.turn_cancellation import TurnCancellationCoordinator
 from app.dsh_runtime.turn_runner import DshTurnRunner
-from app.dsh_runtime.plugin_command_runner import PluginCommandRunner
 from app.dsh_runtime.turn_finalization import TurnStateFinalizer
 from app.dsh_runtime.turn_recovery import TurnTerminalRecovery
 from app.enterprise_capabilities.evidence import ExecutionEvidenceRepository
-from app.governance.topic_admission import TopicAdmissionService
 from app.dsh_runtime.events.authoritative_delivery import DeliveryStore
 
 
@@ -51,35 +36,10 @@ class PreparedTurn:
     conversation_id: str
     message_id: str
     binding_id: str
-    user_message_id: str = ""
 
 
 class ConversationBusyError(RuntimeError):
     pass
-
-
-# The POST stream's producer wait reauthorizes at least this often even while
-# the live queue is idle (one-second monotonic authorization timer, plan L48).
-_STREAM_AUTH_RECHECK_SECONDS = 1.0
-STREAM_HEARTBEAT_SECONDS = 10.0
-
-
-def _access_revoked_ndjson_line(session_id: str) -> str:
-    """The POST stream's terminal NDJSON line (one line, then EOF).
-
-    The durable soft-removal is identical for leave and removal (a single
-    ``update_one`` setting ``removed_at``), so the reason reports the removal
-    member exactly like the session SSE endpoint's terminal frame.
-    """
-    return json.dumps(
-        {
-            "type": "session.access.revoked",
-            "session_id": session_id,
-            "reason": "participant_removed",
-        },
-        ensure_ascii=False,
-        separators=(",", ":"),
-    ) + "\n"
 
 
 class DshChatService:
@@ -96,7 +56,7 @@ class DshChatService:
         turn_events: TurnEventRegistry | None = None,
         execution_evidence: ExecutionEvidenceRepository | None = None,
         authoritative_deliveries: DeliveryStore | None = None,
-        topic_admission: TopicAdmissionService | None = None,
+        topic_admission: Any | None = None,
     ) -> None:
         self._gateway = gateway
         self._coordinator = coordinator
@@ -104,9 +64,11 @@ class DshChatService:
         self._bindings = bindings
         self._events = events
         self._profiles = profiles
-        self._topic_admission = topic_admission
         self._profile_sync = ConversationProfileSynchronizer(profiles, coordinator)
         self._turn_events = turn_events
+        # 话题准入闸门（组织级 allowlist / denylist）。必须在模型调用前强制，
+        # 且必须是显式注入的：缺省即视为装配错误，绝不静默放行。
+        self._topic_admission = topic_admission
         self._turn_runner = DshTurnRunner(
             gateway=gateway,
             conversations=conversations,
@@ -117,11 +79,6 @@ class DshChatService:
             turn_events=turn_events,
             execution_evidence=execution_evidence,
             authoritative_deliveries=authoritative_deliveries,
-            plugin_invocations=PluginInvocationRecorder(),
-        )
-        self._plugin_command_runner = PluginCommandRunner(
-            gateway=gateway, conversations=conversations, bindings=bindings,
-            events=events, turn_events=turn_events,
         )
         self._tasks: dict[str, asyncio.Task[str]] = {}
         self._turn_outcomes: dict[str, str] = {}
@@ -155,22 +112,19 @@ class DshChatService:
         timezone_name: str | None,
         images: list[dict[str, Any]],
         documents: list[dict[str, Any]],
-        knowledge_references: list[dict[str, Any]] | None = None,
         knowledge_qa_enabled: bool = False,
         knowledge_base_ids: list[str] | None = None,
         trusted_turn_context: dict[str, Any] | None = None,
-        claim_token: str | None = None,
-        user_message_id: str | None = None,
         language_name: str | None = None,
         selected_writing_skill_id: str | None = None,
         selected_skill_id: str | None = None,
-        selected_command_id: str | None = None,
+        project_id: str = "default",
     ) -> PreparedTurn:
-        if self._topic_admission is None:
+        gate = self._topic_admission
+        if gate is None:
+            # 装配期漏注入时宁可拒绝也不放行：准入是治理承诺，不是可选装饰。
             raise RuntimeError("topic admission is not configured")
-        await self._topic_admission.require(main_id=tenant_id, user_id=user_id, text=text)
-        from app.knowledge_references.admission import admit_references
-        admitted_references = await admit_references(knowledge_references, main_id=tenant_id, user_id=user_id)
+        await gate.require(tenant_id=tenant_id, user_id=user_id, text=text)
         temporal_context = build_temporal_context(timezone_name)
         locale = resolve_turn_locale(text, explicit=language_name)
         turn_context = {
@@ -182,7 +136,6 @@ class DshChatService:
             # when a capability semantically selects prior-turn evidence. The
             # DSH Host allowlist deliberately filters this field.
             "user_request": text,
-            "knowledge_references": admitted_references,
         }
         # Trusted selection references. The Host resolves these opaque IDs
         # only against its immutable Runtime Profile; arbitrary instructions
@@ -191,16 +144,9 @@ class DshChatService:
             turn_context["selected_writing_skill_id"] = str(selected_writing_skill_id)
         if selected_skill_id:
             turn_context["selected_skill_id"] = str(selected_skill_id)
-        if selected_command_id:
-            turn_context["selected_command_id"] = str(selected_command_id)
-        # Server-built turn metadata (plan todo 14): the turn's initiator is
-        # recorded here — never copied from ChatRequest — and travels with the
-        # claimed turn (claim_turn) for the approval stamp and the
-        # initiator-only cancel. Absent means "unknown" and fails closed.
         turn_metadata = {
             "language": "zh" if locale.startswith("zh") else "en",
             "locale": locale,
-            "initiator_user_id": user_id,
         }
         turn_context["language"] = turn_metadata["language"]
         # This argument is only supplied by internal authenticated endpoints
@@ -210,25 +156,12 @@ class DshChatService:
             if isinstance(browser_resume, dict):
                 turn_context["browser_resume"] = dict(browser_resume)
         binding: dict[str, Any] | None = None
-        other_member = False
-        authorizer: SessionReadAuthorizer | None = None
+        binding_is_new = False
         if conversation_id:
-            # Turn admission (session-sharing plan todos 13/2): the shared
-            # owner-or-ACTIVE-participant predicate is the initial access
-            # gate — the session doc's user_id (owner) OR an active
-            # session_participants row through is_member()'s removed_at
-            # filter. Everyone else is invisible (SessionReadDeniedError is
-            # a LookupError -> 404), never 403.
-            authorizer = SessionReadAuthorizer(get_db())
-            initial_lease = await authorizer.authorize_read(
-                conversation_id, tenant_id=tenant_id, user_id=user_id
-            )
-            is_owner = initial_lease.role == "owner"
-            if not is_owner:
-                # A participant speaker always has another member: the owner.
-                other_member = True
+            await self._conversations.owned(conversation_id, tenant_id=tenant_id, user_id=user_id)
             binding = await self._bindings.current(conversation_id, tenant_id=tenant_id, user_id=user_id)
             if binding is None:
+                binding_is_new = True
                 # Conversations created before the DSH cut-over (and empty
                 # scheduled-task targets) are ASKAI business records without
                 # a Kernel Binding. Continue them by creating the first DSH
@@ -240,37 +173,15 @@ class DshChatService:
                     model_instance_id=model_instance_id,
                     activate=False,
                 )
-                try:
-                    binding = await self._coordinator.create_binding(
-                        tenant_id=tenant_id,
-                        user_id=user_id,
-                        conversation_id=conversation_id,
-                        profile_version=profile.profile_version,
-                        model_instance_id=profile.model_instance_id,
-                    )
-                except DuplicateKeyError:
-                    # Two concurrent first turns on a never-bound conversation
-                    # (a shared session): the partial unique index admits
-                    # exactly one creator; the loser's kernel session is
-                    # disposed by the coordinator's except-handler — re-resolve
-                    # the winner's binding once instead of surfacing a 500.
-                    binding = await self._bindings.current(
-                        conversation_id, tenant_id=tenant_id, user_id=user_id
-                    )
-                    if binding is None:
-                        raise
+                binding = await self._coordinator.create_binding(
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    profile_version=profile.profile_version,
+                    model_instance_id=profile.model_instance_id,
+                )
             if str(binding.get("execution_location") or "server") != "server":
                 raise ValueError("this Code task must continue on its bound desktop Runtime")
-            if is_owner and model_instance_id is None:
-                # Q11 [review-3] (session-sharing plan todo 13): the
-                # predecessor's-model restriction applies only when the
-                # conversation has another active member — only the
-                # no-explicit-model turn consumes it. An admitted participant
-                # speaker always has the owner as that other member
-                # (other_member is already True above).
-                other_member = bool(await SessionParticipantsRepository(get_db()).list(
-                    conversation_id, tenant_id=tenant_id,
-                ))
             active_status = str((binding.get("active_turn") or {}).get("status") or "")
             if active_status and active_status not in {"completed", "failed", "cancelled"}:
                 binding = await self._terminal_recovery.recover(binding)
@@ -284,63 +195,20 @@ class DshChatService:
                         status=active_status,
                     )
             if active_status and active_status not in {"completed", "failed", "cancelled"}:
-                # Early busy rejection (walkthrough fix): a live foreign claim
-                # must 409 BEFORE the speaker rotation — the rotation seeds
-                # the successor from the predecessor session
-                # (exportCompletedSeed -> agent.whenIdle()) and BLOCKS until
-                # the predecessor turn finishes, which outlives the 5s host
-                # transport timeout and surfaces as a bogus 503 "DSH Runtime
-                # Host is unavailable". The atomic claim below remains the
-                # single admission decision; this reject is only a fast,
-                # side-effect-free short-circuit. Same-token re-admission (the
-                # client-timeout retry the claim's fallback exists for) still
-                # passes through to the claim.
-                live_claim_token = str((binding.get("active_turn") or {}).get("claim_token") or "")
-                if not (claim_token and live_claim_token and claim_token == live_claim_token):
-                    raise ConversationBusyError("another DSH turn is already running for this Conversation")
-            # Two-layer admission (walkthrough fix): the early reject above is
-            # the fast, side-effect-free layer that keeps the rotation/seed
-            # path from ever being entered while the predecessor is live; the
-            # conditional claim below remains the single atomic admission
-            # decision (the old check-then-claim race stays removed — this
-            # reject only short-circuits, it never admits).
-            # Recovery/finalization above still repairs a stale lock; a live
-            # foreign claim makes claim_turn_authorized() return None, which
-            # raises the same ConversationBusyError (409).
-            sync_model_id = model_instance_id
-            if other_member and model_instance_id is None:
-                # Q11 [review-3] (session-sharing plan todo 13): with another
-                # active member, a no-explicit-model turn resolves to the
-                # speaker's own effective default (the tenant catalog default
-                # — no user-level default model exists), never the
-                # predecessor's previous_model_id fallback in the synchronizer.
-                speaker_default = await self._profiles.compile_model_profile(
-                    tenant_id=tenant_id,
-                    user_id=user_id,
-                    model_instance_id=None,
-                )
-                sync_model_id = speaker_default.model_instance_id
+                raise ConversationBusyError("another DSH turn is already running for this Conversation")
             try:
                 binding = (await self._profile_sync.synchronize(
-                    # The successor binding must carry the SPEAKER's identity
-                    # (plan todo 13 / R1=A): synchronizer.synchronize takes no
-                    # speaker/preset argument, so the speaker is threaded
-                    # through the existing call path — injected here, carried
-                    # through restore(), read by rotate_binding. The chat
-                    # path's speaker preset is the server default
-                    # create_binding resolves.
-                    {**binding, "speaker_user_id": user_id, "speaker_preset_id": "askai-enterprise"},
+                    binding,
                     tenant_id=tenant_id,
                     user_id=user_id,
-                    model_instance_id=sync_model_id,
-                    selected_skill_id=selected_skill_id,
-                    selected_command_id=selected_command_id,
+                    model_instance_id=model_instance_id,
                 )).binding
             except BindingReplacementConflict as exc:
                 raise ConversationBusyError(
                     "another turn refreshed this Conversation; retry on the current binding"
                 ) from exc
         else:
+            binding_is_new = True
             profile = await self._profiles.publish_model_profile(
                 tenant_id=tenant_id,
                 actor_id=user_id,
@@ -354,6 +222,7 @@ class DshChatService:
                 tenant_id=tenant_id,
                 user_id=user_id,
                 title=text[:120],
+                project_id=project_id,
             )
             conversation_id = str(conversation["_id"])
             try:
@@ -370,64 +239,31 @@ class DshChatService:
                 )
                 raise
 
+        # After a chat-api restart, gateway._sessions (in-memory) is empty.
+        # Reattach an existing binding's session to the gateway so that
+        # turn_runner.run() -> gateway.send() finds it instead of raising
+        # DshNotFoundError, which turn_runner.py:208 silently suppresses,
+        # leaving the turn as a zombie with active_turn=failed.
+        # New bindings (create_binding()) already register the session, so
+        # restore() is only needed for bindings fetched from the DB.
+        if not binding_is_new:
+            try:
+                binding = await self._coordinator.restore(binding)
+            except Exception as exc:
+                log_print(
+                    f"[dsh_runtime.chat_service] prepare_turn restore failed: {exc}",
+                    flush=True,
+                )
+
         message_id = f"msg-{uuid4()}"
         request_id = f"turn-{uuid4()}"
-        # Client turn identity (plan todo 4): the endpoint accepted this value
-        # at the request boundary, so it is persisted verbatim as the user
-        # row's id when present; otherwise the id stays server-minted. The
-        # assistant id (message_id) remains server-minted either way.
-        server_user_message_id = f"user-{request_id}"
-        effective_user_message_id = user_message_id or server_user_message_id
-        stable_claim_token = claim_token or f"claim-{uuid4()}"
-        if authorizer is not None and conversation_id is not None:
-            # Rechecked immediately before the admission: a removal that
-            # committed during binding resolution/synchronization denies the
-            # claim before it is taken.
-            await authorizer.authorize_read(
-                conversation_id, tenant_id=tenant_id, user_id=user_id
-            )
-        claimed = await self._bindings.claim_turn_authorized(
-            str(binding["binding_id"]),
-            message_id=message_id,
-            request_id=request_id,
-            claim_token=stable_claim_token,
+        claimed = await self._bindings.claim_turn(
+            str(binding["binding_id"]), message_id=message_id, request_id=request_id,
             turn_context=turn_context,
             turn_metadata=turn_metadata,
         )
         if claimed is None:
             raise ConversationBusyError("another DSH turn is already running for this Conversation")
-        if authorizer is not None and conversation_id is not None:
-            try:
-                # Rechecked immediately after the admission: a removal
-                # committed before this read rolls the freshly taken claim
-                # back and denies (404), while a removal committing afterwards
-                # leaves the claim to the post-claim stream timer.
-                await authorizer.authorize_read(
-                    conversation_id, tenant_id=tenant_id, user_id=user_id
-                )
-            except SessionReadDeniedError:
-                await self._bindings.finish_turn(
-                    str(binding["binding_id"]), message_id=message_id, status="failed"
-                )
-                raise
-        existing_message_id = str((claimed.get("active_turn") or {}).get("message_id") or "")
-        if existing_message_id and existing_message_id != message_id:
-            # Same-token re-admission after a client timeout: the durable
-            # claim and its rows already exist, so return them as-is rather
-            # than appending a duplicate user message/placeholder/active_run.
-            # Plan todo 4: report the durable user id of the admitted turn -
-            # the resent client id, else the server-minted id the original
-            # admission wrote (recovered from the claimed request_id).
-            claimed_request_id = str((claimed.get("active_turn") or {}).get("request_id") or "")
-            recovered_user_message_id = (
-                f"user-{claimed_request_id}" if claimed_request_id else server_user_message_id
-            )
-            return PreparedTurn(
-                conversation_id=str(claimed.get("conversation_id") or conversation_id or ""),
-                message_id=existing_message_id,
-                binding_id=str(binding["binding_id"]),
-                user_message_id=user_message_id or recovered_user_message_id,
-            )
         try:
             await self._conversations.append_message(
                 conversation_id=conversation_id,
@@ -435,11 +271,9 @@ class DshChatService:
                 user_id=user_id,
                 role="user",
                 content=text,
-                message_id=effective_user_message_id,
+                message_id=f"user-{request_id}",
                 images=images,
                 documents=documents,
-                knowledge_references=admitted_references,
-                client_supplied_id=user_message_id is not None,
             )
             await self._conversations.append_message(
                 conversation_id=conversation_id,
@@ -475,17 +309,13 @@ class DshChatService:
                 live_stream,
             )
         task = asyncio.create_task(
-            self._plugin_command_runner.run(
-                binding=claimed, message_id=message_id, text=text,
-                selected_command_id=selected_command_id, live_stream=live_stream,
-            ) if selected_command_id else self._turn_runner.run(
+            self._turn_runner.run(
                 binding=claimed,
                 message_id=message_id,
                 request_id=request_id,
                 text=text,
                 temporal_context=temporal_context,
                 turn_context=turn_context,
-                image_owner_user_id=user_id,
                 live_stream=live_stream,
             ),
             name=f"dsh-turn:{message_id}",
@@ -496,7 +326,6 @@ class DshChatService:
             conversation_id=conversation_id,
             message_id=message_id,
             binding_id=str(binding["binding_id"]),
-            user_message_id=effective_user_message_id,
         )
 
     async def wait_turn(self, message_id: str) -> str:
@@ -508,7 +337,8 @@ class DshChatService:
             await asyncio.shield(task)
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
+            log_print(f"[dsh_runtime.chat_service.wait_turn] suppressed {type(exc).__name__}: {exc}", flush=True)
             return "failed"
         return self._turn_outcomes.pop(message_id, str(task.result() or "unknown"))
 
@@ -521,76 +351,17 @@ class DshChatService:
             if isinstance(item, dict) and str(item.get("object_path") or "").strip()
         ]
 
-    @staticmethod
-    async def _stream_lease(
-        authorizer: SessionReadAuthorizer,
-        conversation_id: str,
-        *,
-        tenant_id: str,
-        user_id: str,
-    ) -> AccessLease | None:
-        """The stream's lease check; None means authorization was lost."""
-        try:
-            return await authorizer.authorize_read(
-                conversation_id, tenant_id=tenant_id, user_id=user_id
-            )
-        except SessionReadDeniedError:
-            return None
-
     async def stream(self, turn: PreparedTurn, *, tenant_id: str, user_id: str) -> AsyncIterator[str]:
         live_stream = self._live_streams.get(turn.message_id)
         if live_stream is None:
             raise LookupError("live_turn_stream_not_found")
-        # Per-request lock: every lease check is serialized with the response
-        # write it guards, so a removal committed before the locked check
-        # suppresses the frame, while a write already begun is the single
-        # defined in-flight frame followed by terminal revocation.
-        authorizer = SessionReadAuthorizer(get_db())
-        send_lock = asyncio.Lock()
-        pending_event: asyncio.Task[dict[str, Any]] | None = None
-        last_write = asyncio.get_running_loop().time()
         try:
-            events = live_stream.events().__aiter__()
-            while True:
-                if pending_event is None:
-                    pending_event = asyncio.ensure_future(events.__anext__())
-                # Producer wait: the next queued event races a one-second
-                # monotonic authorization timer; either wake reauthorizes.
-                timer = asyncio.ensure_future(asyncio.sleep(_STREAM_AUTH_RECHECK_SECONDS))
-                try:
-                    done, _ = await asyncio.wait(
-                        {pending_event, timer}, return_when=asyncio.FIRST_COMPLETED
-                    )
-                finally:
-                    timer.cancel()
-                async with send_lock:
-                    lease = await self._stream_lease(
-                        authorizer, turn.conversation_id, tenant_id=tenant_id, user_id=user_id
-                    )
-                    if lease is None:
-                        # On loss: exactly one typed terminal NDJSON line and
-                        # EOF, never cancel, and the server run's terminal
-                        # outcome is untouched.
-                        yield _access_revoked_ndjson_line(turn.conversation_id)
-                        return
-                    if pending_event in done:
-                        try:
-                            projected = pending_event.result()
-                        except StopAsyncIteration:
-                            pending_event = None
-                            break
-                        pending_event = None
-                        row = dict(projected)
-                        row.setdefault("session_id", turn.conversation_id)
-                        row.setdefault("task_id", turn.conversation_id)
-                        yield json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n"
-                        last_write = asyncio.get_running_loop().time()
-                    elif asyncio.get_running_loop().time() - last_write >= STREAM_HEARTBEAT_SECONDS:
-                        yield "\n"
-                        last_write = asyncio.get_running_loop().time()
+            async for projected in live_stream.events():
+                row = dict(projected)
+                row.setdefault("session_id", turn.conversation_id)
+                row.setdefault("task_id", turn.conversation_id)
+                yield json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n"
         finally:
-            if pending_event is not None:
-                pending_event.cancel()
             live_stream.detach()
             if self._live_streams.get(turn.message_id) is live_stream:
                 self._live_streams.pop(turn.message_id, None)
@@ -608,15 +379,19 @@ class DshChatService:
         )
         if message is None:
             raise LookupError("message_not_found")
-        binding = await self._bindings.by_message(message_id, tenant_id=tenant_id)
+        binding = await self._bindings.by_message(message_id, tenant_id=tenant_id, user_id=user_id)
         if binding and str((binding.get("active_turn") or {}).get("status")) == "running":
             try:
                 binding = await self._coordinator.restore(binding)
                 await self._terminal_recovery.ingest_once(
                     binding=binding, message_id=message_id
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                log_print(
+                    f"[dsh_runtime.chat_service] restore/ingest_once for "
+                    f"message {message_id} failed, proceeding with stale binding: {exc}",
+                    flush=True,
+                )
         rows = await self._events.list_for_message(
             message_id,
             tenant_id=tenant_id,
@@ -628,17 +403,6 @@ class DshChatService:
             (row for row in reversed(all_rows) if row.get("type") in {"run.completed", "run.failed", "run.cancelled"}),
             None,
         )
-        binding_status = str(((binding or {}).get("active_turn") or {}).get("status") or "")
-        if terminal is None and binding_status in {"completed", "failed", "cancelled"}:
-            from app.dsh_runtime.conversation.terminal_projection import terminal_event
-
-            await self._conversations.ensure_assistant_terminal(
-                message_id=message_id, tenant_id=tenant_id, status=binding_status,
-            )
-            synthesized = terminal_event(message_id, binding_status, all_rows)
-            terminal = synthesized
-            if int(synthesized["stream_seq"]) > after_cursor:
-                rows.append(synthesized)
         next_cursor = max(
             [after_cursor, *[int(row.get("stream_seq_end") or row.get("stream_seq") or 0) for row in rows]]
         )
@@ -661,25 +425,23 @@ class DshChatService:
 
     async def dispose_conversation(self, conversation_id: str, *, tenant_id: str, user_id: str) -> None:
         await self._conversations.owned(conversation_id, tenant_id=tenant_id, user_id=user_id)
-        # Conversation-scoped dispose (session-sharing plan todo 12): every
-        # binding row for the conversation is disposed, not just the
-        # owner-scoped current() one — belt-and-suspenders, since rotation
-        # predecessors are already disposed by profile/synchronizer.py.
-        bindings = await self._bindings.list_for_conversation(conversation_id, tenant_id=tenant_id)
-        for binding in bindings:
-            try:
-                binding = await self._coordinator.restore(binding)
-                if str((binding.get("active_turn") or {}).get("status")) == "running":
-                    await self._gateway.cancel(
-                        CancelSessionRequest(
-                            session_id=str(binding["kernel_session_id"]), cause="conversation_deleted"
-                        )
+        binding = await self._bindings.current(conversation_id, tenant_id=tenant_id, user_id=user_id)
+        if binding is None:
+            return
+        try:
+            binding = await self._coordinator.restore(binding)
+            if str((binding.get("active_turn") or {}).get("status")) == "running":
+                await self._gateway.cancel(
+                    CancelSessionRequest(
+                        session_id=str(binding["kernel_session_id"]), cause="conversation_deleted"
                     )
-                await self._gateway.dispose_session(str(binding["kernel_session_id"]))
-            except Exception:
-                await self._bindings.mark_disposed(str(binding["binding_id"]), pending=True)
-                continue
-            await self._bindings.mark_disposed(str(binding["binding_id"]))
+                )
+            await self._gateway.dispose_session(str(binding["kernel_session_id"]))
+        except Exception as exc:
+            log_print(f"[dsh_runtime.chat_service.dispose_conversation] suppressed {type(exc).__name__}: {exc}", flush=True)
+            await self._bindings.mark_disposed(str(binding["binding_id"]), pending=True)
+            return
+        await self._bindings.mark_disposed(str(binding["binding_id"]))
 
     async def shutdown(self) -> None:
         tasks = list(self._tasks.values())

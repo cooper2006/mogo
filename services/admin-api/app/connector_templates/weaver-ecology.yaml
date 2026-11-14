@@ -1,0 +1,57 @@
+# 连接器模板种子（041-connector-market）。凭证一律占位符 <...>，加载时校验。
+id: weaver-ecology
+version: 1
+category: oa
+name:
+  zh: "泛微 e-cology REST"
+  en: "Weaver e-cology REST"
+description:
+  zh: "调用泛微 e-cology 开放接口（审批/文档）。"
+  en: "Call Weaver e-cology open APIs (workflow/document)."
+auth_type: api_key
+credential_key: token
+config_template:
+  method: POST
+  url: "https://${host}/api/ec/dev/${path}"
+params:
+  - key: host
+    label:
+      zh: "服务地址"
+      en: "服务地址"
+    type: string
+    required: true
+    secret: false
+    in: path
+    description:
+      zh: "e-cology 访问域名（不含协议）"
+      en: "e-cology host without scheme"
+    example: "<your-ecology-host>"
+  - key: path
+    label:
+      zh: "接口路径"
+      en: "接口路径"
+    type: string
+    required: true
+    secret: false
+    in: path
+    description:
+      zh: "目标 REST 路径"
+      en: "Target REST path"
+    example: "<workflow/request>"
+  - key: token
+    label:
+      zh: "接口凭证"
+      en: "接口凭证"
+    type: string
+    required: true
+    secret: true
+    in: headers
+    description:
+      zh: "开放平台 token"
+      en: "Open platform token"
+    example: "<your-ecology-token>"
+test_hint:
+  probe:
+    zh: "调用一个只读查询接口"
+    en: "调用一个只读查询接口"
+  expected_status: 200

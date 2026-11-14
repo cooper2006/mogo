@@ -18,11 +18,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core.db import close_db, get_db  # noqa: E402
 
 
-async def backfill(main_id: str, *, apply: bool) -> tuple[int, int, int]:
+async def backfill(tenant_id: str, *, apply: bool) -> tuple[int, int, int]:
     db = get_db()
     usage = db.token_usage_logs
     missing_user = {"$in": ["", None]}
-    base_match = {"main_id": main_id, "stage": "dsh_agent_turn", "user_id": missing_user}
+    base_match = {"tenant_id": tenant_id, "stage": "dsh_agent_turn", "user_id": missing_user}
     scanned = recoverable = updated = 0
 
     groups = usage.aggregate([
@@ -35,13 +35,13 @@ async def backfill(main_id: str, *, apply: bool) -> tuple[int, int, int]:
         if not session_id:
             continue
         binding = await db.agent_kernel_bindings.find_one(
-            {"tenant_id": main_id, "kernel_session_id": session_id},
+            {"tenant_id": tenant_id, "kernel_session_id": session_id},
             {"user_id": 1},
         )
         user_id = str((binding or {}).get("user_id") or "")
         if not ObjectId.is_valid(user_id):
             continue
-        user = await db.end_users.find_one({"_id": ObjectId(user_id), "main_id": main_id}, {"_id": 1})
+        user = await db.end_users.find_one({"_id": ObjectId(user_id), "tenant_id": tenant_id}, {"_id": 1})
         if user is None:
             continue
         count = int(group.get("count") or 0)
@@ -58,11 +58,11 @@ async def backfill(main_id: str, *, apply: bool) -> tuple[int, int, int]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--main-id", required=True, help="Tenant to repair")
+    parser.add_argument("--tenant-id", required=True, help="Tenant to repair")
     parser.add_argument("--apply", action="store_true", help="Write the recoverable user IDs")
     args = parser.parse_args()
     try:
-        scanned, recoverable, updated = asyncio.run(backfill(args.main_id, apply=args.apply))
+        scanned, recoverable, updated = asyncio.run(backfill(args.tenant_id, apply=args.apply))
         print(f"scanned={scanned} recoverable={recoverable} updated={updated} skipped={scanned - recoverable}")
         if not args.apply:
             print("dry run; pass --apply to write")

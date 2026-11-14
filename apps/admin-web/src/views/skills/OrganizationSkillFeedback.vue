@@ -42,10 +42,10 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.feedback-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; color: #17233d; font-weight: 600; }
+.feedback-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; color: var(--mg-text-1); font-weight: 600; }
 .comment-list { display: grid; gap: 10px; max-height: 520px; overflow: auto; }
-.comment-card { padding: 13px 15px; border: 1px solid #e4eaf4; border-radius: 10px; background: #fafbfe; }
-.comment-meta { display: flex; justify-content: space-between; gap: 16px; color: #17233d; }
-.comment-meta span { color: #9aa5b8; font-size: 12px; }
-.comment-card p { margin: 8px 0 0; color: #52627d; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.comment-card { padding: 13px 15px; border: 1px solid var(--mg-border); border-radius: 10px; background: var(--mg-bg-surface); }
+.comment-meta { display: flex; justify-content: space-between; gap: 16px; color: var(--mg-text-1); }
+.comment-meta span { color: var(--mg-text-3); font-size: 12px; }
+.comment-card p { margin: 8px 0 0; color: var(--mg-text-2); line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 </style>

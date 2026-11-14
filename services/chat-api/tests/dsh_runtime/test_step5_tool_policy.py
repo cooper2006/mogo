@@ -7,6 +7,8 @@ from typing import Any
 import pytest
 
 import app.enterprise_capabilities.tools.service as service_module
+import app.enterprise_capabilities.tools.egress_guard as egress_guard_module
+from app.enterprise_capabilities.tools.egress_guard import EgressDecision
 from app.dsh_runtime.profile.models import RuntimeProfileSnapshot
 from app.dsh_runtime.profile.tools import ToolProfileCompiler, ToolProfileDefinition
 from app.dsh_runtime.tool_gateway import ToolGatewayTokenService
@@ -27,6 +29,29 @@ from app.enterprise_capabilities.tools.contracts import (
 from app.enterprise_capabilities.tools.service import EnterpriseToolService, ToolPolicyDenied
 from app.enterprise_capabilities.tools.result_projection import canonical_tool_result
 from app.enterprise_capabilities.content.invocation_contract import ResolvedContentInvocation
+
+
+@pytest.fixture(autouse=True)
+def _no_hook_rules_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tool-gateway tests assert the MOGO policy; the 009 hook defaults to "no rules".
+
+    The real ``run_pre_tool_use`` queries Mongo; keep it out of these tests unless
+    a test explicitly re-patches it (the two ``pre_tool_use`` tests below do).
+    """
+    import app.dsh_runtime.turn_admission as turn_admission
+
+    monkeypatch.setattr(
+        turn_admission,
+        "run_pre_tool_use",
+        lambda **_kw: _none_coroutine(),
+    )
+
+
+def _none_coroutine(*_a, **_k):
+    async def _inner():
+        return None
+
+    return _inner()
 
 
 class FakeToolCatalog:
@@ -270,6 +295,21 @@ class FakeExecutor:
             await asyncio.sleep(self.delay)
         return {"success": True, "raw": {"source": kwargs["provider_type"]}}
 
+    async def get(self, external_tool_id: str, tenant_id: str, scope: str = "any"):
+        # 038 出口白名单预检先读工具连接记录；查不到即 fail-closed 拒绝，
+        # 本用例只测策略/审批语义，因此返回一条带出站长地址的连接记录。
+        return {"external_tool_id": external_tool_id, "url": "https://tools.example.com/api"}
+
+
+class AllowAllEgressGuard:
+    """038 出口判定替身：放行所有候选 URL（出口语义由 test_egress_guard.py 覆盖）。"""
+
+    async def decide_urls(self, urls, *, tenant_id="", tool_id="", execution_location="server"):
+        return EgressDecision(allowed=True, domain="tools.example.com", reason="test-double-allow-all")
+
+    async def audit(self, decision, **kwargs):
+        return None
+
 
 def _tool(name: str, *, source: str, approval: bool, timeout_ms: int = 1000) -> ToolProfileDefinition:
     return ToolProfileDefinition(
@@ -308,6 +348,9 @@ def test_policy_approval_idempotency_mcp_scope_timeout_and_cancel(monkeypatch: p
         repo = FakeRepository()
         executor = FakeExecutor()
         monkeypatch.setattr(service_module, "external_tool_service", executor)
+        # 038 出口白名单预检已挂到工具执行热路径；本用例只测策略/审批语义，
+        # 出口判定由 test_egress_guard.py 覆盖，这里放行。
+        monkeypatch.setattr(egress_guard_module, "egress_guard", AllowAllEgressGuard())
         service = EnterpriseToolService(repo, FakeProfileStore(_profile(*tools)))
         claims = _claims(tools)
 
@@ -678,7 +721,13 @@ def test_accepted_content_is_reused_but_rejected_content_can_retry() -> None:
     asyncio.run(run())
 
 
-def test_askai_approval_events_form_one_actionable_lifecycle() -> None:
+def test_askai_approval_events_form_one_actionable_lifecycle(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 038 出口白名单预检已挂到工具解析路径：外部工具（mcp/http）会去查
+    # external_tool 连接文档，查不到即 fail-closed 抛"工具连接不存在"。
+    # 本用例只测审批事件的单生命周期语义，出口判定由 test_egress_guard.py 覆盖，
+    # 这里放行解析（同 test_policy_approval_idempotency_mcp_scope_timeout_and_cancel）。
+    monkeypatch.setattr(service_module, "external_tool_service", FakeExecutor())
+    monkeypatch.setattr(egress_guard_module, "egress_guard", AllowAllEgressGuard())
     class TurnEvents:
         def __init__(self):
             self.rows = []
@@ -752,7 +801,7 @@ def test_model_gateway_preserves_native_tool_calls_and_results() -> None:
 
         tokens = ModelGatewayTokenService("step-5-model-signing-secret")
         claims = tokens.verify(tokens.issue(
-            tenant_id="tenant-a", profile_version="profile-a", model_instance_id="model-a"
+            tenant_id="tenant-a", user_id="user-a", profile_version="profile-a", model_instance_id="model-a"
         ))
         request = ModelGatewayRequest(
             profileVersion="profile-a", modelInstanceId="model-a", provider="askai-model-gateway",
@@ -803,3 +852,105 @@ def test_mcp_structured_content_is_the_dsh_tool_output_value() -> None:
         },
     })
     assert result == {"code": 0, "data": {"customers": []}}
+
+
+# --- 2026-10-03 009 fix: PreToolUse runs at the real tool call site ---------
+
+
+def test_pre_tool_use_hook_denies_by_real_tool_name(monkeypatch) -> None:
+    """009: deny_tool rules must match at the *tool gateway* (real toolName).
+
+    Before the fix the hook was only evaluated turn-level with a hard-coded
+    ``dsh_turn``, so a ``deny_tool("crm-delete")`` rule could never fire at the
+    moment of execution.
+    """
+    import app.dsh_runtime.turn_admission as turn_admission
+
+    denied: dict = {}
+
+    class _DeniedGate:
+        allowed = False
+        denied_reason = "deny_tool(crm-delete)"
+        denied_rule_type = "deny_tool"
+        denied_scope = "tool"
+
+    async def _fake_run_pre_tool_use(**kwargs):
+        denied.update(kwargs)
+        return _DeniedGate()
+
+    monkeypatch.setattr(
+        turn_admission, "run_pre_tool_use", _fake_run_pre_tool_use
+    )
+
+    from app.enterprise_capabilities.tools.service import (
+        EnterpriseToolService,
+        ToolPolicyDenied,
+    )
+
+    svc = EnterpriseToolService.__new__(EnterpriseToolService)
+    import types
+
+    svc._repository = types.SimpleNamespace(audit=_record_audit())
+
+    class _Claims:
+        tenant_id = "tenant-a"
+        user_id = "user-a"
+
+    async def _go():
+        await svc._enforce_pre_tool_use(
+            tool_name="crm-delete",
+            session_id="sess-1",
+            claims=_Claims(),
+            arguments={"x": 1},
+        )
+
+    with pytest.raises(ToolPolicyDenied, match="deny_tool"):
+        asyncio.run(_go())
+    assert denied["tool"] == "crm-delete"
+    assert denied["request"] == {"x": 1}
+
+
+def test_pre_tool_use_hook_allows_when_no_rules_match(monkeypatch) -> None:
+    import app.dsh_runtime.turn_admission as turn_admission
+
+    monkeypatch.setattr(
+        turn_admission, "run_pre_tool_use", lambda **k: _none_coroutine()
+    )
+
+    from app.enterprise_capabilities.tools.service import EnterpriseToolService
+
+    svc = EnterpriseToolService.__new__(EnterpriseToolService)
+
+    class _Claims:
+        tenant_id = "tenant-a"
+        user_id = "user-a"
+
+    # A repository that records audit calls is unnecessary for the allow path.
+    import types
+
+    svc._repository = types.SimpleNamespace(audit=_record_audit())
+    asyncio.run(
+        svc._enforce_pre_tool_use(
+            tool_name="crm-search",
+            session_id="sess-1",
+            claims=_Claims(),
+            arguments={},
+        )
+    )
+
+
+def _none_coroutine(*_a, **_k):
+    async def _inner():
+        return None
+
+    return _inner()
+
+
+def _record_audit():
+    recorded: list = []
+
+    async def _audit(**kwargs):
+        recorded.append(kwargs)
+
+    _audit.recorded = recorded
+    return _audit

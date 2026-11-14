@@ -20,7 +20,7 @@ async def get_call_text(
 ) -> str:
     if principal.kind != "admin_service":
         raise HTTPException(status_code=403, detail="admin_service_required")
-    return await read_call_text(principal.main_id, message_id, call_id, kind)
+    return await read_call_text(principal.tenant_id, message_id, call_id, kind)
 
 
 @router.get("/{message_id}/calls/{call_id}/files/{file_index}")
@@ -31,7 +31,7 @@ async def download_call_file(
     if principal.kind != "admin_service":
         raise HTTPException(status_code=403, detail="admin_service_required")
     object_path, item = await call_file_metadata(
-        principal.main_id, message_id, call_id, file_index,
+        principal.tenant_id, message_id, call_id, file_index,
     )
     path = str(item.get("path") or "")
     digest = str(item.get("sha256") or "")

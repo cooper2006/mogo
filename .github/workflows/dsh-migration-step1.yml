@@ -16,25 +16,21 @@ on:
       - "services/chat-api/dsh/compatibility-matrix.yaml"
       - "services/chat-api/scripts/benchmark_dsh_gateway.py"
       - "services/chat-api/app/main.py"
+      - "docs/dsh-*"
       - "apps/user-web/**"
       - ".github/workflows/dsh-migration-step1.yml"
       - ".github/workflows/dsh-upgrade-candidate.yml"
   push:
     branches: [main]
 
+# Least privilege: this gate only checks out code and runs contract checks.
+permissions:
+  contents: read
+
 jobs:
   contract-and-supply-chain:
     runs-on: ubuntu-latest
-    services:
-      mongodb:
-        image: mongo:6.0.20
-        ports:
-          - 27017:27017
-        options: >-
-          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ ping: 1 })'"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,16 +40,23 @@ jobs:
           python-version: "3.10"
           cache: pip
           cache-dependency-path: services/chat-api/requirements.txt
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
-          version: "11.28.5"
+          version: "10.14.0"
       - uses: actions/setup-node@v4
         with:
           node-version: "24.19.0"
           cache: pnpm
           cache-dependency-path: services/chat-api/dsh/runtime-host/pnpm-lock.yaml
       - name: Install boundary test dependencies
-        run: python -m pip install -r services/chat-api/requirements.txt "pytest>=8,<9" "pyyaml==6.0.2"
+        # requirements.txt is a hashed, --require-hashes production closure;
+        # mixing an unhashed `pytest`/`pyyaml` into the same `pip install`
+        # call makes pip reject them under --require-hashes. Install the
+        # verified closure first, then the (unhashed) test tools separately —
+        # the same two-call pattern used by quality-gate.yml.
+        run: |
+          python -m pip install --require-hashes -r services/chat-api/requirements.txt
+          python -m pip install "pytest>=8,<9" "pyyaml==6.0.2"
       - name: Install pinned DSH Runtime Host
         working-directory: services/chat-api/dsh/runtime-host
         run: pnpm install --frozen-lockfile --registry=https://registry.npmjs.org
@@ -65,11 +68,6 @@ jobs:
         run: python services/chat-api/scripts/check_dsh_upgrade_contract.py
       - name: Test versioned contracts and runtime boundary
         working-directory: services/chat-api
-        env:
-          # Real-Mongo fixtures use their own isolated databases. An accidental
-          # application-global get_db() must not be masked by a developer .env.
-          MONGODB_URI: ""
-          MOVO_TEST_MONGODB_URI: mongodb://localhost:27017
         run: python -m pytest tests/dsh_runtime -q
       - name: Test native Runtime Host modules
         working-directory: services/chat-api/dsh/runtime-host
@@ -79,11 +77,10 @@ jobs:
       - name: Verify pinned artifact and license
         working-directory: services/chat-api
         run: |
-          DSH_VERSION=$(python -c 'import yaml; print(yaml.safe_load(open("dsh/compatibility-matrix.yaml"))["active_release"]["dsh_release_train"])')
           curl --fail --location --silent --show-error \
-            --output "/tmp/dsh-${DSH_VERSION}.tgz" \
-            "https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh-${DSH_VERSION}.tgz"
-          python scripts/check_dsh_supply_chain.py --artifact "/tmp/dsh-${DSH_VERSION}.tgz"
+            --output /tmp/dsh-0.1.6-alpha.1.tgz \
+            https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh-0.1.6-alpha.1.tgz
+          python scripts/check_dsh_supply_chain.py --artifact /tmp/dsh-0.1.6-alpha.1.tgz
       - name: Reject copied or patched upstream core
         run: |
           test ! -d services/chat-api/dsh/packages
@@ -100,11 +97,12 @@ jobs:
         # separately and does not expose the DSH `bash` tool used by this suite.
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
-          version: "11.28.5"
+          version: "10.14.0"
       - uses: actions/setup-node@v4
         with:
           node-version: "24.19.0"
@@ -119,15 +117,23 @@ jobs:
 
   web-contracts:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      # 仓库唯一权威的前端锁文件是 pnpm-lock.yaml（package-lock.json 已于
+      # ccd94a6 / QF-012 归档废弃）。npm ci 会因缺 lock 直接失败，统一改走 pnpm。
+      - uses: pnpm/action-setup@v6
+        with:
+          version: "10.14.0"
       - uses: actions/setup-node@v4
         with:
           node-version: "24.19.0"
+          cache: pnpm
+          cache-dependency-path: apps/user-web/pnpm-lock.yaml
       - name: Install and test Web capability boundary
         working-directory: apps/user-web
         run: |
-          npm ci
-          npm run test:code-platform
-          npm run test:execution-v3
-          npm run build
+          pnpm install --frozen-lockfile
+          pnpm run test:code-platform
+          pnpm run test:execution-v3
+          pnpm run build

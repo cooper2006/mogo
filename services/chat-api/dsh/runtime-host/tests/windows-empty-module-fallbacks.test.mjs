@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import { recoverWindowsEmptyModuleFallbacks } from '../src/official-host/windows-empty-module-fallbacks.mjs'
 
 test('Windows clears only empty interrupted fallback package directories', async () => {
-  const home = await mkdtemp(join(tmpdir(), 'movo-fallback-'))
+  const home = await mkdtemp(join(tmpdir(), 'mogo-fallback-'))
   const modules = join(home, 'profiles', 'node_modules')
   try {
     await mkdir(join(modules, 'empty'), { recursive: true })

@@ -35,5 +35,5 @@ watch(() => props.skill.id, () => { activeId.value = preferred() })
 </script>
 
 <style scoped>
-.dialog-body{display:grid;gap:14px}.dot{display:inline-block;width:6px;height:6px;margin-left:5px;border-radius:50%;background:#e5484d;vertical-align:middle}
+.dialog-body{display:grid;gap:14px}.dot{display:inline-block;width:6px;height:6px;margin-left:5px;border-radius: 50%;background: var(--mg-danger-text);vertical-align:middle}
 </style>

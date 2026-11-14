@@ -1,5 +1,5 @@
 <template>
-  <div class="page-stack skills-page" @dragover.prevent @drop.prevent="handlePageDrop">
+  <div class="mg-page skills-page" @dragover.prevent @drop.prevent="handlePageDrop">
     <div class="metrics-row">
       <n-card v-for="item in metricCards" :key="item.key" class="metric-card" :bordered="false" size="small">
         <div class="metric-main">
@@ -76,20 +76,18 @@
                 </div>
                 <span class="card-time">{{ formatAppDateTime(row.updatedAt || row.createdAt, t('skills.just_created')) }}</span>
               </div>
-              <SkillEnvironmentBadge class="card-environment" :status="row.environmentStatus" :busy="Boolean(retryingById[row.id])" @retry="retryEnvironment(row)" />
 
               <div class="card-title">{{ row.name }}</div>
               <div class="card-desc">{{ row.description || t('skills.no_desc') }}</div>
 
               <div class="card-footrow">
                 <div class="card-actions">
-                  <div class="card-switch" :class="{ 'card-switch-blocked': isEnvironmentBlocked(row) }" :tabindex="isEnvironmentBlocked(row) ? 0 : undefined" @click.stop="explainEnvironmentBlock(row)" @keydown.enter.prevent="explainEnvironmentBlock(row)" @keydown.space.prevent="explainEnvironmentBlock(row)">
+                  <div class="card-switch" @click.stop>
                     <span class="card-switch-label">{{ row.enabled ? t('skills.enabled') : t('skills.disabled') }}</span>
                     <n-switch
                       size="small"
                       :value="row.enabled"
                       :loading="Boolean(switchingById[row.id])"
-                      :disabled="!row.enabled && Boolean(row.environmentStatus) && row.environmentStatus !== 'ready'"
                       @update:value="handleEnabledUpdate(row, $event)"
                     />
                   </div>
@@ -141,7 +139,7 @@
         <SharedWithMePanel
           v-else
           :active="activeView === 'shared'"
-          :scope-key="`${mainId}:${userId || ''}`"
+          :scope-key="`${tenantId}:${userId || ''}`"
           @count-change="handlePendingShareCount"
           @installed="handleReceivedInstalled"
         />
@@ -243,7 +241,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import {
   NButton,
   NCard,
@@ -263,11 +261,10 @@ import {
   type FormInst,
   type FormRules,
 } from 'naive-ui';
-import { createSkill, deleteSkill, fetchSkills, retrySkillDependency, setSkillEnabled, updateSkill, type SkillItem, type SkillPayload, type SkillType } from '../api/skills';
+import { createSkill, deleteSkill, fetchSkills, setSkillEnabled, updateSkill, type SkillItem, type SkillPayload, type SkillType } from '../api/skills';
 import { t } from '../composables/i18n';
 import { formatAppDateTime, parseAppDate } from '../composables/appTimezone';
 import SkillZipInstaller from './skills/SkillZipInstaller.vue';
-import SkillEnvironmentBadge from './skills/SkillEnvironmentBadge.vue';
 import SkillPackageDetails from './skills/SkillPackageDetails.vue';
 import SkillShareDialog from './skills/SkillShareDialog.vue';
 import SkillShareInstallDialog from './skills/SkillShareInstallDialog.vue';
@@ -279,7 +276,7 @@ import { openSkillZipInstaller } from '../composables/skillZipInstallBridge';
 
 const props = defineProps<{
   userId: string | null
-  mainId: string
+  tenantId: string
   pendingShareCount: number
   pendingFeedbackCount: number
 }>();
@@ -488,7 +485,7 @@ async function loadRows(options: { silent?: boolean } = {}) {
   }
   if (!options.silent) loading.value = true;
   try {
-    const data = await fetchSkills(props.userId, props.mainId);
+    const data = await fetchSkills(props.userId, props.tenantId);
     rows.value = data.sort((a, b) => {
       const timeA = parseAppDate(a.createdAt || (a as any).created_at)?.getTime() || 0;
       const timeB = parseAppDate(b.createdAt || (b as any).created_at)?.getTime() || 0;
@@ -505,22 +502,6 @@ async function loadRows(options: { silent?: boolean } = {}) {
   }
 }
 
-const retryingById = ref<Record<string, boolean>>({});
-let environmentTimer: ReturnType<typeof setInterval> | null = null;
-async function retryEnvironment(row: SkillItem) {
-  retryingById.value = { ...retryingById.value, [row.id]: true };
-  try {
-    const result = await retrySkillDependency(row.id);
-    if (result.status !== 'preparing' && result.status !== 'ready') {
-      message.error(t('skillDeps.retryNotStarted'));
-      return;
-    }
-    rows.value = rows.value.map(item => item.id === row.id ? { ...item, environmentStatus: result.status as SkillItem['environmentStatus'] } : item);
-    message[result.status === 'ready' ? 'success' : 'info'](t(result.status === 'ready' ? 'skillDeps.ready' : 'skillDeps.retryStarted'));
-  } catch { message.error(t('skillDeps.unavailable')); }
-  finally { const next = { ...retryingById.value }; delete next[row.id]; retryingById.value = next; }
-}
-
 async function submitCreate() {
   await createFormRef.value?.validate();
   if (!props.userId) {
@@ -529,7 +510,7 @@ async function submitCreate() {
   }
   creating.value = true;
   try {
-    await createSkill(props.userId, props.mainId, createForm.value);
+    await createSkill(props.userId, props.tenantId, createForm.value);
     message.success(t('skills.msg_create_disabled_success'));
     createVisible.value = false;
     await loadRows();
@@ -545,7 +526,7 @@ async function submitEdit() {
   if (!editForm.value.id || !props.userId) return;
   updating.value = true;
   try {
-    await updateSkill(editForm.value.id, props.userId, props.mainId, {
+    await updateSkill(editForm.value.id, props.userId, props.tenantId, {
       name: editForm.value.name,
       description: editForm.value.description,
       scenario: editForm.value.scenario,
@@ -567,7 +548,7 @@ async function confirmDelete() {
   if (!pendingDeleteRow.value || !props.userId) return false;
   deleting.value = true;
   try {
-    await deleteSkill(pendingDeleteRow.value.id, props.userId, props.mainId);
+    await deleteSkill(pendingDeleteRow.value.id, props.userId, props.tenantId);
     message.success(t('skills.msg_delete_success'));
     deleteConfirmVisible.value = false;
     pendingDeleteRow.value = null;
@@ -589,8 +570,8 @@ async function toggleEnabled(row: SkillItem, enabled: boolean) {
   }
   switchingById.value = { ...switchingById.value, [row.id]: true };
   try {
-    const updated = await setSkillEnabled(row.id, props.userId, props.mainId, enabled);
-    rows.value = rows.value.map((item) => (item.id === row.id ? { ...updated, environmentStatus: updated.environmentStatus ?? item.environmentStatus } : item));
+    const updated = await setSkillEnabled(row.id, props.userId, props.tenantId, enabled);
+    rows.value = rows.value.map((item) => (item.id === row.id ? updated : item));
     message.success(enabled ? t('skills.msg_enabled_success') : t('skills.msg_disabled_success'));
   } catch (error: any) {
     message.error(skillActionErrorMessage(
@@ -608,19 +589,8 @@ function handleEnabledUpdate(row: SkillItem, value: boolean) {
   void toggleEnabled(row, value);
 }
 
-function isEnvironmentBlocked(row: SkillItem): boolean {
-  return !row.enabled && Boolean(row.environmentStatus) && row.environmentStatus !== 'ready';
-}
-
-function explainEnvironmentBlock(row: SkillItem) {
-  if (isEnvironmentBlocked(row)) message.warning(t(row.environmentStatus === 'preparing' ? 'skillDeps.enableBlocked.preparing' : 'skillDeps.enableBlocked.retry'));
-}
-
-onMounted(() => { void loadRows(); environmentTimer = setInterval(() => {
-  if (rows.value.some(row => row.environmentStatus === 'preparing')) void loadRows({ silent: true });
-}, 3000); });
-onBeforeUnmount(() => { if (environmentTimer) clearInterval(environmentTimer); });
-watch(() => [props.userId, props.mainId], () => {
+onMounted(loadRows);
+watch(() => [props.userId, props.tenantId], () => {
   void loadRows();
 });
 watch(() => props.pendingFeedbackCount, (next, previous) => {
@@ -633,11 +603,6 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
 .skills-page {
   height: 100%;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  background: #f6f8fc;
-  padding: 12px;
 }
 
 :global(.skill-details-modal),
@@ -647,8 +612,8 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
 
 .shell-card {
   border-radius: 14px;
-  border: 1px solid #e6ebf5;
-  background: #fff;
+  border: 1px solid var(--mg-border);
+  background: var(--mg-bg-surface);
   box-shadow: 0 6px 20px rgba(16, 38, 84, 0.05);
 }
 
@@ -678,8 +643,8 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
 }
 
 .metric-card {
-  border: 1px solid #e6ebf5;
-  background: #fff;
+  border: 1px solid var(--mg-border);
+  background: var(--mg-bg-surface);
   box-shadow: 0 4px 12px rgba(29, 54, 110, 0.04);
 }
 
@@ -716,33 +681,33 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
 }
 
 .metric-icon-total {
-  color: #2d63ff;
-  background: #eaf0ff;
+  color: var(--mg-brand);
+  background: var(--mg-brand-soft);
 }
 
 .metric-icon-writing {
-  color: #0f9964;
-  background: #e8f8ef;
+  color: var(--mg-success-text);
+  background: var(--mg-success-bg);
 }
 
 .metric-icon-workflow {
-  color: #d9860a;
-  background: #fff2df;
+  color: var(--mg-warning-text);
+  background: var(--mg-warning-bg);
 }
 
 .metric-icon-config {
-  color: #7456e0;
-  background: #f0ebff;
+  color: var(--mg-accent-violet-text);
+  background: var(--mg-accent-violet-bg);
 }
 
 .metric-label {
-  color: #606f8a;
+  color: var(--mg-text-2);
   font-size: 12px;
   line-height: 1.3;
 }
 
 .metric-value {
-  color: #0f1f45;
+  color: var(--mg-text-1);
   font-size: 24px;
   font-weight: 600;
   line-height: 1.1;
@@ -750,7 +715,7 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
 
 .metric-note {
   margin-top: 6px;
-  color: #708099;
+  color: var(--mg-text-2);
   font-size: 12px;
 }
 
@@ -776,7 +741,7 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
 .list-filter-row {
   padding: 0 44px 12px;
   margin: 0 -44px 12px;
-  border-bottom: 1px solid #edf1f7;
+  border-bottom: 1px solid var(--mg-border);
 }
 
 .list-body {
@@ -796,7 +761,7 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
   padding: 14px;
   border: 1px solid rgba(28, 45, 82, 0.08);
   border-radius: 8px;
-  background: #fff;
+  background: var(--mg-bg-surface);
   box-shadow:
     0 8px 18px rgba(15, 31, 69, 0.06),
     0 1px 2px rgba(15, 31, 69, 0.04);
@@ -835,18 +800,18 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
 }
 
 .card-time {
-  color: #7a8797;
+  color: var(--mg-text-3);
   font-size: 12px;
 }
 
 .card-title {
-  color: #17233d;
+  color: var(--mg-text-1);
   font-size: 16px;
   font-weight: 800;
 }
 
 .card-desc {
-  color: #5f6f85;
+  color: var(--mg-text-2);
   font-size: 13px;
   line-height: 1.55;
   display: -webkit-box;
@@ -874,15 +839,12 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
   gap: 8px;
   padding: 4px 10px;
   border-radius: 999px;
-  background: #f6f9ff;
-  border: 1px solid #e3ebfb;
+  background: var(--mg-brand-soft);
+  border: 1px solid var(--mg-border);
 }
 
-.card-switch-blocked { cursor: pointer; }
-.card-switch-blocked :deep(.n-switch) { pointer-events: none; }
-
 .card-switch-label {
-  color: #4a5d7c;
+  color: var(--mg-text-2);
   font-size: 12px;
   line-height: 1;
 }
@@ -902,7 +864,7 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
   min-width: 30px;
   padding: 0 7px;
   border-radius: 999px;
-  color: #667085;
+  color: var(--mg-text-2);
 }
 
 .feedback-btn :deep(svg) {
@@ -916,20 +878,20 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
 }
 
 .feedback-btn-unread {
-  color: #2459e8;
-  background: #edf3ff;
+  color: var(--mg-brand);
+  background: var(--mg-brand-soft);
 }
 
 .feedback-count { margin-left: 4px; font-size: 11px; font-weight: 700; }
-.feedback-unread-dot { position: absolute; top: 2px; right: 2px; width: 6px; height: 6px; border: 1px solid #fff; border-radius: 50%; background: #e5484d; }
+.feedback-unread-dot { position: absolute; top: 2px; right: 2px; width: 6px; height: 6px; border: 1px solid #fff; border-radius: 50%; background: var(--mg-danger-text); }
 
 .delete-btn:hover {
-  color: #d03050;
+  color: var(--mg-danger-text);
 }
 
 .skill-card-disabled {
-  background: linear-gradient(180deg, #fbfcfe, #f6f8fc);
-  border-color: rgba(28, 45, 82, 0.06);
+  background: var(--mg-gradient-page);
+  border-color: var(--mg-border-subtle);
 }
 
 .skill-card-disabled .card-title,
@@ -940,7 +902,7 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
 
 .empty-shell {
   min-height: 320px;
-  border: 1px dashed #d8e2f2;
+  border: 1px dashed var(--mg-border);
   border-radius: 12px;
   display: flex;
   flex-direction: column;
@@ -948,7 +910,7 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
   justify-content: center;
   gap: 12px;
   text-align: center;
-  background: linear-gradient(180deg, #fbfdff, #fff);
+  background: var(--mg-gradient-empty);
 }
 
 .empty-visual {
@@ -960,9 +922,9 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
   width: 54px;
   height: 36px;
   border-radius: 10px;
-  border: 1px solid #d8e2f2;
-  background: #fff;
-  color: #2d63ff;
+  border: 1px solid var(--mg-border);
+  background: var(--mg-bg-surface);
+  color: var(--mg-brand);
   display: grid;
   place-items: center;
   font-size: 11px;
@@ -972,24 +934,24 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
 
 .empty-visual span:nth-child(2) {
   transform: translateY(-4px);
-  border-color: #cbd8ef;
-  color: #7456e0;
+  border-color: var(--mg-border);
+  color: var(--mg-accent-violet-text);
 }
 
 .empty-title {
-  color: #1a2744;
+  color: var(--mg-text-1);
   font-size: 15px;
   font-weight: 700;
 }
 
 .empty-desc {
-  color: #6c7c94;
+  color: var(--mg-text-3);
   font-size: 13px;
   margin-bottom: 4px;
 }
 
 .edit-type-value {
-  color: #738096;
+  color: var(--mg-text-3);
   font-size: 13px;
 }
 

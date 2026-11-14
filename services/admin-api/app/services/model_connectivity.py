@@ -2,23 +2,31 @@ from __future__ import annotations
 
 import asyncio
 import json
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Iterator
 
+try:
+    import certifi
+except Exception:  # pragma: no cover - optional dependency
+    certifi = None
+
+from app.security.service_token import service_token_headers
 from app.core.config import settings
-from app.services.model_test_tls import build_model_test_ssl_context
 
 
-def backend_model_test_events(instance_id: str, main_id: str, prompt: str) -> Iterator[dict[str, object]]:
+def backend_model_test_events(instance_id: str, tenant_id: str, prompt: str) -> Iterator[dict[str, object]]:
     base_url = str(settings.backend_base_url or "http://127.0.0.1:8000").rstrip("/")
     path_id = urllib.parse.quote(instance_id, safe="")
     request = urllib.request.Request(
-        f"{base_url}/api/models/{path_id}/test/stream",
+        # 025 T045：chat-api 路由主版本已迁到 /api/v1/...，旧 /api/models/... 会被
+        # LegacyApiRedirectMiddleware 以 308 重定向；urllib 默认不跟随 308，故直接命中新路径。
+        f"{base_url}/api/v1/models/{path_id}/test/stream",
         data=json.dumps(
             {
-                "main_id": main_id,
+                "tenant_id": tenant_id,
                 "prompt": prompt or "Reply with one short sentence to confirm the connection.",
             },
             ensure_ascii=False,
@@ -26,7 +34,7 @@ def backend_model_test_events(instance_id: str, main_id: str, prompt: str) -> It
         headers={
             "Content-Type": "application/json",
             "Accept": "text/event-stream",
-            "X-MOVO-Service-Token": settings.backend_service_token,
+            **service_token_headers(settings.backend_service_token),
         },
         method="POST",
     )
@@ -41,22 +49,8 @@ def backend_model_test_events(instance_id: str, main_id: str, prompt: str) -> It
         yield {"type": "error", "message": f"Model connection test failed: {exc}"}
 
 
-def backend_vision_probe(instance_id: str, main_id: str) -> bool:
-    base_url = str(settings.backend_base_url or "http://127.0.0.1:8000").rstrip("/")
-    path_id = urllib.parse.quote(instance_id, safe="")
-    request = urllib.request.Request(
-        f"{base_url}/api/models/{path_id}/test-vision",
-        data=json.dumps({"main_id": main_id}).encode("utf-8"),
-        headers={"Content-Type": "application/json", "X-MOVO-Service-Token": settings.backend_service_token},
-        method="POST",
-    )
-    with urllib.request.urlopen(request, timeout=90, context=build_model_test_ssl_context()) as response:
-        payload = json.load(response)
-    return payload.get("data", {}).get("supported") is True
-
-
-async def run_saved_model_test(instance_id: str, main_id: str, prompt: str = "") -> tuple[bool, str]:
-    return await asyncio.to_thread(_consume_test_events, instance_id, main_id, prompt)
+async def run_saved_model_test(instance_id: str, tenant_id: str, prompt: str = "") -> tuple[bool, str]:
+    return await asyncio.to_thread(_consume_test_events, instance_id, tenant_id, prompt)
 
 
 def next_event(iterator: Iterator[dict[str, object]]) -> tuple[bool, dict[str, object] | None]:
@@ -66,9 +60,9 @@ def next_event(iterator: Iterator[dict[str, object]]) -> tuple[bool, dict[str, o
         return False, None
 
 
-def _consume_test_events(instance_id: str, main_id: str, prompt: str) -> tuple[bool, str]:
+def _consume_test_events(instance_id: str, tenant_id: str, prompt: str) -> tuple[bool, str]:
     response_text = ""
-    for event in backend_model_test_events(instance_id, main_id, prompt):
+    for event in backend_model_test_events(instance_id, tenant_id, prompt):
         event_type = str(event.get("type") or "")
         if event_type == "delta":
             response_text += str(event.get("content") or "")
@@ -78,7 +72,7 @@ def _consume_test_events(instance_id: str, main_id: str, prompt: str) -> tuple[b
 
 
 def _iter_backend_sse_events(request: urllib.request.Request) -> Iterator[dict[str, object]]:
-    with urllib.request.urlopen(request, timeout=120, context=build_model_test_ssl_context()) as response:
+    with urllib.request.urlopen(request, timeout=120, context=_build_ssl_context()) as response:
         for raw_line in response:
             line = raw_line.decode("utf-8", errors="replace").strip()
             if not line or line.startswith(":") or not line.startswith("data:"):
@@ -92,3 +86,19 @@ def _iter_backend_sse_events(request: urllib.request.Request) -> Iterator[dict[s
                 continue
             if isinstance(event, dict):
                 yield event
+
+
+def _build_ssl_context() -> ssl.SSLContext:
+    if settings.model_test_insecure_skip_verify:
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        return context
+    if settings.model_test_ca_bundle.strip():
+        return ssl.create_default_context(cafile=settings.model_test_ca_bundle.strip())
+    if certifi is not None:
+        try:
+            return ssl.create_default_context(cafile=certifi.where())
+        except Exception:
+            pass
+    return ssl.create_default_context()

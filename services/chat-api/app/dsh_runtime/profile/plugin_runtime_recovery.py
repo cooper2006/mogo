@@ -1,4 +1,4 @@
-"""Isolate a broken optional plugin before MOVO retries Runtime creation."""
+"""Isolate a broken optional plugin before MOGO retries Runtime creation."""
 
 from __future__ import annotations
 

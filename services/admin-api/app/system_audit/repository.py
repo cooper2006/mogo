@@ -18,9 +18,9 @@ class SystemAuditRepository:
 
     async def ensure_indexes(self) -> None:
         collection = self.db[SYSTEM_AUDIT_COLLECTION]
-        await collection.create_index([("main_id", 1), ("occurred_at", -1)], name="system_audit_main_time")
-        await collection.create_index([("main_id", 1), ("module", 1), ("occurred_at", -1)], name="system_audit_main_module_time")
-        await collection.create_index([("main_id", 1), ("result", 1), ("occurred_at", -1)], name="system_audit_main_result_time")
+        await collection.create_index([("tenant_id", 1), ("occurred_at", -1)], name="system_audit_tenant_time")
+        await collection.create_index([("tenant_id", 1), ("module", 1), ("occurred_at", -1)], name="system_audit_tenant_module_time")
+        await collection.create_index([("tenant_id", 1), ("result", 1), ("occurred_at", -1)], name="system_audit_tenant_result_time")
 
     async def record_management_operation(self, document: dict[str, Any]) -> None:
         await self.db[SYSTEM_AUDIT_COLLECTION].insert_one({

@@ -5,6 +5,7 @@ from typing import Any, Dict, List
 
 from pydantic import BaseModel, Field
 
+from app.infrastructure.observability.config import log_print
 from app.llm.factory import get_request_scoped_llm_client
 from app.llm.types import Message, Role
 from app.llm.decision_turn import DecisionOutput, DecisionTurnSpec, invoke_structured_decision
@@ -168,7 +169,8 @@ class DeferredVisualFinalizer:
                 ],
                 spec=DecisionTurnSpec(locale=language, turn_id="visual.final_plan"),
             )
-        except Exception:
+        except Exception as exc:
+            log_print(f"[content.publish_assembly.deferred_finalizer] visual plan failed: {exc}", flush=True)
             return self._fallback_slots(sections=sections, count=minimum, language=language)
         if not isinstance(parsed, _FinalVisualPlan):
             return self._fallback_slots(sections=sections, count=minimum, language=language)

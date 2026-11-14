@@ -3,30 +3,18 @@ import FolderOpenOutline from '@vicons/ionicons5/es/FolderOpenOutline'
 import GitCompareOutline from '@vicons/ionicons5/es/GitCompareOutline'
 import TerminalOutline from '@vicons/ionicons5/es/TerminalOutline'
 import BrowserTestButton from '../browser/BrowserTestButton.vue'
-import DesktopSessionShareAction from './DesktopSessionShareAction.vue'
-import ConversationPluginViews from '../chat/ConversationPluginViews.vue'
 import DesktopUpdateIndicator from './DesktopUpdateIndicator.vue'
-import DesktopCompatibilityNotice from './DesktopCompatibilityNotice.vue'
 import WorkspaceContextPicker from '../code/WorkspaceContextPicker.vue'
 import BranchContextPicker from '../code/BranchContextPicker.vue'
 import type { DshWorkspace } from '../../platform/types'
 import type { DesktopToolTabKind } from './desktopToolTabs'
-import { desktopChromeMessages } from '../../locales/desktopChromeMessages'
 
-const props = defineProps<{
+defineProps<{
   title: string
-  navigationWidth?: number
-  windowsTitleBar?: boolean
-  sidebarCollapsed?: boolean
-  secondaryNavigationAvailable?: boolean
   showBack?: boolean
   backLabel?: string
   chatActions?: boolean
   sessionId?: string
-  userId?: string
-  mainId?: string
-  authToken?: string | null
-  membersRevision?: number
   workspace?: DshWorkspace | null
   showWorkspaceContext?: boolean
   workspaceBranch?: string
@@ -47,10 +35,7 @@ const props = defineProps<{
   workspacesLoading?: boolean
 }>()
 
-const copy = (key: keyof typeof desktopChromeMessages) => desktopChromeMessages[key][props.locale === 'en' ? 'en' : 'zh']
-
 const emit = defineEmits<{
-  (event: 'toggle-sidebar'): void
   (event: 'back'): void
   (event: 'choose-workspace'): void
   (event: 'select-workspace', workspace: DshWorkspace): void
@@ -60,61 +45,19 @@ const emit = defineEmits<{
   (event: 'branch-updated', branch: string): void
   (event: 'open-browser'): void
   (event: 'toggle-code-panel', mode: 'changes' | 'files' | 'terminal'): void
-  (event: 'session-left', sessionId: string): void
 }>()
 </script>
 
 <template>
-  <header
-    class="desktop-window-chrome"
-    :class="{
-      'desktop-window-chrome--windows': windowsTitleBar,
-      'desktop-window-chrome--collapsed': windowsTitleBar && sidebarCollapsed,
-      'desktop-window-chrome--compact-navigation': (navigationWidth || 260) <= 64,
-    }"
-    :style="{ '--desktop-navigation-width': `${navigationWidth || 260}px` }"
-    aria-label="Desktop window header"
-  >
+  <header class="desktop-window-chrome" aria-label="Desktop window header">
     <div class="desktop-window-chrome__sidebar">
       <span class="desktop-window-chrome__brand">
-        <img src="/movo-logo.png" :alt="windowsTitleBar && (navigationWidth || 260) <= 64 ? 'MOVO' : ''" />
-        <span>MOVO</span>
+        <img src="/mogo-logo.png" alt="" />
+        <span>MOGO</span>
       </span>
-      <button
-        v-if="!windowsTitleBar && secondaryNavigationAvailable && !sidebarCollapsed"
-        type="button"
-        class="desktop-window-chrome__sidebar-toggle desktop-window-chrome__sidebar-toggle--beside-brand"
-        :aria-label="copy('hideSidebar')"
-        :title="copy('hideSidebar')"
-        :aria-expanded="true"
-        @click="emit('toggle-sidebar')"
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-          <rect x="3" y="4" width="18" height="16" rx="2" />
-          <path d="M9 4v16" />
-        </svg>
-      </button>
     </div>
     <div class="desktop-window-chrome__content">
       <div class="desktop-window-chrome__context">
-        <span v-if="!windowsTitleBar && sidebarCollapsed" class="desktop-window-chrome__brand desktop-window-chrome__collapsed-brand" aria-label="MOVO">
-          <img src="/movo-logo.png" alt="" />
-          <span>MOVO</span>
-        </span>
-        <button
-          v-if="!windowsTitleBar && secondaryNavigationAvailable && sidebarCollapsed"
-          type="button"
-          class="desktop-window-chrome__sidebar-toggle"
-          :aria-label="sidebarCollapsed ? (copy('showSidebar')) : (copy('hideSidebar'))"
-          :title="sidebarCollapsed ? (copy('showSidebar')) : (copy('hideSidebar'))"
-          :aria-expanded="!sidebarCollapsed"
-          @click="emit('toggle-sidebar')"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-            <rect x="3" y="4" width="18" height="16" rx="2" />
-            <path d="M9 4v16" />
-          </svg>
-        </button>
         <button
           v-if="showBack"
           type="button"
@@ -167,31 +110,15 @@ const emit = defineEmits<{
         <span class="desktop-window-chrome__title" :title="title">{{ title }}</span>
       </div>
       <div class="desktop-window-chrome__actions">
-        <DesktopCompatibilityNotice />
         <DesktopUpdateIndicator />
         <template v-if="chatActions">
-          <ConversationPluginViews
-            v-if="sessionId && userId && mainId && !codeSessionActive"
-            :session-id="sessionId"
-            :user-id="userId"
-            :main-id="mainId"
-          />
-          <DesktopSessionShareAction
-            v-if="sessionId && userId"
-            :session-id="sessionId"
-            :user-id="userId"
-            :main-id="mainId || 'default'"
-            :auth-token="authToken || null"
-            :members-revision="membersRevision"
-            @left="emit('session-left', $event)"
-          />
           <button
             v-if="codeAvailable && codeSessionActive && gitAvailable"
             type="button"
             class="desktop-window-chrome__icon-button"
             :class="{ active: activeTool === 'changes' }"
-            :aria-label="copy('openChanges')"
-            :title="copy('changes')"
+            :aria-label="locale === 'en' ? 'Open changes' : '打开变更'"
+            :title="locale === 'en' ? 'Changes' : '变更'"
             @click="emit('toggle-code-panel', 'changes')"
           >
             <GitCompareOutline /><span v-if="changeCount" class="desktop-window-chrome__badge">{{ changeCount > 99 ? '99+' : changeCount }}</span>
@@ -201,8 +128,8 @@ const emit = defineEmits<{
             type="button"
             class="desktop-window-chrome__icon-button"
             :class="{ active: activeTool === 'files' }"
-            :aria-label="copy('openFiles')"
-            :title="copy('files')"
+            :aria-label="locale === 'en' ? 'Open files' : '打开文件'"
+            :title="locale === 'en' ? 'Files' : '文件'"
             @click="emit('toggle-code-panel', 'files')"
           ><FolderOpenOutline /></button>
           <button
@@ -210,8 +137,8 @@ const emit = defineEmits<{
             type="button"
             class="desktop-window-chrome__icon-button"
             :class="{ active: activeTool === 'terminal' }"
-            :aria-label="copy('openTerminal')"
-            :title="copy('terminal')"
+            :aria-label="locale === 'en' ? 'Open terminal' : '打开终端'"
+            :title="locale === 'en' ? 'Terminal' : '终端'"
             @click="emit('toggle-code-panel', 'terminal')"
           >
             <TerminalOutline />
@@ -229,35 +156,30 @@ const emit = defineEmits<{
   inset: 0 0 auto 0;
   z-index: 40;
   display: grid;
-  grid-template-columns: var(--desktop-navigation-width, 260px) minmax(0, 1fr);
+  grid-template-columns: 260px minmax(0, 1fr);
   height: 48px;
-  color: #475569;
+  color: var(--mg-text-2);
   -webkit-app-region: drag;
   user-select: none;
 }
-
-.desktop-window-chrome--windows { top:40px; }
-.desktop-window-chrome--windows .desktop-window-chrome__sidebar { padding-left:14px; }
-.desktop-window-chrome--collapsed { grid-template-columns:0 minmax(0,1fr); }
-.desktop-window-chrome--collapsed .desktop-window-chrome__sidebar { overflow:hidden; padding:0; border-right:0; }
 
 .desktop-window-chrome__sidebar,
 .desktop-window-chrome__content {
   display: flex;
   min-width: 0;
   align-items: center;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--mg-border);
 }
 
 .desktop-window-chrome__sidebar {
-  border-right: 1px solid #e5e7eb;
-  background: #f8fafc;
+  border-right: 1px solid var(--mg-border);
+  background: var(--mg-bg-subtle);
   padding: 0 14px 0 86px;
 }
 
 .desktop-window-chrome__content {
   justify-content: space-between;
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--mg-bg-glass-strong);
   padding: 0 14px 0 12px;
 }
 
@@ -278,7 +200,6 @@ const emit = defineEmits<{
 .desktop-window-chrome__workspace-control,
 .desktop-window-chrome__branch-control,
 .desktop-window-chrome__back-button,
-.desktop-window-chrome__sidebar-toggle,
 .desktop-window-chrome__actions {
   -webkit-app-region: no-drag;
 }
@@ -292,7 +213,7 @@ const emit = defineEmits<{
   align-items: center;
   gap: 7px;
   overflow: hidden;
-  color: #334155;
+  color: var(--mg-text-1);
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -307,33 +228,10 @@ const emit = defineEmits<{
   object-fit: contain;
 }
 
-.desktop-window-chrome--compact-navigation .desktop-window-chrome__sidebar .desktop-window-chrome__brand {
-  display: none;
-}
-
-.desktop-window-chrome__collapsed-brand { flex: none; margin-right: 5px; }
-
-.desktop-window-chrome--windows.desktop-window-chrome--compact-navigation .desktop-window-chrome__sidebar {
-  justify-content: center;
-  padding: 0;
-}
-
-.desktop-window-chrome--windows.desktop-window-chrome--compact-navigation .desktop-window-chrome__brand {
-  display: inline-flex;
-}
-
-.desktop-window-chrome--windows.desktop-window-chrome--compact-navigation .desktop-window-chrome__brand span {
-  display: none;
-}
-
-.desktop-window-chrome--compact-navigation:not(.desktop-window-chrome--windows) .desktop-window-chrome__content {
-  padding-left: 52px;
-}
-
 .desktop-window-chrome__title {
   flex: 1;
   overflow: hidden;
-  color: #334155;
+  color: var(--mg-text-1);
   font-size: 13px;
   font-weight: 600;
   text-overflow: ellipsis;
@@ -351,7 +249,7 @@ const emit = defineEmits<{
   border-radius: 8px;
   background: transparent;
   padding: 0;
-  color: #475569;
+  color: var(--mg-text-2);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -359,68 +257,53 @@ const emit = defineEmits<{
 }
 
 .desktop-window-chrome__back-button:hover {
-  background: #f1f5f9;
-  color: #1d4ed8;
+  background: var(--mg-bg-subtle);
+  color: var(--mg-brand);
 }
-
-.desktop-window-chrome__sidebar-toggle {
-  display: grid;
-  flex: none;
-  width: 32px;
-  height: 32px;
-  place-items: center;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: #475569;
-  cursor: pointer;
-}
-.desktop-window-chrome__sidebar-toggle svg { width: 18px; height: 18px; }
-.desktop-window-chrome__sidebar-toggle--beside-brand { margin-left: 12px; }
-.desktop-window-chrome__sidebar-toggle:hover { background: #f1f5f9; color: #1d4ed8; }
-.desktop-window-chrome__sidebar-toggle:focus-visible { outline: 2px solid #bfdbfe; outline-offset: 1px; }
 
 .desktop-window-chrome__back-button svg {
   width: 17px;
   height: 17px;
 }
 
-.desktop-window-chrome__icon-button { position:relative; display:grid; width:36px; height:36px; place-items:center; border:0; border-radius:9px; background:transparent; color:#475569; cursor:pointer; transition:background-color 160ms ease,color 160ms ease; }
-.desktop-window-chrome__icon-button:hover:not(:disabled) { background:#f1f5f9; color:#2563eb; }
-.desktop-window-chrome__icon-button.active { background:#eaf2ff; color:#2563eb; }
+.desktop-window-chrome__icon-button { position:relative; display:grid; width:36px; height:36px; place-items:center; border:0; border-radius:9px; background:transparent; color: var(--mg-text-2); cursor:pointer; transition:background-color 160ms ease,color 160ms ease; }
+.desktop-window-chrome__icon-button:hover:not(:disabled) { background: var(--mg-bg-subtle); color: var(--mg-brand); }
+.desktop-window-chrome__icon-button.active { background: var(--mg-brand-soft); color: var(--mg-brand); }
 .desktop-window-chrome__icon-button:focus-visible { outline:2px solid #bfdbfe; outline-offset:1px; }
 .desktop-window-chrome__icon-button:disabled { cursor:default; opacity:.35; }
 .desktop-window-chrome__icon-button svg { width:18px; height:18px; }
-.desktop-window-chrome__badge { position:absolute; top:1px; right:1px; min-width:14px; height:14px; border:1px solid #fff; border-radius:7px; background:#2563eb; padding:0 3px; color:#fff; font-size:8px; line-height:12px; }
+.desktop-window-chrome__badge { position:absolute; top:1px; right:1px; min-width:14px; height:14px; border: 1px solid #fff; border-radius:7px; background: var(--mg-brand); padding:0 3px; color: #fff; font-size:8px; line-height:12px; }
 
-:global(html.theme-dark .desktop-window-chrome__sidebar) {
-  border-color: #334155;
-  background: #0b1220;
+:global(html.theme-dark) .desktop-window-chrome__sidebar {
+  border-color: var(--mg-brand-soft-border);
+  background: var(--mg-bg-app);
 }
 
-:global(html.theme-dark .desktop-window-chrome__content) {
-  border-color: #334155;
+:global(html.theme-dark) .desktop-window-chrome__content {
+  border-color: var(--mg-brand-soft-border);
   background: rgba(17, 24, 39, 0.96);
 }
 
-:global(html.theme-dark .desktop-window-chrome__brand),
-:global(html.theme-dark .desktop-window-chrome__title) {
-  color: #e2e8f0;
+:global(html.theme-dark) .desktop-window-chrome__brand,
+:global(html.theme-dark) .desktop-window-chrome__title {
+  color: var(--mg-text-1);
 }
 
-:global(html.theme-dark .desktop-window-chrome__back-button) {
-  color: #cbd5e1;
+:global(html.theme-dark) .desktop-window-chrome__back-button {
+  color: var(--mg-text-2);
 }
 
-:global(html.theme-dark .desktop-window-chrome__sidebar-toggle) { color: #cbd5e1; }
-:global(html.theme-dark .desktop-window-chrome__sidebar-toggle:hover) { background: #1e293b; color: #93c5fd; }
-
-:global(html.theme-dark .desktop-window-chrome__back-button:hover) {
-  background: #1e293b;
-  color: #93c5fd;
+:global(html.theme-dark) .desktop-window-chrome__back-button:hover {
+  background: var(--mg-bg-app);
+  color: var(--mg-brand-text);
 }
 
-:global(html.theme-dark .desktop-window-chrome__icon-button) { color:#94a3b8; }
-:global(html.theme-dark .desktop-window-chrome__icon-button:hover:not(:disabled)) { background:#1e293b; color:#93c5fd; }
+:global(html.theme-dark) .desktop-window-chrome__icon-button { color: var(--mg-text-3); }
+:global(html.theme-dark) .desktop-window-chrome__icon-button:hover:not(:disabled) { background: var(--mg-bg-app); color: var(--mg-brand-text); }
 
+@media (max-width: 1100px) {
+  .desktop-window-chrome {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+}
 </style>

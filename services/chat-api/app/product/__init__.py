@@ -1,1 +1,1 @@
-"""Product edition contracts shared by MOVO and private distributions."""
+"""Product edition contracts shared by MOGO and private distributions."""

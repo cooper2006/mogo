@@ -1,12 +1,14 @@
 import { apiClient } from './client';
 import type { SearchProviderId } from '@/components/search-provider/providerGuides';
+import type { ModelProviderType } from './models';
 
 export interface SetupStatus {
   completed: boolean;
   orgName: string;
-  mainId: string;
+  tenantId: string;
   initializedAt: string;
   ready: boolean;
+  platformAdminMissing: boolean;
   services: SetupServiceStatus[];
   urls: SetupUrls;
 }
@@ -16,6 +18,7 @@ export interface SetupServiceStatus {
   label: string;
   ok: boolean;
   message: string;
+  core: boolean;
 }
 
 export interface SetupUrls {
@@ -25,28 +28,23 @@ export interface SetupUrls {
   agentWebSocket: string;
 }
 
-export interface SetupInitPayload {
-  orgName: string;
-  adminUsername: string;
-  adminPassword: string;
-  adminDisplayName: string;
-  employeeUsername: string;
-  employeePassword: string;
-  employeeName: string;
-  orgTotalTokens: number;
-  defaultUserTokens: number;
-  quotaPeriod: 'monthly' | 'daily' | 'hourly';
-  quotaTimezone: string;
-  model: SetupModelPayload;
-  additionalModels: SetupModelPayload[];
-  externalSearch: SetupSearchPayload | null;
+export interface SetupPlatformAdminPayload {
+  username: string;
+  password: string;
+  displayName: string;
+}
+
+export interface SetupPlatformAdminResult {
+  completed: boolean;
+  tenantId: string;
+  username: string;
 }
 
 export interface SetupModelProvider {
   id: string;
   name: string;
   code: string;
-  providerType: 'openai_compatible' | 'azure_openai';
+  providerType: ModelProviderType;
   defaultBaseUrl: string;
 }
 
@@ -80,39 +78,37 @@ export interface SetupSearchPayload {
 }
 
 export async function fetchSetupStatus() {
-  const { data } = await apiClient.get<SetupStatus>('/api/setup/status');
+  const { data } = await apiClient.get<SetupStatus>('/api/v1/setup/status');
   return data;
 }
 
-export async function initializeSetup(payload: SetupInitPayload) {
-  const { data } = await apiClient.post<{ completed: boolean; mainId: string; orgName: string; modelInstanceId: string }>(
-    '/api/setup/initialize',
-    payload,
-    { timeout: 150000 },
-  );
+export async function createPlatformAdmin(payload: SetupPlatformAdminPayload) {
+  const { data } = await apiClient.post<SetupPlatformAdminResult>('/api/v1/setup/platform-admin', payload, {
+    timeout: 60000,
+  });
   return data;
 }
 
 export async function fetchSetupModelProviders() {
-  const { data } = await apiClient.get<SetupModelProvider[]>('/api/setup/model-providers');
+  const { data } = await apiClient.get<SetupModelProvider[]>('/api/v1/setup/model-providers');
   return data;
 }
 
 export async function testSetupModel(payload: SetupModelPayload) {
-  const { data } = await apiClient.post<{ success: boolean; message: string }>('/api/setup/model/test', payload, {
+  const { data } = await apiClient.post<{ success: boolean; message: string }>('/api/v1/setup/model/test', payload, {
     timeout: 150000,
   });
   return data;
 }
 
 export async function fetchSetupSearchProviders() {
-  const { data } = await apiClient.get<SetupSearchProvider[]>('/api/setup/search-providers');
+  const { data } = await apiClient.get<SetupSearchProvider[]>('/api/v1/setup/search-providers');
   return data;
 }
 
 export async function testSetupSearch(payload: SetupSearchPayload) {
   const { data } = await apiClient.post<{ success: boolean; message: string; resultCount: number }>(
-    '/api/setup/search/test',
+    '/api/v1/setup/search/test',
     payload,
     { timeout: 60000 },
   );

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import adminProductUiExtension from '@movo-admin-product-extension'
+import adminProductUiExtension from '@mogo-admin-product-extension'
 
 defineProps<{ modelValue: unknown; loading: boolean; grouped?: boolean }>()
 const emit = defineEmits<{ (event: 'update:modelValue', value: unknown): void }>()

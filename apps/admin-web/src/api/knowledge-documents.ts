@@ -5,7 +5,7 @@ export type KnowledgeProcessStatus = 'not_started' | 'queued' | 'running' | 'suc
 
 export interface KnowledgeDocumentItem {
   id: string;
-  mainId: string;
+  tenantId: string;
   directoryId?: string;
   knowledgeBaseId: string;
   name: string;
@@ -54,7 +54,8 @@ export interface KnowledgeDocumentItem {
 }
 
 export interface KnowledgeDocumentListResponse {
-  items: KnowledgeDocumentItem[];
+  /** 服务端统一分页契约（PageResponse）字段名为 data；旧字段名 items 已废弃（025 T035） */
+  data: KnowledgeDocumentItem[];
   total: number;
   page: number;
   pageSize: number;
@@ -88,7 +89,8 @@ export interface KnowledgeDocumentChunkItem {
 }
 
 export interface KnowledgeDocumentChunkListResponse {
-  items: KnowledgeDocumentChunkItem[];
+  /** 服务端统一分页契约字段名为 data；旧字段名 items 已废弃（025 T035） */
+  data: KnowledgeDocumentChunkItem[];
   total: number;
   page: number;
   pageSize: number;
@@ -126,24 +128,24 @@ export interface KnowledgeDocumentUpdatePayload {
 }
 
 export async function fetchKnowledgeDocumentStats() {
-  const { data } = await apiClient.get<KnowledgeDocumentStats>('/api/knowledge/documents/stats');
+  const { data } = await apiClient.get<KnowledgeDocumentStats>('/api/v1/knowledge/documents/stats');
   return data;
 }
 
 export async function fetchKnowledgeDocuments(query: KnowledgeDocumentQuery) {
-  const { data } = await apiClient.get<KnowledgeDocumentListResponse>('/api/knowledge/documents', {
+  const { data } = await apiClient.get<KnowledgeDocumentListResponse>('/api/v1/knowledge/documents', {
     params: query,
   });
   return data;
 }
 
 export async function fetchKnowledgeDocument(id: string) {
-  const { data } = await apiClient.get<KnowledgeDocumentItem>(`/api/knowledge/documents/${id}`);
+  const { data } = await apiClient.get<KnowledgeDocumentItem>(`/api/v1/knowledge/documents/${id}`);
   return data;
 }
 
 export async function fetchKnowledgeDocumentChunks(id: string, query: KnowledgeDocumentChunkQuery) {
-  const { data } = await apiClient.get<KnowledgeDocumentChunkListResponse>(`/api/knowledge/documents/${id}/chunks`, {
+  const { data } = await apiClient.get<KnowledgeDocumentChunkListResponse>(`/api/v1/knowledge/documents/${id}/chunks`, {
     params: query,
   });
   return data;
@@ -151,14 +153,14 @@ export async function fetchKnowledgeDocumentChunks(id: string, query: KnowledgeD
 
 export async function fetchKnowledgeDocumentChunk(id: string, chunkId: string, chunkStage: 'raw' | 'rag' | 'all' = 'rag') {
   const { data } = await apiClient.get<KnowledgeDocumentChunkItem>(
-    `/api/knowledge/documents/${id}/chunks/${encodeURIComponent(chunkId)}`,
+    `/api/v1/knowledge/documents/${id}/chunks/${encodeURIComponent(chunkId)}`,
     { params: { chunkStage } },
   );
   return data;
 }
 
 export async function uploadKnowledgeDocument(formData: FormData, onUploadProgress?: (progress: number) => void) {
-  const { data } = await apiClient.post<KnowledgeDocumentItem>('/api/knowledge/documents', formData, {
+  const { data } = await apiClient.post<KnowledgeDocumentItem>('/api/v1/knowledge/documents', formData, {
     timeout: 120000,
     headers: { 'Content-Type': 'multipart/form-data' },
     onUploadProgress: (event) => {
@@ -172,17 +174,17 @@ export async function uploadKnowledgeDocument(formData: FormData, onUploadProgre
 }
 
 export async function updateKnowledgeDocument(id: string, payload: KnowledgeDocumentUpdatePayload) {
-  const { data } = await apiClient.put<KnowledgeDocumentItem>(`/api/knowledge/documents/${id}`, payload);
+  const { data } = await apiClient.put<KnowledgeDocumentItem>(`/api/v1/knowledge/documents/${id}`, payload);
   return data;
 }
 
 export async function deleteKnowledgeDocument(id: string) {
-  const { data } = await apiClient.delete<{ success: boolean }>(`/api/knowledge/documents/${id}`);
+  const { data } = await apiClient.delete<{ success: boolean }>(`/api/v1/knowledge/documents/${id}`);
   return data;
 }
 
 export async function retryKnowledgeDocumentParse(id: string) {
-  const { data } = await apiClient.post<KnowledgeDocumentItem>(`/api/knowledge/documents/${id}/retry-parse`);
+  const { data } = await apiClient.post<KnowledgeDocumentItem>(`/api/v1/knowledge/documents/${id}/retry-parse`);
   return data;
 }
 

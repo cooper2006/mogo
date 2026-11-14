@@ -4,6 +4,7 @@ Recalculates all formulas in an Excel file using LibreOffice
 """
 
 import json
+from app.infrastructure.observability.config import log_print
 import os
 import platform
 import subprocess
@@ -63,8 +64,8 @@ def setup_libreoffice_macro():
     try:
         Path(macro_file).write_text(RECALCULATE_MACRO)
         return True
-    except Exception:
-        return False
+    except Exception as exc:
+        log_print(f"[skills_specs.xlsx.scripts.recalc] silent exception caught: {exc}", flush=True)
 
 
 def recalc(filename, timeout=30):

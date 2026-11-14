@@ -1,0 +1,60 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: data-migrate
+  namespace: mogo
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+      containers:
+      - name: fill
+        image: alpine:3.21
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          set -e
+          for v in mongo-data weaviate-data redis-data knowledge-storage askai-storage dsh-runtime-data admin-static deployment-secrets mongo-backup; do
+            echo "=== 填充 $v ==="
+            if [ -s "/tars/$v.tgz" ]; then
+              tar xzf "/tars/$v.tgz" -C "/data/$v"
+              echo "  done ($(du -sh /data/$v | cut -f1))"
+            else
+              echo "  (无 tar，跳过)"
+            fi
+          done
+          echo "=== 所有卷填充完成 ==="
+          # 列出各卷顶层内容确认
+          for v in mongo-data deployment-secrets; do
+            echo "--- $v ---"; ls -la "/data/$v" | head -6
+          done
+        volumeMounts:
+        - {name: v-mongo-data, mountPath: /data/mongo-data}
+        - {name: v-weaviate-data, mountPath: /data/weaviate-data}
+        - {name: v-redis-data, mountPath: /data/redis-data}
+        - {name: v-knowledge-storage, mountPath: /data/knowledge-storage}
+        - {name: v-askai-storage, mountPath: /data/askai-storage}
+        - {name: v-dsh-runtime-data, mountPath: /data/dsh-runtime-data}
+        - {name: v-admin-static, mountPath: /data/admin-static}
+        - {name: v-deployment-secrets, mountPath: /data/deployment-secrets}
+        - {name: v-mongo-backup, mountPath: /data/mongo-backup}
+        - {name: tars, mountPath: /tars}
+      volumes:
+      - {name: v-mongo-data, persistentVolumeClaim: {claimName: mongo-data}}
+      - {name: v-weaviate-data, persistentVolumeClaim: {claimName: weaviate-data}}
+      - {name: v-redis-data, persistentVolumeClaim: {claimName: redis-data}}
+      - {name: v-knowledge-storage, persistentVolumeClaim: {claimName: knowledge-storage}}
+      - {name: v-askai-storage, persistentVolumeClaim: {claimName: askai-storage}}
+      - {name: v-dsh-runtime-data, persistentVolumeClaim: {claimName: dsh-runtime-data}}
+      - {name: v-admin-static, persistentVolumeClaim: {claimName: admin-static}}
+      - {name: v-deployment-secrets, persistentVolumeClaim: {claimName: deployment-secrets}}
+      - {name: v-mongo-backup, persistentVolumeClaim: {claimName: mongo-backup}}
+      - name: tars
+        hostPath:
+          path: /Users/cooper/mogo/deploy/k8s/migrate/volumes
+          type: Directory

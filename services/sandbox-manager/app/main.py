@@ -5,8 +5,6 @@ from __future__ import annotations
 import hmac
 import os
 import threading
-from uuid import uuid4
-from contextlib import asynccontextmanager
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
@@ -14,26 +12,14 @@ from .docker_engine import DockerEngine
 from .jobs import ScriptJobs
 from .plugin_runtimes import PluginRuntimes
 from .skill_environments import DependencyPreparationError
-from .skill_build_records import MAX_LOG_CHARS, SkillBuildRecords
 from .task_containers import TaskContainers
-from .offline_routes import router as offline_router
-from .image_archive_routes import router as image_archive_router
 
 
-@asynccontextmanager
-async def lifespan(_app: FastAPI):
-    SkillBuildRecords().recover_interrupted()
-    yield
-
-
-app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
-app.include_router(offline_router)
-app.include_router(image_archive_router)
+app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 _jobs: ScriptJobs | None = None
 _plugins: PluginRuntimes | None = None
 _tasks: TaskContainers | None = None
 _jobs_lock = threading.Lock()
-_instance_id = uuid4().hex
 
 
 def jobs() -> ScriptJobs:
@@ -54,10 +40,9 @@ def plugins() -> PluginRuntimes:
 
 def tasks() -> TaskContainers:
     global _tasks
-    environments = jobs().environments
     with _jobs_lock:
         if _tasks is None:
-            _tasks = TaskContainers(DockerEngine(), environments=environments)
+            _tasks = TaskContainers(DockerEngine())
     return _tasks
 
 
@@ -72,7 +57,6 @@ class ExecuteTaskCallRequest(BaseModel):
 
 class CreatePluginRuntimeRequest(BaseModel):
     isolation_key: str = Field(min_length=1, max_length=512)
-    personal_space_key: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -84,7 +68,7 @@ class PrepareSkillRequest(BaseModel):
 
 
 def _authorize(authorization: str | None) -> None:
-    token = os.environ["MOVO_SANDBOX_MANAGER_TOKEN"]
+    token = os.environ["MOGO_SANDBOX_MANAGER_TOKEN"]
     supplied = (authorization or "").removeprefix("Bearer ")
     if not token or not hmac.compare_digest(supplied, token):
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -98,24 +82,6 @@ def health(authorization: str | None = Header(default=None)) -> dict:
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Docker Engine unavailable") from exc
     return {"ok": True, **jobs().status(), **plugins().status()}
-
-
-@app.get("/v1/readiness")
-def readiness(authorization: str | None = Header(default=None)) -> dict:
-    _authorize(authorization)
-    from .readiness import script_readiness
-    return script_readiness()
-
-
-@app.get("/v1/skill-environments/base")
-def skill_environment_base(authorization: str | None = Header(default=None)) -> dict:
-    _authorize(authorization)
-    image = os.environ.get("MOVO_SANDBOX_SCRIPT_IMAGE", "").strip()
-    engine = DockerEngine()
-    try:
-        return {"instanceId": _instance_id, "baseImageId": engine.image_id(image) if image else ""}
-    finally:
-        engine.client.close()
 
 
 @app.post("/v1/script-jobs")
@@ -182,35 +148,6 @@ def skill_environment_status(digest: str, authorization: str | None = Header(def
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.get("/v1/skill-environments/{digest}/records")
-def skill_environment_records(digest: str, authorization: str | None = Header(default=None)) -> dict:
-    _authorize(authorization)
-    try:
-        return {"items": jobs().environments.records.list(digest)}
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.get("/v1/skill-environments/{digest}/records/{record_id}")
-def skill_environment_record(digest: str, record_id: str, authorization: str | None = Header(default=None)) -> dict:
-    _authorize(authorization)
-    try:
-        record = jobs().environments.records.get(digest, record_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if record is None:
-        raise HTTPException(status_code=404, detail="Preparation record not found")
-    if record["status"] == "preparing":
-        try:
-            live = jobs().environments.live_output(digest)
-            combined = record["log"] + live
-            record["truncated"] = record["truncated"] or len(combined) > MAX_LOG_CHARS
-            record["log"] = combined[-MAX_LOG_CHARS:]
-        except Exception:
-            pass
-    return record
-
-
 @app.put("/v1/settings")
 def update_settings(payload: UpdateSettingsRequest, authorization: str | None = Header(default=None)) -> dict:
     _authorize(authorization)
@@ -220,7 +157,7 @@ def update_settings(payload: UpdateSettingsRequest, authorization: str | None = 
 @app.post("/v1/plugin-runtimes")
 def create_plugin_runtime(payload: CreatePluginRuntimeRequest, authorization: str | None = Header(default=None)) -> dict:
     _authorize(authorization)
-    return plugins().create(payload.isolation_key, payload.personal_space_key)
+    return plugins().create(payload.isolation_key)
 
 
 @app.delete("/v1/plugin-runtimes/{lease_id}")

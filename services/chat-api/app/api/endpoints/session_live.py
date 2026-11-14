@@ -59,7 +59,7 @@ async def stream_session_live(
     authorizer = SessionReadAuthorizer(db)
     try:
         await authorizer.authorize_read(
-            session_id, tenant_id=principal.main_id, user_id=principal.user_id
+            session_id, tenant_id=principal.tenant_id, user_id=principal.user_id
         )
     except SessionReadUnauthenticatedError as exc:
         raise HTTPException(status_code=401, detail="invalid_token") from exc
@@ -75,7 +75,7 @@ async def stream_session_live(
         bindings=KernelBindingRepository(db),
         authorizer=authorizer,
     )
-    tenant_id = principal.main_id
+    tenant_id = principal.tenant_id
     user_id = principal.user_id
 
     async def live_events() -> AsyncIterator[str]:

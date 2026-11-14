@@ -23,7 +23,7 @@ class CallbackRef(BaseModel):
 
 class PreviewConvertJobRequest(BaseModel):
     documentId: str = Field(min_length=1)
-    mainId: str = "default"
+    tenantId: str = "default"
     source: StorageRef
     target: StorageRef
     callback: CallbackRef
@@ -37,7 +37,7 @@ class ArtifactTarget(BaseModel):
 
 class ParseDocumentJobRequest(BaseModel):
     documentId: str = Field(min_length=1)
-    mainId: str = "default"
+    tenantId: str = "default"
     source: StorageRef
     artifacts: ArtifactTarget
     callback: CallbackRef
@@ -65,7 +65,7 @@ class ParseMarkdownResponse(BaseModel):
 
 class IndexDocumentJobRequest(BaseModel):
     documentId: str = Field(min_length=1)
-    mainId: str = "default"
+    tenantId: str = "default"
     knowledgeBaseId: str = ""
     chunkStage: Literal["rag", "raw"] = "rag"
     config: dict = Field(default_factory=dict)
@@ -74,13 +74,13 @@ class IndexDocumentJobRequest(BaseModel):
 
 class DeleteDocumentVectorsRequest(BaseModel):
     documentId: str = Field(min_length=1)
-    mainId: str = "default"
+    tenantId: str = "default"
     config: dict = Field(default_factory=dict)
 
 
 class RetrievalSearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=4000)
-    mainId: str = "default"
+    tenantId: str = "default"
     userId: str = ""
     knowledgeBaseId: str = ""
     topN: int | None = Field(default=None, ge=1, le=100)

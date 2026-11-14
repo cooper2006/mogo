@@ -18,8 +18,8 @@ def empty_policy() -> dict[str, Any]:
     return {"mode": "off", "rules": [], "updatedAt": None}
 
 
-async def get_policy(main_id: str) -> dict[str, Any]:
-    row = await get_db()[COLLECTION].find_one({"main_id": main_id})
+async def get_policy(tenant_id: str) -> dict[str, Any]:
+    row = await get_db()[COLLECTION].find_one({"tenant_id": tenant_id})
     if row is None:
         return empty_policy()
     return {
@@ -29,16 +29,16 @@ async def get_policy(main_id: str) -> dict[str, Any]:
     }
 
 
-async def save_policy(main_id: str, actor: str, payload: TopicPolicyPayload) -> dict[str, Any]:
+async def save_policy(tenant_id: str, actor: str, payload: TopicPolicyPayload) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     await get_db()[COLLECTION].update_one(
-        {"main_id": main_id},
+        {"tenant_id": tenant_id},
         {"$set": {"mode": payload.mode, "rules": [rule.model_dump() for rule in payload.rules],
                   "updated_at": now, "updated_by": actor},
-         "$setOnInsert": {"main_id": main_id, "created_at": now}},
+         "$setOnInsert": {"tenant_id": tenant_id, "created_at": now}},
         upsert=True,
     )
-    return await get_policy(main_id)
+    return await get_policy(tenant_id)
 
 
 def preview(text: str, payload: TopicPolicyPayload) -> dict[str, Any]:
@@ -52,9 +52,9 @@ def preview(text: str, payload: TopicPolicyPayload) -> dict[str, Any]:
                    for entry in rule.terms for token in [entry.keyword, *entry.synonyms]):
                 matched = {"id": rule.id, "keyword": rule.terms[0].keyword}
                 break
-    allowed = payload.mode == "off" or (matched is None if payload.mode == "denylist" else matched is not None)
+    allowed = payload.mode != "off" and ((matched is None if payload.mode == "denylist" else matched is not None))
     return {"allowed": allowed, "matchedRule": matched, "mode": payload.mode}
 
 
 async def ensure_indexes() -> None:
-    await get_db()[COLLECTION].create_index([("main_id", 1)], unique=True)
+    await get_db()[COLLECTION].create_index([("tenant_id", 1)], unique=True)

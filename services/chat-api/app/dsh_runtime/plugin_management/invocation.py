@@ -32,7 +32,7 @@ class PluginInvocationRecorder:
             owner = user_id if plugin.get("source_scope") == "personal" else ""
             try:
                 await self._repository.mark_invoked(
-                    main_id=tenant_id, user_id=owner,
+                    tenant_id=tenant_id, user_id=owner,
                     name=str(plugin.get("name") or ""),
                     version=str(plugin.get("version") or ""),
                     spec=str(plugin.get("spec") or ""),

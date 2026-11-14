@@ -1,0 +1,320 @@
+"""Layer 4 — approval: autonomy-matrix decision + approval suspension (US2 / T016).
+
+The layer consults the 25-cell autonomy matrix (``risk.matrix_decision``) for the
+call's ``[autonomy_level][risk_level]`` cell:
+
+* ``allow``  -> pass;
+* ``deny``   -> hard reject (R4 red line can never be overridden, FR-4);
+* ``require_approval`` -> the call is *not* executed inline. Instead a
+  one-time approval ticket is issued through :class:`ApprovalRegistry` (a
+  ``gate_approvals`` collection with the same state machine as
+  ``chat-api``'s ``ApprovalRuntime``: pending -> approved/denied/expired,
+  ``expires_at`` defaulting to 5 minutes, polling-based resume — clarify OQ-1),
+  and the gate returns ``REQUIRE_APPROVAL`` (409 at the API boundary, T006).
+
+The resume path is a later re-entry with the approval token: when
+``ctx.annotations["approval_token"]`` is present the layer consumes an
+**already-approved** ticket instead of consulting the matrix again (one-time use,
+fail-closed on expiry). Approval and consumption are deliberately separate
+(:meth:`ApprovalRegistry.decide` for the human approver, :meth:`consume` for the
+requester) — the earlier single-step variant let a caller approve its own
+suspended call, i.e. no human approval happened at all (001 audit, 2026-10-03).
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import timedelta
+from typing import Any, Optional
+
+from ..gatekeeper import GateContext, GateDecision, GateVerdict
+from app.common.shared_constants import utc_now
+
+GATE_APPROVALS_COLLECTION = "gate_approvals"
+APPROVAL_TTL_MINUTES = 5
+
+
+def _get_db() -> Any:
+    from app.core.db import get_db
+
+    return get_db()
+
+
+class ApprovalRegistry:
+    """One-time approval tickets in ``gate_approvals`` (MongoDB, no Redis).
+
+    Mirrors the chat-api ``ApprovalRuntime`` state machine (pending ->
+    approved/denied/expired, poll-resume, 5min TTL) but backed by MongoDB so
+    the approval survives process restarts (spec FR-2 / clarify OQ-1).
+    """
+
+    def __init__(self, db: Optional[Any] = None) -> None:
+        self._db = db
+
+    def _collection(self):
+        if self._db is None:
+            self._db = _get_db()
+        return self._db[GATE_APPROVALS_COLLECTION]
+
+    async def issue(
+        self,
+        *,
+        action_id: str,
+        tenant_id: str,
+        user_id: str,
+        tool: str,
+        risk_level: str = "",
+        autonomy_level: str = "",
+        reason: str = "",
+        ttl_minutes: int = APPROVAL_TTL_MINUTES,
+        required_approvals: int = 1,
+        trust_level: str = "",
+    ) -> str:
+        token = uuid.uuid4().hex
+        document = {
+            "action_id": action_id,
+            "tenant_id": tenant_id,
+            "user_id": user_id,
+            "tool": tool,
+            "risk_level": risk_level,
+            "autonomy_level": autonomy_level,
+            "reason": reason,
+            "token_hash": _token_hash(token),
+            "status": "pending",
+            # 036 FR-9: an L4 write at risk >= R2 needs two distinct approvers.
+            # The default stays 1 so the historical single-approver path (001)
+            # is byte-for-byte unchanged.
+            "required_approvals": max(1, int(required_approvals)),
+            "trust_level": str(trust_level or ""),
+            "approvals": [],
+            "created_at": utc_now(),
+            "expires_at": utc_now() + timedelta(minutes=ttl_minutes),
+            "resolved_at": None,
+        }
+        await self._collection().insert_one(document)
+        return token
+
+    async def decide(self, *, action_id: str, token: str, approved: bool, actor: str = "") -> bool:
+        """**Approver** decision: pending -> approved / denied.
+
+        Separate from :meth:`consume` on purpose: the original code let the caller
+        approve *its own* suspended call simply by re-entering with the token, which
+        means no human approval ever happened (001 audit, 2026-10-03). A human
+        approver now moves the ticket, and the requester only consumes it.
+
+        036 FR-9: a ticket issued with ``required_approvals > 1`` needs that many
+        *distinct* approvers. Every approval is appended to ``approvals[]`` and the
+        ticket turns ``approved`` only once the count is met; a single approver
+        may never vote twice. Denial stays single-shot (any approver closes it).
+        """
+        collection = self._collection()
+        document = await collection.find_one(
+            {"action_id": action_id, "token_hash": _token_hash(token), "status": "pending"}
+        )
+        if document is None:
+            return False
+        if document.get("expires_at") and document["expires_at"] < utc_now():
+            await collection.update_one(
+                {"_id": document["_id"]}, {"$set": {"status": "expired", "resolved_at": utc_now()}}
+            )
+            return False
+        actor_id = str(actor or "")
+        approvals = list(document.get("approvals") or [])
+        if approved:
+            if any(item.get("decided_by") == actor_id for item in approvals):
+                return False  # this approver already voted
+            approvals = approvals + [{"decided_by": actor_id, "decided_at": utc_now()}]
+            required = max(1, int(document.get("required_approvals") or 1))
+            status = "approved" if len(approvals) >= required else "pending"
+            resolved_at = utc_now() if status == "approved" else None
+        else:
+            status = "denied"
+            resolved_at = utc_now()
+        result = await collection.update_one(
+            {"_id": document["_id"], "status": "pending"},
+            {
+                "$set": {
+                    "status": status,
+                    "resolved_at": resolved_at,
+                    "decided_by": actor_id,
+                    "approvals": approvals,
+                }
+            },
+        )
+        return result.modified_count == 1
+
+    async def consume(self, *, action_id: str, token: str, actor: str = "") -> bool:
+        """**Requester** resume: only an already-**approved** ticket may be consumed.
+
+        Fails closed on pending/denied/expired/absent, and on a mismatched actor.
+        """
+        collection = self._collection()
+        document = await collection.find_one(
+            {"action_id": action_id, "token_hash": _token_hash(token), "status": "approved"}
+        )
+        if document is None:
+            return False
+        if document.get("expires_at") and document["expires_at"] < utc_now():
+            await collection.update_one(
+                {"_id": document["_id"]}, {"$set": {"status": "expired", "resolved_at": utc_now()}}
+            )
+            return False
+        if actor and document.get("user_id") and actor != document["user_id"]:
+            return False
+        result = await collection.update_one(
+            {"_id": document["_id"], "status": "approved"},
+            {"$set": {"status": "consumed", "consumed_at": utc_now()}},
+        )
+        return result.modified_count == 1
+
+    async def validate_and_consume(
+        self, *, action_id: str, token: str, actor: str = ""
+    ) -> bool:
+        """DEPRECATED: approve-and-consume in one step (no human approver).
+
+        Kept for backward compatibility; the gate now uses :meth:`decide` (approver)
+        plus :meth:`consume` (requester) so a suspended call actually requires a
+        human decision.
+        """
+        collection = self._collection()
+        document = await collection.find_one(
+            {"action_id": action_id, "token_hash": _token_hash(token), "status": "pending"}
+        )
+        if document is None:
+            return False
+        if document.get("expires_at") and document["expires_at"] < utc_now():
+            await collection.update_one(
+                {"_id": document["_id"]}, {"$set": {"status": "expired", "resolved_at": utc_now()}}
+            )
+            return False
+        if actor and document.get("user_id") and actor != document["user_id"]:
+            return False
+        result = await collection.update_one(
+            {"_id": document["_id"], "status": "pending"},
+            {"$set": {"status": "approved", "resolved_at": utc_now()}},
+        )
+        return result.modified_count == 1
+
+    async def deny(self, *, action_id: str, token: str, actor: str = "") -> bool:
+        collection = self._collection()
+        document = await collection.find_one(
+            {"action_id": action_id, "token_hash": _token_hash(token), "status": "pending"}
+        )
+        if document is None:
+            return False
+        if actor and document.get("user_id") and actor != document["user_id"]:
+            return False
+        result = await collection.update_one(
+            {"_id": document["_id"], "status": "pending"},
+            {"$set": {"status": "denied", "resolved_at": utc_now()}},
+        )
+        return result.modified_count == 1
+
+
+def _token_hash(token: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(str(token or "").encode("utf-8")).hexdigest()
+
+
+class ApprovalLayer:
+    name = "approval"
+
+    def __init__(self, registry: Optional[ApprovalRegistry] = None) -> None:
+        self._registry = registry
+
+    def _get_registry(self) -> ApprovalRegistry:
+        if self._registry is None:
+            self._registry = ApprovalRegistry()
+        return self._registry
+
+    async def evaluate(self, ctx: GateContext) -> GateVerdict:
+        # Resume path: a carried approval token settles the pending decision — but
+        # only when a human approver has already approved it (see ``decide``).
+        approval_token = ctx.annotations.get("approval_token")
+        if approval_token:
+            registry = self._get_registry()
+            action_id = ctx.annotations.get("approval_action_id", ctx.session_id or ctx.tool)
+            if await registry.consume(
+                action_id=str(action_id), token=str(approval_token), actor=ctx.actor()
+            ):
+                ctx.annotations["approval"] = {"action_id": str(action_id), "result": "approved"}
+                return GateVerdict(
+                    decision=GateDecision.ALLOW, layer=self.name, reason="approval token consumed"
+                )
+            return GateVerdict(
+                decision=GateDecision.DENY,
+                layer=self.name,
+                reason="审批 token 无效、未获批准、已过期或已使用",
+                detail={"action_id": str(action_id)},
+            )
+
+        # Fresh path: consult the autonomy matrix.
+        from ..risk import matrix_decision
+
+        risk = ctx.risk_level or "R0"
+        level = ctx.autonomy_level or "L1"
+        # 036 FR-8: cap the autonomy level by the asset's trust rating
+        # (effective_level = min(autonomy_level, cap(trust_level))). Applied only
+        # when the caller resolves a rating into ``ctx.annotations["trust_level"]``
+        # — an unannotated call keeps the historical 001 matrix untouched, so 036
+        # never silently changes existing traffic. A caller that resolves and finds
+        # no rating passes "L1" (无评级按 L1).
+        trust_level = ctx.annotations.get("trust_level")
+        if trust_level is not None:
+            # Canonical caps (fail-closed). A tenant override is applied by the
+            # resolver before it annotates ``trust_level`` — the gate itself stays
+            # free of a per-call DB read on the hot path.
+            from app.services.trust_rating.ratings import apply_trust_cap
+
+            level = apply_trust_cap(level, str(trust_level))
+        decision = await matrix_decision(level=level, risk=risk)
+        if decision == "allow":
+            return GateVerdict(decision=GateDecision.ALLOW, layer=self.name, reason=f"matrix {level}x{risk}=allow")
+        if decision == "deny":
+            return GateVerdict(
+                decision=GateDecision.DENY,
+                layer=self.name,
+                reason=f"矩阵 {level}x{risk}=deny（红线不可覆盖）",
+                detail={"cell": f"{level}:{risk}"},
+            )
+
+        # require_approval: suspend with a one-time ticket (409 at the boundary).
+        registry = self._get_registry()
+        action_id = ctx.session_id or f"gate-{uuid.uuid4().hex[:12]}"
+        # 036 FR-9: L4 + risk >= R2 requires two distinct approvers.
+        from app.services.trust_rating.ratings import required_approvals_for
+
+        token = await registry.issue(
+            action_id=action_id,
+            tenant_id=ctx.tenant_id,
+            user_id=ctx.user_id,
+            tool=ctx.tool,
+            risk_level=risk,
+            autonomy_level=level,
+            reason=f"matrix {level}x{risk}=require_approval",
+            required_approvals=required_approvals_for(level, risk),
+            trust_level=str(trust_level or ""),
+        )
+        ctx.annotations["approval"] = {"action_id": action_id, "result": "pending", "token": token}
+
+        # 056 R-7：签发侧旁路镜像（开关默认关闭、失败不阻断）。
+        from app.common.approval_mirror import mirror_issue
+
+        await mirror_issue(
+            source="tool", source_id=action_id, tenant_id=ctx.tenant_id,
+            actor_id=ctx.user_id,
+            # 工具审批的审批人由 /decide 端的 RBAC 决定，签发期未知；影子票据
+            # 不做身份判权，故留空由 mirror_decision 的 actor_id 记录实际决策人。
+            approver_id="",
+            deadline=utc_now() + timedelta(minutes=APPROVAL_TTL_MINUTES),
+        )
+        return GateVerdict(
+            decision=GateDecision.REQUIRE_APPROVAL,
+            layer=self.name,
+            reason=f"矩阵 {level}x{risk}=require_approval，已挂起等待审批",
+            detail={"action_id": action_id, "token": token, "cell": f"{level}:{risk}"},
+        )
+
+
+__all__ = ["ApprovalLayer", "ApprovalRegistry", "GATE_APPROVALS_COLLECTION", "APPROVAL_TTL_MINUTES"]

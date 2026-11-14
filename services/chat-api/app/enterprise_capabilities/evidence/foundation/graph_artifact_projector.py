@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -39,7 +40,8 @@ def _is_present(value: Any) -> bool:
 def _json_dumps(value: Any, *, limit: int) -> str:
     try:
         text = json.dumps(value, ensure_ascii=False, default=str, indent=2)
-    except Exception:
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.evidence.foundation.graph_artifact_projector._json_dumps] suppressed {type(exc).__name__}: {exc}", flush=True)
         text = str(value or "")
     text = text.strip()
     if len(text) <= limit:

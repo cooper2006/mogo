@@ -2,104 +2,366 @@
 @tailwind components;
 @tailwind utilities;
 
+/* =============================================================================
+ * user-web 全局样式
+ * -----------------------------------------------------------------------------
+ * 1. 前两段为 tailwind 指令，不可移动。
+ * 2. 「遗留兼容层」：历史代码大量使用 tailwind 颜色类（bg-white / text-gray-600 …）。
+ *    这里把它们在深色主题下统一映射到设计令牌，**只覆盖颜色，不改布局类**。
+ *    新增代码请直接用 src/styles/base.css 的语义类（.mg-*）或 var(--mg-*)。
+ *    规范见 docs/design-system.md。
+ * 3. 兼容层按「属性 × 色阶」组织，色阶分组规则：
+ *      浅底 50/100/200 → 对应的 subtle / inset / border
+ *      深字 800/900/950 → text-1，600/700 → text-2，300/400/500 → text-3
+ * ========================================================================== */
+
 html,
 body,
 #app {
-  background: #ffffff;
+  background: var(--mg-bg-app);
 }
 
 html.theme-dark,
 html.theme-dark body,
 html.theme-dark #app {
-  background: #111827;
+  background: var(--mg-bg-app);
 }
 
-html.theme-dark .app-shell,
-html.theme-dark .app-main,
-html.theme-dark .bg-white {
-  background-color: #111827 !important;
-}
-
-html.theme-dark .app-shell > aside,
-html.theme-dark .bg-\[\#f8fafc\] {
-  background-color: #0b1220 !important;
-}
-
+/* ---------- 表面：中性色 ---------- */
+html.theme-dark .bg-white,
 html.theme-dark .bg-white\/50,
-html.theme-dark .bg-white\/95 {
-  background-color: rgba(17, 24, 39, 0.92) !important;
+html.theme-dark .bg-white\/80,
+html.theme-dark .bg-white\/95,
+html.theme-dark .app-shell,
+html.theme-dark .app-main {
+  background-color: var(--mg-bg-surface) !important;
+}
+
+/* 半透明遮罩与任意色值类：Tailwind 只按实际用到的变体生成类，需逐个补齐。
+   bg-white/10 是品牌色块上的高光，属于刻意保留，不在此覆盖。 */
+html.theme-dark .bg-white\/45 {
+  background-color: var(--mg-bg-overlay) !important;
+}
+
+html.theme-dark .bg-white\/70,
+html.theme-dark .bg-\[\#fdfdfd\] {
+  background-color: var(--mg-bg-surface) !important;
+}
+
+/* 会话轨迹（028/043）用的浅色半透明表面。Tailwind 只按实际出现的变体生成类，
+   兼容层必须逐个补齐：/40 漏补会把整片主区染成灰，/95 漏补会留下白色时间轴卡片。 */
+html.theme-dark .bg-gray-50\/40 {
+  background-color: var(--mg-bg-app) !important;
+}
+
+html.theme-dark .bg-gray-50\/70 {
+  background-color: var(--mg-bg-subtle) !important;
+}
+
+html.theme-dark .bg-gray-50\/95 {
+  background-color: var(--mg-bg-glass-strong) !important;
+}
+
+html.theme-dark .hover\:bg-gray-200\/70:hover {
+  background-color: var(--mg-bg-surface-hover) !important;
 }
 
 html.theme-dark .bg-gray-50,
-html.theme-dark .bg-slate-50 {
-  background-color: #182131 !important;
+html.theme-dark .bg-slate-50,
+html.theme-dark .bg-zinc-50,
+html.theme-dark .bg-neutral-50 {
+  background-color: var(--mg-bg-subtle) !important;
 }
 
 html.theme-dark .bg-gray-100,
 html.theme-dark .bg-slate-100,
 html.theme-dark .bg-gray-200,
-html.theme-dark .bg-slate-200 {
-  background-color: #253044 !important;
+html.theme-dark .bg-slate-200,
+html.theme-dark .bg-gray-300,
+html.theme-dark .bg-slate-300,
+html.theme-dark .bg-zinc-100,
+html.theme-dark .bg-neutral-100 {
+  background-color: var(--mg-bg-inset) !important;
 }
 
+/* 深色块内嵌的更深表面（原本用于浅色下的深色卡片） */
+html.theme-dark .bg-gray-800,
+html.theme-dark .bg-slate-800,
+html.theme-dark .bg-gray-900,
+html.theme-dark .bg-slate-900,
+html.theme-dark .bg-slate-950,
+html.theme-dark .bg-\[\#f8fafc\] {
+  background-color: var(--mg-bg-app) !important;
+}
+
+/* ---------- 表面：语义色 ---------- */
 html.theme-dark .bg-blue-50,
-html.theme-dark .bg-blue-100 {
-  background-color: rgba(37, 99, 235, 0.18) !important;
+html.theme-dark .bg-blue-100,
+html.theme-dark .bg-indigo-50,
+html.theme-dark .bg-indigo-100,
+html.theme-dark .bg-violet-50,
+html.theme-dark .bg-violet-100,
+html.theme-dark .bg-cyan-50 {
+  background-color: var(--mg-brand-soft) !important;
 }
 
+html.theme-dark .bg-blue-500,
+html.theme-dark .bg-blue-600,
+html.theme-dark .bg-blue-700 {
+  background-color: var(--mg-brand) !important;
+}
+
+html.theme-dark .bg-red-50,
+html.theme-dark .bg-rose-50 {
+  background-color: var(--mg-danger-bg) !important;
+}
+
+html.theme-dark .bg-red-500,
+html.theme-dark .bg-red-600,
+html.theme-dark .bg-rose-500 {
+  background-color: var(--mg-danger-text) !important;
+}
+
+html.theme-dark .bg-amber-50,
+html.theme-dark .bg-amber-100,
+html.theme-dark .bg-orange-50,
+html.theme-dark .bg-orange-100 {
+  background-color: var(--mg-warning-bg) !important;
+}
+
+html.theme-dark .bg-amber-500 {
+  background-color: var(--mg-warning-text) !important;
+}
+
+html.theme-dark .bg-green-50,
+html.theme-dark .bg-emerald-50,
+html.theme-dark .bg-emerald-100,
+html.theme-dark .bg-teal-50 {
+  background-color: var(--mg-success-bg) !important;
+}
+
+html.theme-dark .bg-green-500,
+html.theme-dark .bg-emerald-500 {
+  background-color: var(--mg-success-text) !important;
+}
+
+/* ---------- 文本：中性色三级层次 ---------- */
 html.theme-dark .text-gray-900,
 html.theme-dark .text-slate-900,
 html.theme-dark .text-gray-800,
-html.theme-dark .text-slate-800 {
-  color: #f1f5f9 !important;
+html.theme-dark .text-slate-800,
+html.theme-dark .text-slate-950,
+html.theme-dark .text-gray-950,
+html.theme-dark .text-zinc-900,
+html.theme-dark .text-neutral-900 {
+  color: var(--mg-text-1) !important;
 }
 
 html.theme-dark .text-gray-700,
 html.theme-dark .text-slate-700,
 html.theme-dark .text-gray-600,
-html.theme-dark .text-slate-600 {
-  color: #cbd5e1 !important;
+html.theme-dark .text-slate-600,
+html.theme-dark .text-zinc-700,
+html.theme-dark .text-neutral-700 {
+  color: var(--mg-text-2) !important;
 }
 
 html.theme-dark .text-gray-500,
 html.theme-dark .text-slate-500,
 html.theme-dark .text-gray-400,
-html.theme-dark .text-slate-400 {
-  color: #94a3b8 !important;
+html.theme-dark .text-slate-400,
+html.theme-dark .text-gray-300,
+html.theme-dark .text-slate-300,
+html.theme-dark .text-zinc-500,
+html.theme-dark .text-neutral-500 {
+  color: var(--mg-text-3) !important;
 }
 
+/* ---------- 文本：语义色 ---------- */
 html.theme-dark .text-blue-700,
 html.theme-dark .text-blue-600,
 html.theme-dark .text-blue-500 {
-  color: #60a5fa !important;
+  color: var(--mg-text-link) !important;
 }
 
+html.theme-dark .text-blue-100 {
+  color: var(--mg-brand-text) !important;
+}
+
+html.theme-dark .text-red-700,
+html.theme-dark .text-red-600,
+html.theme-dark .text-red-500,
+html.theme-dark .text-rose-600 {
+  color: var(--mg-danger-text) !important;
+}
+
+html.theme-dark .text-amber-900,
+html.theme-dark .text-amber-700,
+html.theme-dark .text-amber-600,
+html.theme-dark .text-orange-700,
+html.theme-dark .text-orange-600 {
+  color: var(--mg-warning-text) !important;
+}
+
+html.theme-dark .text-emerald-800,
+html.theme-dark .text-emerald-700,
+html.theme-dark .text-emerald-600,
+html.theme-dark .text-emerald-500,
+html.theme-dark .text-green-700,
+html.theme-dark .text-green-600,
+html.theme-dark .text-green-500,
+html.theme-dark .text-teal-600 {
+  color: var(--mg-success-text) !important;
+}
+
+html.theme-dark .text-indigo-700,
+html.theme-dark .text-indigo-600,
+html.theme-dark .text-violet-600,
+html.theme-dark .text-cyan-600 {
+  color: var(--mg-accent-violet-text) !important;
+}
+
+/* ---------- 边框 ---------- */
+html.theme-dark .border-gray-50,
 html.theme-dark .border-gray-100,
 html.theme-dark .border-gray-200,
-html.theme-dark .border-gray-300,
+html.theme-dark .border-slate-50,
 html.theme-dark .border-slate-100,
-html.theme-dark .border-slate-200,
-html.theme-dark .border-slate-300 {
-  border-color: #334155 !important;
+html.theme-dark .border-slate-200 {
+  border-color: var(--mg-border) !important;
 }
 
+html.theme-dark .border-gray-300,
+html.theme-dark .border-slate-300,
+html.theme-dark .border-slate-400,
+html.theme-dark .border-gray-400 {
+  border-color: var(--mg-border-strong) !important;
+}
+
+html.theme-dark .border-blue-100,
+html.theme-dark .border-blue-200,
+html.theme-dark .border-blue-300 {
+  border-color: var(--mg-brand-soft-border) !important;
+}
+
+html.theme-dark .border-blue-500 {
+  border-color: var(--mg-brand) !important;
+}
+
+html.theme-dark .border-red-200 {
+  border-color: var(--mg-danger-border) !important;
+}
+
+html.theme-dark .border-amber-200,
+html.theme-dark .border-orange-200 {
+  border-color: var(--mg-warning-border) !important;
+}
+
+html.theme-dark .border-emerald-200,
+html.theme-dark .border-green-200 {
+  border-color: var(--mg-success-border) !important;
+}
+
+html.theme-dark .border-indigo-200,
+html.theme-dark .border-indigo-300,
+html.theme-dark .border-violet-200 {
+  border-color: var(--mg-accent-violet-border) !important;
+}
+
+/* ---------- ring / divide ---------- */
+html.theme-dark .ring-blue-100,
+html.theme-dark .ring-blue-200 {
+  --tw-ring-color: var(--mg-brand-soft-border) !important;
+}
+
+html.theme-dark .ring-blue-500 {
+  --tw-ring-color: var(--mg-brand) !important;
+}
+
+html.theme-dark .ring-slate-200,
+html.theme-dark .ring-gray-200 {
+  --tw-ring-color: var(--mg-border) !important;
+}
+
+html.theme-dark .ring-slate-400 {
+  --tw-ring-color: var(--mg-border-strong) !important;
+}
+
+html.theme-dark .divide-slate-100,
+html.theme-dark .divide-gray-100 {
+  border-color: var(--mg-divider) !important;
+}
+
+/* ---------- prose（markdown 正文） ---------- */
 html.theme-dark .prose {
-  --tw-prose-body: #cbd5e1;
-  --tw-prose-headings: #f1f5f9;
-  --tw-prose-lead: #94a3b8;
-  --tw-prose-links: #60a5fa;
-  --tw-prose-bold: #f8fafc;
-  --tw-prose-counters: #94a3b8;
-  --tw-prose-bullets: #64748b;
-  --tw-prose-hr: #334155;
-  --tw-prose-quotes: #e2e8f0;
-  --tw-prose-quote-borders: #475569;
-  --tw-prose-captions: #94a3b8;
-  --tw-prose-code: #f8fafc;
-  --tw-prose-pre-code: #e2e8f0;
-  --tw-prose-pre-bg: #0f172a;
-  --tw-prose-th-borders: #475569;
-  --tw-prose-td-borders: #334155;
+  --tw-prose-body: var(--mg-text-2);
+  --tw-prose-headings: var(--mg-text-1);
+  --tw-prose-lead: var(--mg-text-3);
+  --tw-prose-links: var(--mg-text-link);
+  --tw-prose-bold: var(--mg-text-1);
+  --tw-prose-counters: var(--mg-text-3);
+  --tw-prose-bullets: var(--mg-text-3);
+  --tw-prose-hr: var(--mg-border);
+  --tw-prose-quotes: var(--mg-text-2);
+  --tw-prose-quote-borders: var(--mg-border-strong);
+  --tw-prose-captions: var(--mg-text-3);
+  --tw-prose-code: var(--mg-text-1);
+  --tw-prose-pre-code: var(--mg-text-2);
+  --tw-prose-pre-bg: var(--mg-bg-inset);
+  --tw-prose-th-borders: var(--mg-border-strong);
+  --tw-prose-td-borders: var(--mg-border);
+}
+
+/* ---------- @vue-flow 画布：第三方默认白底接管 ----------
+   theme-default.css 把 --vf-node-bg 写成 #fff；minimap/dist/style.css 把缩略图
+   写成 #fff；controls/dist/style.css 把按钮写成 #fefefe。这些默认值不认识设计令牌，
+   深色主题下会形成白色方块与白色工具条。此处用更高优先级的选择器接到 --mg-*，
+   两套主题自动跟随，组件侧无须再写 html.theme-dark 覆盖块。
+   优先级说明：html:root (0,1,1) > :root (0,1,0)；.vue-flow .xxx (0,2,0) > .xxx (0,1,0)。 */
+html:root {
+  --vf-node-bg: var(--mg-bg-surface);
+  --vf-node-text: var(--mg-text-1);
+  --vf-connection-path: var(--mg-border-strong);
+  --vf-handle: var(--mg-text-3);
+}
+
+.vue-flow .vue-flow__minimap {
+  background-color: var(--mg-bg-surface);
+  border: 1px solid var(--mg-border);
+}
+
+.vue-flow .vue-flow__minimap-node {
+  fill: var(--mg-brand-soft-border);
+}
+
+.vue-flow .vue-flow__minimap-mask {
+  fill: var(--mg-canvas-mask);
+}
+
+.vue-flow .vue-flow__controls {
+  box-shadow: var(--mg-shadow-sm);
+}
+
+.vue-flow .vue-flow__controls-button {
+  background: var(--mg-bg-surface);
+  border-bottom: 1px solid var(--mg-border);
+  fill: var(--mg-text-1);
+}
+
+.vue-flow .vue-flow__controls-button:hover {
+  background: var(--mg-bg-surface-hover);
+}
+
+.vue-flow .vue-flow__controls-button svg {
+  fill: var(--mg-text-1);
+}
+
+.vue-flow .vue-flow__edge-textbg {
+  fill: var(--mg-bg-surface);
+}
+
+.vue-flow .vue-flow__handle {
+  border-color: var(--mg-bg-surface);
 }
 
 html.theme-dark input,
@@ -118,4 +380,36 @@ html.theme-dark textarea {
   animation-duration: 0.001ms !important;
   animation-iteration-count: 1 !important;
   transition-duration: 0.001ms !important;
+}
+
+/* =============================================================================
+ * 滚动条兜底（全局）
+ * -----------------------------------------------------------------------------
+ * 说明：Vue SFC scoped 样式会丢弃 ::-webkit-scrollbar 伪元素规则（编译后不保留），
+ * 导致未单独定制的可滚动容器（编排页侧栏、会话历史等）走系统 overlay 滚动条、灰度
+ * 不一致。全局 ::-webkit-scrollbar 定制统一使用 --mg-scrollbar-thumb，与 admin-web
+ * 保持同一套深色滚动条观感。已用 .custom-scrollbar 或局部 ::-webkit-scrollbar 的
+ * 组件按特异性覆盖，本规则不受影响；.tab-scroll 等 display:none 的隐藏滚动条同理保留。
+ * ========================================================================== */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--mg-scrollbar-thumb) transparent;
+}
+
+::-webkit-scrollbar {
+  width: var(--mg-scrollbar-size);
+  height: var(--mg-scrollbar-size);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: var(--mg-scrollbar-thumb);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--mg-scrollbar-thumb-hover);
 }

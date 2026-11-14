@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import asyncio
 from types import SimpleNamespace
@@ -16,18 +17,22 @@ from app.enterprise_capabilities.artifacts.resource_result import (
 )
 from app.enterprise_capabilities.browser import browser_task
 from app.knowledge.retrieval.retrieval_client import KnowledgeRetrievalError
+from app.knowledge.research_focus_builder import ResearchFocusBuilder
+from app.services.feature_audit_bridge import emit_feature_event
 from app.enterprise_capabilities.knowledge_result import unavailable_result
-from app.enterprise_capabilities.knowledge_source.result_messages import knowledge_result_message
 from app.services.runtime_parse_service import runtime_parse_service
 from app.services.rag_service.internal_knowledge_qa_service import internal_knowledge_qa_service
-from app.enterprise_capabilities.knowledge_source.config import get_knowledge_source
-from app.enterprise_capabilities.knowledge_source.execution import search_external_knowledge
-from app.enterprise_capabilities.knowledge_source.evidence import build_external_knowledge_evidence
 from app.enterprise_capabilities.research.progressive.provider_router import ProviderRouter
 from app.enterprise_capabilities.research.progressive.agent import ProgressiveResearchAgent
-from app.infrastructure.request_context import reset_request_context, set_request_context
+from app.core.config import get_settings
+from app.infrastructure.request_context import (
+    merge_request_context,
+    reset_request_context,
+    set_request_context,
+)
 from app.llm.configured_models import (
     get_default_model_config,
+    get_default_model_config_by_capability,
     get_model_config,
     reset_configured_model_context,
     set_configured_model_context,
@@ -48,8 +53,6 @@ from app.enterprise_capabilities.evidence import (
     build_knowledge_evidence_bundle,
     public_capability_evidence,
 )
-from app.enterprise_capabilities.knowledge.document_reader import read_knowledge_document
-from app.enterprise_capabilities.knowledge.document_evidence import build_knowledge_document_evidence
 
 from .contracts import CapabilityExecutionContext
 from .registry import CapabilityHandlerRegistry
@@ -74,34 +77,61 @@ def _artifact_output_spec(arguments: dict[str, Any], key: str) -> dict[str, Any]
 
 
 async def knowledge_search(arguments: dict[str, Any], context: CapabilityExecutionContext) -> dict[str, Any]:
-    language = str(context.turn_context.get("language") or "zh")
     selected = [str(item) for item in list(context.turn_context.get("knowledge_base_ids") or []) if str(item)]
     query = str(arguments.get("query") or "")
-    source = await get_knowledge_source(context.tenant_id)
-    if source.get("mode") == "external":
-        try:
-            result = await search_external_knowledge(
-                query=query, main_id=context.tenant_id, user_id=context.user_id, config=source, language=language,
-            )
-            bundle = build_external_knowledge_evidence(query=query, mapped=result)
-            bundle["language"] = language
-            result["evidence_bundle"] = public_capability_evidence(bundle)
-            result["_execution_evidence_bundle"] = bundle
-            return result
-        except (ValueError, PermissionError) as exc:
-            return {"success": False, "retrieval_status": "failed", "message": str(exc), "answer": ""}
+    # 017 FR-14/FR-17: scope-filtered memories as progressive RAG candidates,
+    # surfaced at L0/L1 by default with a replayable retrieval trace.
+    try:
+        from app.memory.store import MemoryStore
+        from app.memory.retrieval import progressive_memory_retrieval
+        from app.memory.viewer import resolve_viewer_from_identity
+
+        # B1 / DEP-1: CapabilityExecutionContext is a frozen pydantic model
+        # with NO .get() method -- context.get("role") raised AttributeError,
+        # and the blanket except below silently swallowed the entire 017 RAG
+        # path. tenant_id/user_id are trusted (from ToolGatewayClaims), so the
+        # full MemoryViewerContext (roles / visible_project_keys /
+        # visible_department_ids) is resolved server-side here (B1 / D4).
+        viewer = await resolve_viewer_from_identity(
+            tenant_id=context.tenant_id, user_id=context.user_id
+        )
+        mem_store = MemoryStore()
+        raw_memories = await mem_store.list_for_viewer(viewer=viewer)
+        memory_candidates, memory_trace = progressive_memory_retrieval(
+            raw_memories,
+            viewer=viewer,
+            include_tier="L1",
+            top_n=int(arguments.get("top_n") or 8),
+            session_id=context.conversation_id,
+            turn_id=str(arguments.get("turn_id") or ""),
+        )
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.runtime.adapters.knowledge_search] suppressed {type(exc).__name__}: {exc}", flush=True)
+        memory_candidates, memory_trace = [], {}
+    # 015 residual: KG entity context as RAG candidates (mirrors 017 pattern).
+    # Extract entity terms from the query (case-insensitive name match in the
+    # tenant's KG); the context is injected into the LLM grounding.
+    try:
+        from app.knowledge_graph.rag_candidates import kg_rag_candidates
+        kg_candidates = await kg_rag_candidates(
+            tenant_id=context.tenant_id,
+            entity_terms=[query] if query else [],
+            top_n=int(arguments.get("top_n") or 8),
+        )
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.runtime.adapters.knowledge_search] suppressed {type(exc).__name__}: {exc}", flush=True)
+        kg_candidates = []
     try:
         payload = await internal_knowledge_qa_service.answer(
             query=query,
-            main_id=context.tenant_id,
+            tenant_id=context.tenant_id,
             user_id=context.user_id,
             session_id=context.conversation_id,
             knowledge_ids=selected,
             top_k=int(arguments.get("top_n") or 8),
-            language=language,
         )
     except KnowledgeRetrievalError as exc:
-        return unavailable_result(query=query, error=exc, language=language)
+        return unavailable_result(query=query, error=exc)
     used_chunks = list(payload.get("usedChunks") or [])
     evidence_items = []
     for chunk in used_chunks:
@@ -119,42 +149,28 @@ async def knowledge_search(arguments: dict[str, Any], context: CapabilityExecuti
             "metadata": dict(chunk.get("metadata") or {}),
         }
         evidence_items.append(row)
-    bundle = build_knowledge_evidence_bundle(query=query, items=evidence_items, language=language)
+    bundle = build_knowledge_evidence_bundle(query=query, items=evidence_items)
     payload["success"] = bool(payload.get("ok", True))
     payload["retrieval_status"] = "completed" if payload.get("retrievedCount") else "empty"
     payload["retrieval_mode"] = "qa"
-    payload["language"] = language
     payload["total"] = payload.get("retrievedCount", 0)
     payload["items"] = used_chunks
     payload["evidence_available"] = bool(used_chunks)
-    payload["message"] = knowledge_result_message("answer_completed" if used_chunks else "answer_empty", language)
+    payload["message"] = "内部知识问答完成。" if used_chunks else "内部知识检索已完成，但没有找到可支持答案的依据。"
+    # 015: inject KG entity context (when any candidate was produced).
+    if kg_candidates:
+        payload["kg_context"] = kg_candidates
     if bundle and used_chunks:
         payload["evidence_bundle"] = public_capability_evidence(bundle)
         payload["_execution_evidence_bundle"] = bundle
+    # 017 FR-17: replayable memory retrieval trace (observability, not audit).
+    payload["memory_retrieval_trace"] = memory_trace
+    if memory_candidates:
+        # B1: candidates were computed but never consumed, so the 017 RAG path
+        # stayed hollow even when retrieval succeeded. B3 wires them into QA
+        # grounding; surfacing them here makes the path verifiable meanwhile.
+        payload["memory_candidates"] = memory_candidates
     return payload
-
-
-async def knowledge_read_document(arguments: dict[str, Any], context: CapabilityExecutionContext) -> dict[str, Any]:
-    reference = next((item for item in context.turn_context.get('knowledge_references', [])
-        if item.get('kind') == 'document' and item.get('scope') == arguments.get('scope') and item.get('source_id') == arguments.get('source_id')), {})
-    result = await read_knowledge_document(
-        tenant_id=context.tenant_id,
-        user_id=context.user_id,
-        scope=str(arguments.get("scope") or ""),
-        source_id=str(arguments.get("source_id") or ""),
-        offset=int(arguments.get("offset") or 0),
-        char_offset=int(arguments.get("char_offset") or 0),
-        max_chars=int(arguments.get("max_chars") or 5000),
-        expected_document_id=str(reference.get("document_id") or ""),
-        expected_checksum=str(reference.get("checksum") or ""),
-    )
-    bundle = build_knowledge_document_evidence(
-        result, language=str(context.turn_context.get("language") or "zh"),
-    )
-    if bundle:
-        result["evidence_bundle"] = public_capability_evidence(bundle)
-        result["_execution_evidence_bundle"] = bundle
-    return result
 
 
 async def document_parse(arguments: dict[str, Any], context: CapabilityExecutionContext) -> dict[str, Any]:
@@ -196,8 +212,7 @@ async def document_extract_resources(arguments: dict[str, Any], context: Capabil
 
 
 async def image_extract_facts(arguments: dict[str, Any], context: CapabilityExecutionContext) -> dict[str, Any]:
-    from app.enterprise_capabilities.availability.checks import vision_model as resolve_vision_model
-    vision_model = await resolve_vision_model(context.tenant_id, context.user_id)
+    vision_model = await get_default_model_config_by_capability(context.tenant_id, capability="vision")
     if vision_model is None:
         return {
             "success": False,
@@ -239,7 +254,6 @@ async def web_collect(arguments: dict[str, Any], context: CapabilityExecutionCon
         query="\n".join(str(item) for item in list(arguments.get("urls") or [])),
         results=list(public_result.get("results") or []),
         raw_result=public_result,
-        language=str(context.turn_context.get("language") or "zh"),
     )
     if bundle:
         public_result["evidence_bundle"] = public_evidence_bundle(bundle)
@@ -248,7 +262,9 @@ async def web_collect(arguments: dict[str, Any], context: CapabilityExecutionCon
 
 
 async def external_search(arguments: dict[str, Any], context: CapabilityExecutionContext) -> dict[str, Any]:
-    previous = set_request_context({"main_id": context.tenant_id, "user_id": context.user_id})
+    # 035 T017: use merge (not set) so the capability-level attribution dimensions
+    # seeded by ``InternalCapabilityService.execute`` (agent_id / skill_id) survive.
+    previous = merge_request_context({"tenant_id": context.tenant_id, "user_id": context.user_id})
     try:
         candidates, trace = await ProviderRouter().search(
             [str(item) for item in list(arguments.get("queries") or []) if str(item).strip()],
@@ -261,7 +277,6 @@ async def external_search(arguments: dict[str, Any], context: CapabilityExecutio
     raw_result = {"results": results, "provider_trace": trace, "total": len(results)}
     bundle = build_research_evidence_bundle(
         tool_name="external_search", query=query, results=results, raw_result=raw_result,
-        language=str(context.turn_context.get("language") or "zh"),
     )
     return {
         "success": bool(results), **raw_result,
@@ -288,19 +303,30 @@ async def progressive_research(arguments: dict[str, Any], context: CapabilityExe
         for row in projector.project(event):
             await context.publish_progress(row)
 
-    previous_request = set_request_context({
-        "main_id": context.tenant_id,
+    # 035 T017: merge keeps agent_id / skill_id from the capability scope.
+    previous_request = merge_request_context({
+        "tenant_id": context.tenant_id,
         "user_id": context.user_id,
         "configured_model": model_config,
         "model_instance_id": context.model_instance_id,
     })
     previous_model = set_configured_model_context(model_config)
     try:
+        research_model = get_settings().OPENAI_MODEL_RESEARCH
         agent = ProgressiveResearchAgent(
             max_rounds=int(arguments.get("max_rounds") or 3),
             max_results_per_query=int(arguments.get("max_results_per_query") or 8),
             freshness_days=int(arguments.get("freshness_days") or 30),
             progress_callback=publish_native,
+            research_focus_builder=ResearchFocusBuilder(),
+            selected_mode=str(arguments.get("research_mode") or "report"),
+            evidence_mode=str(arguments.get("evidence_mode") or "standard"),
+            audit_sink=emit_feature_event,
+            tenant_id=context.tenant_id,
+            actor=context.user_id,
+            research_model=research_model or None,
+            research_base_url=model_config.get("base_url") if research_model else None,
+            research_api_key=model_config.get("api_key") if research_model else None,
         )
         result = await agent.run(
             query=str(arguments.get("query") or "").strip(),
@@ -316,7 +342,6 @@ async def progressive_research(arguments: dict[str, Any], context: CapabilityExe
             evidence_sufficient=result.evidence_sufficient,
             budget_exhausted=result.budget_exhausted,
             stop_reason=result.stop_reason,
-            language=str(arguments.get("language") or context.turn_context.get("language") or "zh"),
         )
         return {
             "success": result.ok, **result_payload,
@@ -335,10 +360,7 @@ async def compute_metrics(arguments: dict[str, Any], context: CapabilityExecutio
 
 def build_default_registry() -> CapabilityHandlerRegistry:
     registry = CapabilityHandlerRegistry()
-    from app.knowledge_references.tools import knowledge_browse
-    registry.register("knowledge.browse@v1", knowledge_browse)
     registry.register("knowledge.search@v1", knowledge_search)
-    registry.register("knowledge.read_document@v1", knowledge_read_document)
     registry.register("skills.install_skillhub@v1", skillhub_install)
     registry.register("document.parse@v1", document_parse)
     registry.register("document.review_source@v1", document_review_source)

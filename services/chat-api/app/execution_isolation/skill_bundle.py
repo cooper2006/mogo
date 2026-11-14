@@ -55,9 +55,9 @@ async def selected_skill_bundle(*, skill_id: str, tenant_id: str, user_id: str) 
         raise ValueError("Selected Skill package has an invalid root prefix")
     if not SHA256.fullmatch(digest):
         raise ValueError("Selected Skill package has an invalid digest")
-    cache_root = Path(os.environ.get("MOVO_SANDBOX_WORKSPACE_ROOT", "/workspaces")) / "skill-cache"
+    cache_root = Path(os.environ.get("MOGO_SANDBOX_WORKSPACE_ROOT", "/workspaces")) / "skill-cache"
     cached_root = cache_root / digest / prefix
-    archive = None if os.environ.get("MOVO_SANDBOX_MANAGER_URL") and (cached_root / "SKILL.md").is_file() else (
+    archive = None if os.environ.get("MOGO_SANDBOX_MANAGER_URL") and (cached_root / "SKILL.md").is_file() else (
         await read_archive(get_db(), package)
     )
     return SkillBundle(

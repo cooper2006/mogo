@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { useMessage } from 'naive-ui';
 import { t } from '@/composables/i18n';
 import { createModelGroup, deleteModelGroup, updateModelGroup, type ModelGroupItem, type ModelGroupPayload, type ModelInstanceItem, type ModelProviderItem } from '@/api/models';
-import adminProductUiExtension from '@movo-admin-product-extension';
+import adminProductUiExtension from '@mogo-admin-product-extension';
 import { providerLabel } from './providerLabels';
 import { modelApiErrorText } from './modelApiError';
 import ModelGroupMemberRow from './ModelGroupMemberRow.vue';
@@ -51,15 +51,20 @@ function selectProvider(id: string) {
   form.value.baseUrl = props.providers.find((item) => item.id === id)?.defaultBaseUrl || '';
 }
 
+function formIsIncomplete(): boolean {
+  if (!form.value.name.trim() || !form.value.providerId || !form.value.baseUrl.trim()) return true;
+  return !props.group && !form.value.apiKey.trim();
+}
+
+function azureVersionMissing(): boolean {
+  return provider.value?.providerType === 'azure_openai' && !form.value.apiVersion.trim();
+}
+
 async function save() {
   const warning = extension?.validate?.(access.value);
   if (warning) { message.warning(t(warning)); return; }
-  if (!form.value.name.trim() || !form.value.providerId || !form.value.baseUrl.trim() || (!props.group && !form.value.apiKey.trim())) {
-    message.warning(t('modelGroup.required')); return;
-  }
-  if (provider.value?.providerType === 'azure_openai' && !form.value.apiVersion.trim()) {
-    message.warning(t('modelGroup.azureVersionRequired')); return;
-  }
+  if (formIsIncomplete()) { message.warning(t('modelGroup.required')); return; }
+  if (azureVersionMissing()) { message.warning(t('modelGroup.azureVersionRequired')); return; }
   saving.value = true;
   let newlyCreated: ModelGroupItem | null = null;
   try {
@@ -143,18 +148,18 @@ function memberDeleted() {
 .group-editor-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; height: min(72dvh, 760px); max-height: calc(100dvh - 170px); min-height: 0; margin: -8px -24px; overflow: hidden; }
 .group-editor-main { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 20px 24px 28px; }
 .group-editor-main::-webkit-scrollbar { width: 9px; }
-.group-editor-main::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 8px; background: #b9c5d8; background-clip: padding-box; }
-.group-editor-main::-webkit-scrollbar-track { background: #f5f7fb; }
+.group-editor-main::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 8px; background: var(--mg-scrollbar-thumb); background-clip: padding-box; }
+.group-editor-main::-webkit-scrollbar-track { background: transparent; }
 .settings-section, .members-section { padding: 0 0 22px; }
-.members-section { border-top: 1px solid #e4eaf3; padding-top: 22px; }
+.members-section { border-top: 1px solid var(--mg-border); padding-top: 22px; }
 h3 { margin: 0 0 14px; font-size: 16px; }
-.section-title { display: flex; align-items: center; gap: 8px; color: #253a61; }
-.section-title .n-icon { color: #4774cb; }
+.section-title { display: flex; align-items: center; gap: 8px; color: var(--mg-text-1); }
+.section-title .n-icon { color: var(--mg-brand); }
 .settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; }
 .settings-actions, .section-head, .editor-footer { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .settings-actions { justify-content: flex-end; }
 .settings-actions > :first-child:not(:last-child) { margin-right: auto; }
-.section-head h3 { margin-bottom: 4px; }.section-head p, .editor-footer span { margin: 0; color: #718097; font-size: 12px; }
+.section-head h3 { margin-bottom: 4px; }.section-head p, .editor-footer span { margin: 0; color: var(--mg-text-3); font-size: 12px; }
 .member-list { display: grid; gap: 10px; margin-top: 16px; }
 @media (max-width: 900px) { .group-editor-layout { display: block; overflow-y: auto; }.group-editor-main { overflow: visible; }.settings-grid { grid-template-columns: 1fr; } }
 </style>

@@ -29,15 +29,15 @@ class Collection:
 class Database:
     def __init__(self):
         now = datetime.datetime.now(datetime.timezone.utc)
-        self.skills = Collection([{"_id": "skill", "main_id": "tenant"}])
-        self.resource_comments = Collection([{"_id": "comment", "main_id": "tenant", "resource_type": "organization_skill", "resource_id": "skill", "status": "active", "content": "建议增加示例", "author": {"displayName": "Member"}, "created_at": now}])
-        self.resource_reactions = Collection([{"_id": "like", "main_id": "tenant", "resource_type": "organization_skill", "resource_id": "skill", "reaction": "like"}])
-        self.resource_comment_reactions = Collection([{"_id": "comment-like", "main_id": "tenant", "comment_id": "comment", "reaction": "like"}])
+        self.skills = Collection([{"_id": "skill", "tenant_id": "tenant"}])
+        self.resource_comments = Collection([{"_id": "comment", "tenant_id": "tenant", "resource_type": "organization_skill", "resource_id": "skill", "status": "active", "content": "建议增加示例", "author": {"displayName": "Member"}, "created_at": now}])
+        self.resource_reactions = Collection([{"_id": "like", "tenant_id": "tenant", "resource_type": "organization_skill", "resource_id": "skill", "reaction": "like"}])
+        self.resource_comment_reactions = Collection([{"_id": "comment-like", "tenant_id": "tenant", "comment_id": "comment", "reaction": "like"}])
 
 
 def test_admin_can_read_enterprise_skill_feedback(monkeypatch):
     db = Database(); monkeypatch.setattr(feedback_module, "get_db", lambda: db)
-    result = asyncio.run(OrganizationSkillFeedbackService().list(main_id="tenant", skill_id="skill"))
+    result = asyncio.run(OrganizationSkillFeedbackService().list(tenant_id="tenant", skill_id="skill"))
     assert result["likes"] == 1
     assert result["items"][0]["content"] == "建议增加示例"
     assert result["items"][0]["likes"] == 1

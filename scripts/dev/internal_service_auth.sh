@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-_movo_read_env_value() {
+_mogo_read_env_value() {
     local key="$1"
     local file="$2"
     local line value
@@ -26,7 +26,7 @@ _movo_read_env_value() {
 # Prepare credentials shared by source-development services. The optional
 # repository root lets this function reuse persisted local secrets without
 # sourcing .env files as executable shell code.
-movo_prepare_internal_service_auth() {
+mogo_prepare_internal_service_auth() {
     local root_dir="${1:-}"
     local token="${ADMIN_BACKEND_SERVICE_TOKEN:-${ASKAI_ADMIN_BACKEND_SERVICE_TOKEN:-}}"
 
@@ -47,7 +47,8 @@ movo_prepare_internal_service_auth() {
     # admin-api -> document-parser uses a separate shared credential. Source
     # development must export both services' variable names; otherwise the
     # parser starts with an empty token and rejects every learning job.
-    local document_token="${MOVO_DOC_PROCESSING_SERVICE_TOKEN:-${ASKAI_ADMIN_DOCUMENT_PROCESSING_SERVICE_TOKEN:-}}"
+    # 品牌归一（2026-10-21）：MOGO_ 前缀为唯一规范前缀。
+    local document_token="${MOGO_DOC_PROCESSING_SERVICE_TOKEN:-${ASKAI_ADMIN_DOCUMENT_PROCESSING_SERVICE_TOKEN:-}}"
     if [ -z "$document_token" ]; then
         if command -v openssl >/dev/null 2>&1; then
             document_token="$(openssl rand -hex 32)"
@@ -55,7 +56,7 @@ movo_prepare_internal_service_auth() {
             document_token="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
         fi
     fi
-    export MOVO_DOC_PROCESSING_SERVICE_TOKEN="$document_token"
+    export MOGO_DOC_PROCESSING_SERVICE_TOKEN="$document_token"
     export ASKAI_ADMIN_DOCUMENT_PROCESSING_SERVICE_TOKEN="$document_token"
     export DOCUMENT_PROCESSING_SERVICE_TOKEN="$document_token"
 
@@ -81,19 +82,19 @@ movo_prepare_internal_service_auth() {
     # Model Center secrets are encrypted by admin-api with its JWT secret and
     # decrypted by both the document API and Celery worker. They must receive
     # the exact same stable value or every embedding/rerank key is unreadable.
-    local admin_jwt_secret="${ASKAI_ADMIN_JWT_SECRET:-${MOVO_DOC_PROCESSING_ADMIN_JWT_SECRET:-}}"
+    local admin_jwt_secret="${MOGO_DOC_PROCESSING_ADMIN_JWT_SECRET:-${ASKAI_ADMIN_JWT_SECRET:-}}"
     if [ -z "$admin_jwt_secret" ] && [ -n "$root_dir" ]; then
-        admin_jwt_secret="$(_movo_read_env_value ASKAI_ADMIN_JWT_SECRET "$root_dir/services/admin-api/.env")"
+        admin_jwt_secret="$(_mogo_read_env_value ASKAI_ADMIN_JWT_SECRET "$root_dir/services/admin-api/.env")"
     fi
     if [ -z "$admin_jwt_secret" ] && [ -n "$root_dir" ]; then
-        admin_jwt_secret="$(_movo_read_env_value MOVO_DOC_PROCESSING_ADMIN_JWT_SECRET "$root_dir/services/document-parser/.env")"
+        admin_jwt_secret="$(_mogo_read_env_value MOGO_DOC_PROCESSING_ADMIN_JWT_SECRET "$root_dir/services/document-parser/.env")"
     fi
     if [ -z "$admin_jwt_secret" ] && [ -n "$root_dir" ]; then
-        admin_jwt_secret="$(_movo_read_env_value JWT_SECRET "$root_dir/services/chat-api/.env")"
+        admin_jwt_secret="$(_mogo_read_env_value JWT_SECRET "$root_dir/services/chat-api/.env")"
     fi
     local generated_secret_file=""
     if [ -z "$admin_jwt_secret" ] && [ -n "$root_dir" ]; then
-        generated_secret_file="$root_dir/.movo-dev/admin_jwt_secret"
+        generated_secret_file="$root_dir/.mogo-dev/admin_jwt_secret"
         if [ -s "$generated_secret_file" ]; then
             IFS= read -r admin_jwt_secret < "$generated_secret_file"
         else
@@ -115,5 +116,5 @@ movo_prepare_internal_service_auth() {
         return 1
     fi
     export ASKAI_ADMIN_JWT_SECRET="$admin_jwt_secret"
-    export MOVO_DOC_PROCESSING_ADMIN_JWT_SECRET="$admin_jwt_secret"
+    export MOGO_DOC_PROCESSING_ADMIN_JWT_SECRET="$admin_jwt_secret"
 }

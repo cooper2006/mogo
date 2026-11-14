@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import csv
 import io
@@ -43,7 +44,8 @@ def parse_user_data(text: str) -> Dict[str, Any]:
                 headers = rows[0]
                 for row in rows[1:]:
                     records.append({headers[i]: row[i] for i in range(min(len(headers), len(row))) if headers[i]})
-        except Exception:
+        except Exception as exc:
+            log_print(f"[services.form_filling.mapper.parse_user_data] suppressed {type(exc).__name__}: {exc}", flush=True)
             records = []
 
     return {"raw_text": body, "key_values": key_values, "records": records}
@@ -102,8 +104,8 @@ async def build_fill_plan(
             if not llm_has_output and fallback_has_output:
                 return fallback
             return data
-    except Exception:
-        pass
+    except Exception as exc:
+        log_print(f"[form_filling/mapper] LLM mapping failed: {exc}", flush=True)
     return fallback
 
 

@@ -1,84 +1,13 @@
 """Minimal Conversation projection independent from the legacy Agent runtime."""
 
-# allow: SIZE_OK — the plan pins this single file as the todo-6 seam; todos
-# 13/14/19 address this module by line number, so a split is a later todo's
-# decision, not T06's.
-
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
-from bson import ObjectId
+from app.core.ids import is_valid_backend_id, to_backend_id
 from pymongo import ReturnDocument
-from pymongo.errors import DuplicateKeyError, OperationFailure
-
-from app.migrations.sequence_index import (
-    MESSAGE_SEQ_INDEX_FILTER,
-    MESSAGE_SEQ_INDEX_KEYS,
-    UNIQUE_MESSAGE_SEQ_INDEX_NAME,
-)
-from .sequence_allocator import reserve_message_sequence
-
-
-class MessageSequenceIndexConflict(RuntimeError):
-    """Valid chat_messages rows duplicate (main_id, session_id, seq).
-
-    Startup must abort: the unique per-session sequence index cannot be built
-    over duplicate data, and silently skipping the index or de-duplicating
-    automatically would corrupt the sequence contract.
-    """
-
-    def __init__(self, index_name: str, samples: list[dict[str, Any]]) -> None:
-        self.index_name = index_name
-        self.samples = samples
-        super().__init__(
-            f"cannot create unique index {index_name!r} on chat_messages:"
-            " pre-existing rows duplicate (main_id, session_id, seq);"
-            f" sample offending rows: {samples}; upgrade stopped before"
-            " replacing the running service. Run ./movo fix during a"
-            " maintenance window, then ./movo up"
-        )
-
-
-class MessageSequenceConflict(RuntimeError):
-    """An append raced another writer for the same per-session sequence slot.
-
-    Retryable: the next attempt re-seeds the counter via the $max floor and
-    mints a fresh seq. Carries a stable ``code`` so the endpoint layer can map
-    it to a retryable status instead of an unmapped 500 (session-sharing plan
-    todo 10).
-    """
-
-    code = "message_sequence_conflict"
-
-    def __init__(self, *, conversation_id: str, seq: int) -> None:
-        self.conversation_id = conversation_id
-        self.seq = seq
-        super().__init__(
-            f"message seq {seq} was already taken by a concurrent writer in"
-            f" conversation {conversation_id}; retry the append"
-        )
-
-
-class UserMessageIdConflict(RuntimeError):
-    """A client-supplied user-message id already exists in ``chat_messages``.
-
-    Session-sharing realtime plan todo 4: a client id is an identity claim, so
-    ANY existing row carrying it - same scope or not - is this stable,
-    non-500 conflict. A collision on a SERVER-minted id keeps the repository's
-    idempotent re-delivery return; only ``client_supplied_id=True`` rejects it.
-    """
-
-    code = "user_message_id_conflict"
-
-    def __init__(self, *, conversation_id: str, message_id: str) -> None:
-        self.conversation_id = conversation_id
-        self.message_id = message_id
-        super().__init__(
-            f"user message id {message_id!r} already exists in chat_messages;"
-            " supply a fresh turn identity"
-        )
+from pymongo.errors import DuplicateKeyError
 
 
 class ConversationRepository:
@@ -94,88 +23,16 @@ class ConversationRepository:
             name="unique_string_message_id",
         )
         await self._messages.create_index(
-            [("main_id", 1), ("user_id", 1), ("session_id", 1), ("seq", 1)],
+            [("tenant_id", 1), ("user_id", 1), ("session_id", 1), ("seq", 1)],
         )
-        await self._sessions.create_index(
-            [("main_id", 1), ("share_token_hash", 1)],
-            unique=True,
-            partialFilterExpression={"share_token_hash": {"$type": "string"}},
-            name="unique_main_share_token_hash",
-        )
-        existing = (await self._messages.index_information()).get(
-            UNIQUE_MESSAGE_SEQ_INDEX_NAME
-        )
-        if existing and (
-            existing.get("key") == MESSAGE_SEQ_INDEX_KEYS
-            and existing.get("unique") is True
-            and existing.get("partialFilterExpression") in (
-                None, MESSAGE_SEQ_INDEX_FILTER
-            )
-        ):
-            # A pre-existing full unique index enforces a stronger contract.
-            # Reuse it instead of trying to replace it under the same name.
-            return
-        try:
-            await self._messages.create_index(
-                MESSAGE_SEQ_INDEX_KEYS,
-                unique=True,
-                partialFilterExpression=MESSAGE_SEQ_INDEX_FILTER,
-                name=UNIQUE_MESSAGE_SEQ_INDEX_NAME,
-            )
-        except OperationFailure:
-            # The failed build's server error carries no usable samples: find the
-            # offending rows via aggregation, and re-raise when the failure is
-            # not caused by duplicates.
-            samples = await self._duplicate_message_seq_samples()
-            if samples:
-                raise MessageSequenceIndexConflict(
-                    UNIQUE_MESSAGE_SEQ_INDEX_NAME, samples
-                ) from None
-            raise
 
-    async def _duplicate_message_seq_samples(self) -> list[dict[str, Any]]:
-        cursor = self._messages.aggregate(
-            [
-                {"$match": MESSAGE_SEQ_INDEX_FILTER},
-                {
-                    "$group": {
-                        "_id": {
-                            "main_id": "$main_id",
-                            "session_id": "$session_id",
-                            "seq": "$seq",
-                        },
-                        "count": {"$sum": 1},
-                        "first_message_id": {"$first": "$message_id"},
-                        "last_message_id": {"$last": "$message_id"},
-                    }
-                },
-                {"$match": {"count": {"$gt": 1}}},
-                {"$limit": 5},
-            ]
-        )
-        samples: list[dict[str, Any]] = []
-        async for row in cursor:
-            key = row["_id"]
-            samples.append(
-                {
-                    "main_id": str(key.get("main_id")),
-                    "session_id": str(key.get("session_id")),
-                    "seq": key.get("seq"),
-                    "count": row["count"],
-                    "message_ids": list(dict.fromkeys(
-                        str(message_id)
-                        for message_id in (row["first_message_id"], row["last_message_id"])
-                    )),
-                }
-            )
-        return samples
-
-    async def create(self, *, tenant_id: str, user_id: str, title: str) -> dict[str, Any]:
-        now = datetime.utcnow()
+    async def create(self, *, tenant_id: str, user_id: str, title: str, project_id: str = "default") -> dict[str, Any]:
+        now = datetime.now(tz=timezone.utc)
         document = {
             "user_id": user_id,
-            "main_id": tenant_id,
+            "tenant_id": tenant_id,
             "title": (title.strip() or "New Chat")[:160],
+            "project_id": project_id,
             "created_at": now,
             "updated_at": now,
             "last_message_at": None,
@@ -183,125 +40,37 @@ class ConversationRepository:
             "message_count": 0,
             "next_message_seq": 0,
             "runtime_owner": "dsh",
-            "share_token_hash": None,
-            "share_expires_at": None,
-            "share_revoked_at": None,
         }
         result = await self._sessions.insert_one(document)
         document["_id"] = result.inserted_id
         return document
 
     async def delete_if_empty(self, conversation_id: str, *, tenant_id: str, user_id: str) -> None:
-        if not ObjectId.is_valid(conversation_id):
+        if not is_valid_backend_id(conversation_id):
             return
         await self._sessions.delete_one(
             {
-                "_id": ObjectId(conversation_id),
-                "main_id": tenant_id,
+                "_id": to_backend_id(conversation_id),
+                "tenant_id": tenant_id,
                 "user_id": user_id,
                 "message_count": 0,
             }
         )
 
     async def owned(self, conversation_id: str, *, tenant_id: str, user_id: str) -> dict[str, Any]:
-        if not ObjectId.is_valid(conversation_id):
+        if not is_valid_backend_id(conversation_id):
             raise LookupError("conversation_not_found")
         row = await self._sessions.find_one(
-            {"_id": ObjectId(conversation_id), "main_id": tenant_id, "user_id": user_id}
+            {"_id": to_backend_id(conversation_id), "tenant_id": tenant_id, "user_id": user_id}
         )
         if row is None:
             raise LookupError("conversation_not_found")
         return row
 
     async def message(self, message_id: str, *, tenant_id: str, user_id: str) -> dict[str, Any] | None:
-        # Session-scoped read: message ids are globally unique strings (the
-        # unique_string_message_id index proves it), so only the tenant scopes
-        # the read. user_id stays in the signature for call-shape
-        # compatibility with the existing runtime callers.
         return await self._messages.find_one(
-            {"message_id": message_id, "main_id": tenant_id}
+            {"message_id": message_id, "tenant_id": tenant_id, "user_id": user_id}
         )
-
-    async def list_messages(
-        self,
-        tenant_id: str,
-        conversation_id: str,
-        after_seq: int | None = None,
-    ) -> list[dict[str, Any]]:
-        if not ObjectId.is_valid(conversation_id):
-            raise LookupError("conversation_not_found")
-        query: dict[str, Any] = {
-            "main_id": tenant_id,
-            "session_id": ObjectId(conversation_id),
-        }
-        if after_seq is not None:
-            query["seq"] = {"$gt": after_seq}
-        cursor = self._messages.find(query, sort=[("seq", 1)])
-        return await cursor.to_list(length=None)
-
-    async def backfill_message_sequences(self, tenant_id: str, session_id: str) -> int:
-        """Persist session ``seq`` ordinals onto historical unsequenced rows.
-
-        ALL-OR-NOTHING PER SESSION: a cheap read-only pre-check counts the
-        session's sequenced rows through the pre-existing unique
-        :data:`UNIQUE_MESSAGE_SEQ_INDEX_NAME` index and the backfill runs
-        ONLY when that count is zero AND unsequenced rows exist. A MIXED
-        session is therefore left completely untouched (the endpoint serves
-        it through the degrade path instead), the steady state costs one
-        extra indexed read and takes no write lock, and a partially
-        completed backfill is safely resumable.
-
-        Values are computed in ``(created_at asc, _id asc)`` order from the
-        session's monotonic ``next_message_seq`` counter (never rewound) and
-        written as SEPARATE single-document updates that only ever match a
-        row whose ``seq`` is still absent - so two concurrent backfills can
-        never assign the same ordinal. Stored ``content`` is never touched
-        and no ``seq`` is ever numbered at read time. Returns the number of
-        rows actually written.
-        """
-        if not ObjectId.is_valid(session_id):
-            return 0
-        session_oid = ObjectId(session_id)
-        scope = {"main_id": tenant_id, "session_id": session_oid}
-        # Sequenced probe: the (main_id, session_id, seq) index bounds this
-        # count; a null/missing seq is type-bracketed out of the $gte range.
-        sequenced = await self._messages.count_documents({**scope, "seq": {"$gte": 0}})
-        if sequenced:
-            return 0
-        pending = await self._messages.find(
-            {**scope, "seq": None}, sort=[("created_at", 1), ("_id", 1)]
-        ).to_list(length=None)
-        if not pending:
-            return 0
-        assigned = 0
-        for row in pending:
-            # The same $max floor as append_message: a legacy writer that
-            # advanced seq without advancing the counter cannot rewind it.
-            session = await self._sessions.find_one_and_update(
-                {"_id": session_oid, "main_id": tenant_id},
-                [
-                    {
-                        "$set": {
-                            "next_message_seq": {
-                                "$max": [
-                                    {"$add": [{"$ifNull": ["$next_message_seq", 0]}, 1]},
-                                    1,
-                                ]
-                            }
-                        }
-                    }
-                ],
-                return_document=ReturnDocument.AFTER,
-            )
-            if session is None:
-                raise LookupError("conversation_not_found")
-            seq = int(session.get("next_message_seq") or 1)
-            result = await self._messages.update_one(
-                {**scope, "_id": row["_id"], "seq": None},
-                {"$set": {"seq": seq}},
-            )
-            assigned += int(result.modified_count)
-        return assigned
 
     async def append_message(
         self,
@@ -314,55 +83,34 @@ class ConversationRepository:
         message_id: str,
         images: list[dict[str, Any]] | None = None,
         documents: list[dict[str, Any]] | None = None,
-        knowledge_references: list[dict[str, Any]] | None = None,
         execution_events: list[dict[str, Any]] | None = None,
-        client_supplied_id: bool = False,
     ) -> dict[str, Any]:
         existing = await self._messages.find_one({"message_id": message_id})
         if existing is not None:
-            if client_supplied_id:
-                # Plan todo 4: the client's X-User-Message-Id is an identity
-                # claim, so an existing row is a conflict even in the same
-                # scope - never the server-minted path's silent idempotent
-                # return below.
-                raise UserMessageIdConflict(
-                    conversation_id=conversation_id, message_id=message_id
-                )
             if (
-                str(existing.get("main_id")) != tenant_id
+                str(existing.get("tenant_id")) != tenant_id
                 or str(existing.get("user_id")) != user_id
                 or str(existing.get("session_id")) != conversation_id
             ):
                 raise ValueError("message id belongs to another Conversation")
             return existing
-        session_oid = ObjectId(conversation_id)
-        # Session-scoped lookup: {_id, main_id} only, so a participant may
-        # append. The caller layer admits members; user_id stays the author.
-        # The allocator floors the counter against legacy message rows before
-        # reserving the next sequence number.
-        max_seq_row = await self._messages.find_one(
-            {"main_id": tenant_id, "session_id": session_oid},
-            sort=[("seq", -1)],
-        )
-        max_seq = int((max_seq_row or {}).get("seq") or 0)
-        session = await reserve_message_sequence(
-            self._sessions,
-            {"_id": session_oid, "main_id": tenant_id},
-            max_seq,
+        session = await self._sessions.find_one_and_update(
+            {"_id": to_backend_id(conversation_id), "tenant_id": tenant_id, "user_id": user_id},
+            {"$inc": {"next_message_seq": 1}},
+            return_document=ReturnDocument.AFTER,
         )
         if session is None:
             raise LookupError("conversation_not_found")
-        now = datetime.utcnow()
+        now = datetime.now(tz=timezone.utc)
         document = {
             "session_id": session["_id"],
             "user_id": user_id,
-            "main_id": tenant_id,
+            "tenant_id": tenant_id,
             "seq": int(session.get("next_message_seq") or 1),
             "role": role,
             "content": content,
             "images": list(images or []),
             "documents": list(documents or []),
-            "knowledge_references": list(knowledge_references or []),
             "message_id": message_id,
             "execution_events": list(execution_events or []),
             "created_at": now,
@@ -373,19 +121,10 @@ class ConversationRepository:
         except DuplicateKeyError:
             existing = await self._messages.find_one({"message_id": message_id})
             if existing is not None:
-                if client_supplied_id:
-                    raise UserMessageIdConflict(
-                        conversation_id=conversation_id, message_id=message_id
-                    ) from None
                 return existing
-            # Not the message-id idempotency case: a concurrent writer took
-            # the same (main_id, session_id, seq) slot. Typed and retryable,
-            # never an unmapped DuplicateKeyError (which surfaces as a 500).
-            raise MessageSequenceConflict(
-                conversation_id=conversation_id, seq=int(document["seq"])
-            ) from None
+            raise
         await self._sessions.update_one(
-            {"_id": session["_id"], "main_id": tenant_id},
+            {"_id": session["_id"], "tenant_id": tenant_id, "user_id": user_id},
             {
                 "$set": {
                     "updated_at": now,
@@ -397,6 +136,29 @@ class ConversationRepository:
         )
         return document
 
+    async def list_messages(
+        self,
+        tenant_id: str,
+        conversation_id: str,
+        after_seq: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Tenant-scoped ordered message read for the session live projection.
+
+        P3 session_live：按 ``seq`` 升序返回会话消息，供 ``revision_digest``
+        与帧渲染消费；``after_seq`` 支持增量续读。himovo 用 ``main_id``，
+        本地已迁移 ``tenant_id``。
+        """
+        if not is_valid_backend_id(conversation_id):
+            raise LookupError("conversation_not_found")
+        query: dict[str, Any] = {
+            "tenant_id": tenant_id,
+            "session_id": to_backend_id(conversation_id),
+        }
+        if after_seq is not None:
+            query["seq"] = {"$gt": after_seq}
+        cursor = self._messages.find(query, sort=[("seq", 1)])
+        return await cursor.to_list(length=None)
+
     async def update_assistant_projection(
         self,
         *,
@@ -404,37 +166,18 @@ class ConversationRepository:
         tenant_id: str,
         user_id: str,
         content: str,
-        documents: list[dict[str, Any]] | None = None,
         execution_events: list[dict[str, Any]],
         evidence_bundles: list[dict[str, Any]] | None = None,
     ) -> None:
         update = {"content": content, "execution_events": execution_events}
-        if documents is not None:
-            update["documents"] = list(documents)
         if evidence_bundles is not None:
             update["evidence_bundles"] = list(evidence_bundles)
         result = await self._messages.update_one(
-            # Session-scoped: the finalizer may call with the binding subject,
-            # which can differ from the message's author.
-            {"message_id": message_id, "main_id": tenant_id},
+            {"message_id": message_id, "tenant_id": tenant_id, "user_id": user_id},
             {"$set": update},
         )
         if result.matched_count == 0:
             raise LookupError("assistant_message_not_found")
-
-    async def ensure_assistant_terminal(self, *, message_id: str, tenant_id: str, status: str) -> None:
-        from .terminal_projection import with_terminal
-
-        row = await self._messages.find_one({"message_id": message_id, "main_id": tenant_id})
-        if row is None:
-            raise LookupError("assistant_message_not_found")
-        events = list(row.get("execution_events") or [])
-        completed = with_terminal(message_id, status, events)
-        if completed is not events:
-            await self._messages.update_one(
-                {"_id": row["_id"], "main_id": tenant_id},
-                {"$set": {"execution_events": completed}},
-            )
 
     async def mark_active_run(
         self,
@@ -446,21 +189,16 @@ class ConversationRepository:
         run_id: str,
     ) -> None:
         result = await self._sessions.update_one(
-            # Session-scoped: a participant may start a run. The caller's
-            # user_id IS the run's initiator (todo 14): recorded in the
-            # active_run so cancel/approve can bind to it; a legacy row
-            # without the field means "unknown" and fails closed.
-            {"_id": ObjectId(conversation_id), "main_id": tenant_id},
+            {"_id": to_backend_id(conversation_id), "tenant_id": tenant_id, "user_id": user_id},
             {"$set": {
                 "active_run": {
                     "run_id": run_id,
                     "message_id": message_id,
-                    "initiator_user_id": user_id,
                     "source": "dsh",
                     "status": "running",
-                    "started_at": datetime.utcnow(),
+                    "started_at": datetime.now(tz=timezone.utc),
                 },
-                "updated_at": datetime.utcnow(),
+                "updated_at": datetime.now(tz=timezone.utc),
             }},
         )
         if result.matched_count == 0:
@@ -474,28 +212,26 @@ class ConversationRepository:
         user_id: str,
         message_id: str,
     ) -> None:
-        if not ObjectId.is_valid(conversation_id):
+        if not is_valid_backend_id(conversation_id):
             return
         await self._sessions.update_one(
-            # Session-scoped: any member's finalizer may clear the claim.
             {
-                "_id": ObjectId(conversation_id),
-                "main_id": tenant_id,
+                "_id": to_backend_id(conversation_id),
+                "tenant_id": tenant_id,
+                "user_id": user_id,
                 "active_run.message_id": message_id,
             },
-            {"$unset": {"active_run": ""}, "$set": {"updated_at": datetime.utcnow()}},
+            {"$unset": {"active_run": ""}, "$set": {"updated_at": datetime.now(tz=timezone.utc)}},
         )
 
     async def set_pending_approval_count(
         self, *, conversation_id: str, tenant_id: str, user_id: str, count: int,
     ) -> None:
-        if not ObjectId.is_valid(conversation_id):
+        if not is_valid_backend_id(conversation_id):
             return
         await self._sessions.update_one(
-            # Session-scoped: the badge must move for any caller (a rotated
-            # binding or participant call must not silently no-op).
-            {"_id": ObjectId(conversation_id), "main_id": tenant_id},
-            {"$set": {"pending_approval_count": max(0, int(count)), "updated_at": datetime.utcnow()}},
+            {"_id": to_backend_id(conversation_id), "tenant_id": tenant_id, "user_id": user_id},
+            {"$set": {"pending_approval_count": max(0, int(count)), "updated_at": datetime.now(tz=timezone.utc)}},
         )
 
     async def suspend_active_run(
@@ -507,23 +243,20 @@ class ConversationRepository:
         message_id: str,
         intervention: dict[str, Any],
     ) -> None:
-        if not ObjectId.is_valid(conversation_id):
+        if not is_valid_backend_id(conversation_id):
             return
         await self._sessions.update_one(
-            # Session-scoped: any member's finalizer may suspend the claim.
             {
-                "_id": ObjectId(conversation_id),
-                "main_id": tenant_id,
+                "_id": to_backend_id(conversation_id),
+                "tenant_id": tenant_id,
+                "user_id": user_id,
                 "active_run.message_id": message_id,
             },
             {"$set": {
-                # Dotted-path update: the recorded initiator_user_id (todo 14)
-                # and the other active_run fields are preserved, not replaced —
-                # a suspended run stays attributable to its initiator.
                 "active_run.status": "suspended",
                 "active_run.suspension_id": str(intervention.get("suspension_id") or ""),
                 "active_run.node_id": str(intervention.get("node_id") or ""),
                 "active_run.reason": str(intervention.get("reason") or ""),
-                "updated_at": datetime.utcnow(),
+                "updated_at": datetime.now(tz=timezone.utc),
             }},
         )

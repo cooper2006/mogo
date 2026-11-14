@@ -1,6 +1,8 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import datetime
+from datetime import timezone
 import mimetypes
 import os
 import re
@@ -56,7 +58,7 @@ class ObjectStorageClient:
         self.bucket = oss2.Bucket(self.auth, self.endpoint, self.bucket_name, region=self.region)
 
     def generate_object_path(self, user_id: str, file_name: str, now: Optional[datetime.datetime] = None) -> str:
-        timestamp = (now or datetime.datetime.utcnow()).strftime("%Y/%m/%d/%H/%M/%S")
+        timestamp = (now or datetime.datetime.now(timezone.utc)).strftime("%Y/%m/%d/%H/%M/%S")
         safe_user_id = str(user_id).strip() or "anonymous"
         safe_user_id = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in safe_user_id)
         safe_name = os.path.basename(str(file_name or "").strip() or "file.bin")
@@ -218,7 +220,8 @@ class ObjectStorageClient:
         if self.storage_backend == "local":
             try:
                 parsed = urlparse(value)
-            except Exception:
+            except Exception as exc:
+                log_print(f"[oss_uploader] URL parse failed: {exc}", flush=True)
                 return ""
             path = str(parsed.path or "").strip()
             prefixes = {
@@ -232,7 +235,8 @@ class ObjectStorageClient:
 
         try:
             parsed = urlparse(value)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[utils.oss_uploader] silent exception caught: {exc}", flush=True)
             return ""
         endpoint_host = self.endpoint.split("//", 1)[-1].strip("/")
         asset_host = f"{self.bucket_name}.{endpoint_host}"
@@ -251,7 +255,8 @@ class ObjectStorageClient:
             return {}
         try:
             parsed = urlparse(value)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[oss_uploader] URL parse failed: {exc}", flush=True)
             return {}
         host = str(parsed.netloc or "").strip().lower()
         path = unquote(str(parsed.path or "").lstrip("/")).strip()
@@ -342,7 +347,8 @@ class ObjectStorageClient:
                 renewed = self.sign_url(object_path)
                 cache[original_url] = renewed
                 return renewed
-            except Exception:
+            except Exception as exc:
+                log_print(f"[utils.oss_uploader._replace] suppressed {type(exc).__name__}: {exc}", flush=True)
                 return original_url
 
         return url_pattern.sub(_replace, markdown)
@@ -376,11 +382,13 @@ class ObjectStorageClient:
         if object_path:
             try:
                 return self.sign_url(object_path)
-            except Exception:
+            except Exception as exc:
+                log_print(f"[utils.oss_uploader._refresh_url_string] suppressed {type(exc).__name__}: {exc}", flush=True)
                 return value
         try:
             renewed = self.sign_url_from_url(source)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[utils.oss_uploader._refresh_url_string] suppressed {type(exc).__name__}: {exc}", flush=True)
             renewed = ""
         return renewed or value
 

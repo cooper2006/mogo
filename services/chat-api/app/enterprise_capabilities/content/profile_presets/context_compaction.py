@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from typing import Any, Dict, List
 
@@ -22,7 +23,8 @@ def _string_list(values: Any, *, limit: int | None, item_chars: int) -> List[str
 def _safe_int(value: Any, default: int = 0) -> int:
     try:
         return int(value or default)
-    except Exception:
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.content.profile_presets.context_compaction._safe_int] suppressed {type(exc).__name__}: {exc}", flush=True)
         return default
 
 

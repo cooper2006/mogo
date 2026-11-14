@@ -16,7 +16,6 @@ from .storage_paths import manager_state_root
 
 IDENTIFIER = re.compile(r"^[0-9a-f]{32}$")
 SKILL_DIGEST = re.compile(r"^[0-9a-f]{64}$")
-PERSONAL_KEY = re.compile(r"^[0-9a-f]{64}$")
 
 
 @dataclass
@@ -31,15 +30,15 @@ class TaskLease:
 
 
 class TaskContainers:
-    def __init__(self, engine: DockerEngine, environments: SkillEnvironments | None = None) -> None:
+    def __init__(self, engine: DockerEngine) -> None:
         self.engine = engine
-        self.root = Path(os.environ.get("MOVO_SANDBOX_WORKSPACE_ROOT", "/workspaces"))
-        self.volume = os.environ["MOVO_SANDBOX_WORKSPACE_VOLUME"]
-        self.image = os.environ["MOVO_SANDBOX_SCRIPT_IMAGE"]
-        self.project = os.environ.get("MOVO_SANDBOX_COMPOSE_PROJECT", "movo")
-        self.environments = environments or SkillEnvironments(engine)
-        self.capacity = int(os.environ.get("MOVO_SANDBOX_MAX_TASKS", "10"))
-        self.slots = threading.BoundedSemaphore(int(os.environ.get("MOVO_SANDBOX_MAX_CONCURRENT", "2")))
+        self.root = Path(os.environ.get("MOGO_SANDBOX_WORKSPACE_ROOT", "/workspaces"))
+        self.volume = os.environ["MOGO_SANDBOX_WORKSPACE_VOLUME"]
+        self.image = os.environ["MOGO_SANDBOX_SCRIPT_IMAGE"]
+        self.project = os.environ.get("MOGO_SANDBOX_COMPOSE_PROJECT", "mogo")
+        self.environments = SkillEnvironments(engine)
+        self.capacity = int(os.environ.get("MOGO_SANDBOX_MAX_TASKS", "10"))
+        self.slots = threading.BoundedSemaphore(int(os.environ.get("MOGO_SANDBOX_MAX_CONCURRENT", "2")))
         self._leases: dict[str, TaskLease] = {}
         self._lock = threading.RLock()
         self._store = TaskLeaseStore(manager_state_root())
@@ -56,16 +55,12 @@ class TaskContainers:
         digest = marker.read_text(encoding="ascii").strip() if marker.is_file() else ""
         if digest and (not SKILL_DIGEST.fullmatch(digest) or not (self.root / "skill-cache" / digest).is_dir()):
             raise ValueError("Selected Skill package is unavailable")
-        personal_marker = task_root / "personal-space-key"
-        personal_key = personal_marker.read_text(encoding="ascii").strip() if personal_marker.is_file() else ""
-        if personal_key and not PERSONAL_KEY.fullmatch(personal_key):
-            raise ValueError("Invalid personal space key")
         with self._lock:
             lease = self._leases.get(task_id)
             if lease is None:
                 if len(self._leases) >= self.capacity:
                     raise RuntimeError("Sandbox task capacity is full")
-                lease = self._create(task_id, digest, personal_key)
+                lease = self._create(task_id, digest)
                 self._leases[task_id] = lease
                 self._save()
             elif lease.skill_digest != digest:
@@ -147,11 +142,10 @@ class TaskContainers:
             "frozen": lease.frozen,
         } for task_id, lease in self._leases.items()})
 
-    def _create(self, task_id: str, digest: str, personal_key: str = "") -> TaskLease:
+    def _create(self, task_id: str, digest: str) -> TaskLease:
         image = self.environments.ready_image(digest) if digest else self.image
-        dependency_root = "/job/home/work" if personal_key else "/job/work"
         proxy_id = self.engine.find_compose_service(self.project, "sandbox-egress")
-        network_id = self.engine.create_outbound_network(f"movo-task-{task_id}")
+        network_id = self.engine.create_internal_network(f"mogo-task-{task_id}")
         container_id = None
         try:
             self.engine.connect_network(network_id, proxy_id, ["sandbox-egress"])
@@ -159,28 +153,19 @@ class TaskContainers:
                 "Type": "volume", "Source": self.volume, "Target": "/job/work",
                 "VolumeOptions": {"Subpath": f"{task_id}/work", "NoCopy": True},
             }]
-            if personal_key:
-                personal_root = self.root / "personal" / personal_key
-                personal_root.mkdir(parents=True, exist_ok=True)
-                personal_root.chmod(0o777)
-                mounts.append({
-                    "Type": "volume", "Source": self.volume, "Target": "/job/home",
-                    "VolumeOptions": {"Subpath": f"personal/{personal_key}", "NoCopy": True},
-                })
             if digest:
                 mounts.append({
                     "Type": "volume", "Source": self.volume, "Target": "/job/skills", "ReadOnly": True,
                     "VolumeOptions": {"Subpath": f"skill-cache/{digest}", "NoCopy": True},
                 })
-            container_id = self.engine.create(f"movo-task-{task_id}", {
+            container_id = self.engine.create(f"mogo-task-{task_id}", {
                 "Image": image, "User": "65534:65534", "Entrypoint": ["sleep"], "Cmd": ["infinity"],
                 "WorkingDir": "/job/work", "Env": [
-                    f"HOME={dependency_root}", f"TMPDIR={dependency_root}/tmp", "LANG=C.UTF-8", "PYTHONUNBUFFERED=1",
+                    "HOME=/job/work", "TMPDIR=/job/work/tmp", "LANG=C.UTF-8", "PYTHONUNBUFFERED=1",
                     "HTTP_PROXY=http://sandbox-egress:3128", "HTTPS_PROXY=http://sandbox-egress:3128",
                     "http_proxy=http://sandbox-egress:3128", "https_proxy=http://sandbox-egress:3128",
-                    "NO_PROXY=", "no_proxy=",
-                    f"NODE_PATH={dependency_root}/.dependencies/node/node_modules:/opt/movo-skill-node-modules",
-                    f"PATH={dependency_root}/.dependencies/bin:{dependency_root}/.dependencies/node/node_modules/.bin:/opt/movo-skill-node-modules/.bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                    "NO_PROXY=", "no_proxy=", "NODE_PATH=/opt/mogo-skill-node-modules",
+                    "PATH=/opt/mogo-skill-node-modules/.bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
                 ],
                 "HostConfig": {
                     "NetworkMode": network_id, "ReadonlyRootfs": True, "CapDrop": ["ALL"],
@@ -188,7 +173,7 @@ class TaskContainers:
                     "Memory": 1024 * 1024 * 1024, "NanoCpus": 1_000_000_000,
                     "Tmpfs": {"/tmp": "rw,nosuid,exec,size=64m"}, "Mounts": mounts,
                 },
-                "Labels": {"movo.role": "script-task", "movo.task": task_id},
+                "Labels": {"mogo.role": "script-task", "mogo.task": task_id},
             })
             self.engine.start(container_id)
             return TaskLease(container_id, network_id, proxy_id, digest, image)

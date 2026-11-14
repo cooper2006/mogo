@@ -120,5 +120,5 @@ def test_pdf_parse_pipeline_preserves_recovered_text(monkeypatch):
     }])
     parsed = parsing.parse_document(path, path.name)
     rag = parsing.build_rag_chunks(parsed.raw_chunks)
-    assert 3 in parsed.raw["movoParseQuality"]["recoveredPages"]
+    assert 3 in parsed.raw["mogoParseQuality"]["recoveredPages"]
     assert any("综合性价比提升50%+" in chunk["text"].replace(" ", "") for chunk in rag)

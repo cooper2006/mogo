@@ -1,8 +1,9 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 import uuid
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 from xml.sax.saxutils import escape
 
@@ -13,6 +14,7 @@ from dashscope import MultiModalConversation
 from app.core.config import get_settings
 from app.services.image_generation import generate_image_asset as generate_configured_image_asset
 from app.utils.oss_uploader import AliyunOSSUploader
+from app.utils.ssrf_guard import validate_outbound_url
 
 settings = get_settings()
 dashscope.base_http_api_url = 'https://dashscope.aliyuncs.com/api/v1'
@@ -26,7 +28,8 @@ def is_valid_remote_image_url(value: str) -> bool:
         return True
     try:
         parsed = urlparse(raw)
-    except Exception:
+    except Exception as exc:
+        log_print(f"[tools.infographic] silent exception caught: {exc}", flush=True)
         return False
     if parsed.scheme not in {"http", "https"}:
         return False
@@ -83,6 +86,7 @@ async def generate_infographic_v1(
                 }
             data = resp.json()
     except Exception as exc:
+        log_print(f"[tools.infographic.generate_infographic_v1] suppressed {type(exc).__name__}: {exc}", flush=True)
         return {"ok": False, "error": str(exc), "image_url": "", "request_id": ""}
 
     image_url = ""
@@ -94,7 +98,8 @@ async def generate_infographic_v1(
             if isinstance(item, dict) and str(item.get("image") or "").strip():
                 image_url = str(item.get("image") or "").strip()
                 break
-    except Exception:
+    except Exception as exc:
+        log_print(f"[tools.infographic.generate_infographic_v1] suppressed {type(exc).__name__}: {exc}", flush=True)
         image_url = ""
 
     image_url = image_url if is_valid_remote_image_url(image_url) else ""
@@ -199,6 +204,7 @@ async def generate_infographic(
             "usage": output.get("usage") or {},
         }
     except Exception as exc:
+        log_print(f"[tools.infographic.generate_infographic] suppressed {type(exc).__name__}: {exc}", flush=True)
         return {"ok": False, "error": str(exc), "image_url": "", "request_id": ""}
 
 
@@ -238,6 +244,11 @@ async def persist_image_asset(
     uid = str(user_id or "anonymous").strip() or "anonymous"
     if not src.startswith(("http://", "https://")) or not is_valid_remote_image_url(src):
         return {"ok": False, "error": "invalid_image_url", "url": src}
+    # QF-402~406: SSRF guard — reject private/loopback/metadata addresses.
+    try:
+        validate_outbound_url(src, field_name="image_url")
+    except ValueError as exc:
+        return {"ok": False, "error": "ssrf_blocked", "url": src, "detail": str(exc)}
     try:
         async with httpx.AsyncClient(timeout=timeout_seconds, follow_redirects=True) as client:
             resp = await client.get(src)
@@ -248,6 +259,7 @@ async def persist_image_asset(
                 return {"ok": False, "error": "empty_image_content", "url": src}
             content_type = str(resp.headers.get("content-type") or "").strip()
     except Exception as exc:
+        log_print(f"[tools.infographic.persist_image_asset] suppressed {type(exc).__name__}: {exc}", flush=True)
         return {"ok": False, "error": str(exc), "url": src}
 
     try:
@@ -269,6 +281,7 @@ async def persist_image_asset(
             "object_path": object_path,
         }
     except Exception as exc:
+        log_print(f"[tools.infographic.persist_image_asset] suppressed {type(exc).__name__}: {exc}", flush=True)
         return {"ok": False, "error": str(exc), "url": src}
 
 
@@ -342,6 +355,7 @@ async def generate_svg_placeholder_asset(
             "request_id": "",
         }
     except Exception as exc:
+        log_print(f"[tools.infographic.generate_svg_placeholder_asset] suppressed {type(exc).__name__}: {exc}", flush=True)
         return {
             "ok": False,
             "error": str(exc),

@@ -1,0 +1,269 @@
+"""Capability asset registry endpoints (feature 018).
+
+Production wiring with MongoDB persistence (FR-10): capabilities are stored
+in the ``capability_assets`` collection so they survive process restarts
+and are shareable across replicas.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from app.api.deps import get_current_admin_user
+from app.core.db import get_db
+from app.security.service_token import ServiceTokenHeader
+
+from app.services.capability_assets.registry import (
+    ASSET_STATES,
+    COLLECTION,
+    AssetError,
+    PersistedCapabilityRegistry,
+)
+
+router = APIRouter(prefix="/api/capabilities", tags=["capability-assets"])
+
+# Module-level singleton registry backed by MongoDB (FR-10).
+_registry = PersistedCapabilityRegistry()
+
+
+def _get_registry() -> PersistedCapabilityRegistry:
+    return _registry
+
+
+@router.post("/discover")
+async def discover_capabilities(
+    payload: dict[str, Any],
+    service_token: ServiceTokenHeader = "",
+) -> dict[str, Any]:
+    """Discover capabilities from candidate definitions and register them (FR-2 / FR-10)."""
+    from app.core.config import settings
+
+    expected = str(settings.backend_service_token or "")
+    if not service_token or not expected or not __import__("hmac").compare_digest(service_token, expected):
+        raise HTTPException(status_code=401, detail="invalid_service_token")
+
+    candidates = list(payload.get("candidates") or [])
+    report = await _get_registry().discover_and_register(candidates)
+    return {
+        "code": 0,
+        "message": "discovered",
+        "data": {
+            "discovered": [a.as_dict() for a in report.discovered],
+            "needs_manual": report.needs_manual,
+            "total_discovered": len(report.discovered),
+            "total_needs_manual": len(report.needs_manual),
+        },
+    }
+
+
+@router.get("")
+async def list_capabilities(
+    state: Optional[str] = None,
+    service_token: ServiceTokenHeader = "",
+) -> dict[str, Any]:
+    """List registered capabilities, optionally filtered by state (FR-1)."""
+    from app.core.config import settings
+
+    expected = str(settings.backend_service_token or "")
+    if not service_token or not expected or not __import__("hmac").compare_digest(service_token, expected):
+        raise HTTPException(status_code=401, detail="invalid_service_token")
+
+    if state is not None and state not in ASSET_STATES:
+        raise HTTPException(status_code=400, detail=f"invalid state: {state!r}")
+
+    assets = await _get_registry().list_all(state=state)
+    return {
+        "code": 0,
+        "message": "ok",
+        "data": {
+            "capabilities": [a.as_dict() for a in assets],
+            "total": len(assets),
+        },
+    }
+
+
+@router.get("/{asset_id}")
+async def get_capability(
+    asset_id: str,
+    service_token: ServiceTokenHeader = "",
+) -> dict[str, Any]:
+    """Get a single capability asset (FR-1)."""
+    from app.core.config import settings
+
+    expected = str(settings.backend_service_token or "")
+    if not service_token or not expected or not __import__("hmac").compare_digest(service_token, expected):
+        raise HTTPException(status_code=401, detail="invalid_service_token")
+
+    asset = await _get_registry().get(asset_id)
+    if asset is None:
+        raise HTTPException(status_code=404, detail="capability_not_found")
+    return {
+        "code": 0,
+        "message": "ok",
+        "data": asset.as_dict(),
+    }
+
+
+# --- Change endpoints (018 FR-5 / FR-6 / FR-11 / FR-12) -------------------
+
+
+def _require_service(service_token: str) -> None:
+    from app.core.config import settings
+    expected = str(settings.backend_service_token or "")
+    if not service_token or not expected or not __import__("hmac").compare_digest(service_token, expected):
+        raise HTTPException(status_code=401, detail="invalid_service_token")
+
+
+@router.post("/{asset_id}/contract")
+async def update_asset_contract(
+    asset_id: str,
+    payload: dict[str, Any],
+    service_token: ServiceTokenHeader = "",
+) -> dict[str, Any]:
+    """Replace the asset contract, bumping the version (FR-5, audited FR-11)."""
+    _require_service(service_token)
+    try:
+        diff = await _get_registry().update_contract(asset_id, payload)
+    except AssetError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    await _get_registry().audit(asset_id, "contract.updated", {"diff": diff})
+    return {"code": 0, "message": "updated", "data": {"diff": diff}}
+
+
+@router.post("/{asset_id}/state")
+async def set_asset_state(
+    asset_id: str,
+    payload: dict[str, Any],
+    service_token: ServiceTokenHeader = "",
+) -> dict[str, Any]:
+    """Change the asset state; ``offline`` requires an authorized approver (FR-6)."""
+    _require_service(service_token)
+    state = str(payload.get("state") or "")
+    role = str(payload.get("role") or "")
+    try:
+        await _get_registry().set_state(asset_id, state, role=role)
+    except AssetError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail else 400
+        raise HTTPException(status_code=status_code, detail=detail)
+    await _get_registry().audit(asset_id, "state.changed", {"state": state, "role": role})
+    return {"code": 0, "message": "state_changed", "data": {"state": state}}
+
+
+@router.post("/{asset_id}/owner")
+async def transfer_asset_owner(
+    asset_id: str,
+    payload: dict[str, Any],
+    service_token: ServiceTokenHeader = "",
+) -> dict[str, Any]:
+    """Transfer the asset owner role (FR-11; audited inside transfer_owner)."""
+    _require_service(service_token)
+    role = str(payload.get("role") or "")
+    try:
+        await _get_registry().transfer_owner(asset_id, role)
+    except AssetError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"code": 0, "message": "owner_transferred", "data": {"owner_role": role}}
+
+
+@router.post("/{asset_id}/a2a-exposed")
+async def set_asset_a2a_exposed(
+    asset_id: str,
+    payload: dict[str, Any],
+    service_token: ServiceTokenHeader = "",
+) -> dict[str, Any]:
+    """Explicitly mark/unmark A2A exposure (FR-12; gates 012 AgentCard)."""
+    _require_service(service_token)
+    exposed = bool(payload.get("a2a_exposed"))
+    try:
+        asset = await _get_registry().set_a2a_exposed(asset_id, exposed)
+    except AssetError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return {"code": 0, "message": "ok", "data": asset.as_dict()}
+
+
+# --- 045 资产中心：admin 只读列表接口（FR-1）--------------------------------
+# 区别既有 service-token 端点：用 admin JWT 鉴权，返回 capability_assets
+# 集合文档，支持 kind / state 过滤。复用 018 集合，不新增写路径。
+admin_router = APIRouter(prefix="/capabilities", tags=["capability-assets-admin"])
+
+
+@admin_router.get("/list")
+async def list_capabilities_admin(
+    kind: Optional[str] = None,
+    state: Optional[str] = None,
+    current_user: dict[str, Any] = Depends(get_current_admin_user),
+) -> dict[str, Any]:
+    """Admin 只读能力资产列表（045 FR-1）。
+
+    * 鉴权：admin JWT（``get_current_admin_user``），不依赖 ``backend_service_token``；
+    * 数据：直接读 018 ``capability_assets`` 集合，返回完整文档（含 ``kind`` /
+      ``last_seen_at`` / ``updated_at``），支持 ``kind`` / ``state`` 过滤；
+    * 不过滤 ``tenant_id``（018 集合共享，方案 §2 已注明限制）。
+    """
+    db = get_db()
+    query: dict[str, Any] = {}
+    if kind:
+        query["kind"] = kind
+    if state:
+        query["state"] = state
+    projection = {
+        "_id": 0,
+        "asset_id": 1,
+        "name": 1,
+        "kind": 1,
+        "state": 1,
+        "contract": 1,
+        "version": 1,
+        "owner_role": 1,
+        "endpoint": 1,
+        "method": 1,
+        "a2a_exposed": 1,
+        "last_seen_at": 1,
+        "updated_at": 1,
+    }
+    rows = await db[COLLECTION].find(query, projection).sort("asset_id", 1).to_list(
+        length=None
+    )
+    return {"code": 0, "message": "ok", "data": {"items": rows, "total": len(rows)}}
+
+
+@admin_router.get("/list/employee")
+async def list_employee_assets_admin(
+    state: Optional[str] = None,
+    current_user: dict[str, Any] = Depends(get_current_admin_user),
+) -> dict[str, Any]:
+    """045 资产中心：数字员工资产列表（051 决策 #2，asset_type=employee）。
+
+    与 ``GET /capabilities/list`` 同口径返回 ``(asset_type=employee, asset_key=employees._id)``
+    坐标行，供资产中心前端按统一坐标 join（四徽标语义沿用：评级 / 上架 / 申领 / 在用）。
+    """
+    from app.employees.repository import EmployeeRepository
+
+    db = get_db()
+    tenant_id = str(current_user.get("tenant_id") or "default")
+    query: dict[str, Any] = {"tenant_id": tenant_id}
+    if state:
+        query["status"] = state
+    rows = await db["employees"].find(query).sort("created_at", 1).to_list(length=1000)
+    items = []
+    for row in rows:
+        items.append({
+            "asset_type": "employee",
+            "asset_key": str(row.get("_id") or ""),
+            "name": str(row.get("name") or ""),
+            "state": str(row.get("status") or "active"),
+            "kind": "employee",
+            "owner_role": str(row.get("creator_id") or ""),
+            "owner": str(row.get("creator_id") or ""),
+            "created_by": str(row.get("created_by") or row.get("creator_id") or ""),
+            "updated_at": row.get("updated_at"),
+            "deleted_at": row.get("deleted_at"),
+        })
+    return {"code": 0, "message": "ok", "data": {"items": items, "total": len(items)}}
+
+
+__all__ = ["router", "admin_router"]

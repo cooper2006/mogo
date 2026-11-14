@@ -17,6 +17,8 @@ async def ensure_indexes() -> None:
         await db[COLLECTION_NAME].create_index("session_id", unique=True)
         await db[COLLECTION_NAME].create_index("username")
         await db[COLLECTION_NAME].create_index("expires_at")
+        await db[COLLECTION_NAME].create_index("tenant_id")
+        await db[COLLECTION_NAME].create_index("last_activity_at")
     except OperationFailure as exc:
         logger.warning("admin_sessions index creation skipped: %s", exc)
 
@@ -27,14 +29,16 @@ async def create_session(
     token_expires_at: int,
     user_agent: str | None = None,
     ip: str | None = None,
+    tenant_id: str | None = None,
 ) -> None:
     db = get_db()
-    expires_at = datetime.fromtimestamp(token_expires_at, tz=timezone.utc)
+    expires_at = datetime.fromtimestamp(int(token_expires_at), tz=timezone.utc)
     now = datetime.now(timezone.utc)
     await db[COLLECTION_NAME].insert_one(
         {
             "session_id": session_id,
             "username": username,
+            "tenant_id": tenant_id,
             "status": "active",
             "user_agent": user_agent,
             "ip": ip,
@@ -42,6 +46,8 @@ async def create_session(
             "updated_at": now,
             "expires_at": expires_at,
             "revoked_at": None,
+            # 022 T017：空闲超时基准；用 epoch 秒与 refresh 轮换写入保持一致。
+            "last_activity_at": int(now.timestamp()),
         }
     )
 
@@ -57,4 +63,31 @@ async def revoke_session(session_id: str) -> None:
     await db[COLLECTION_NAME].update_one(
         {"session_id": session_id},
         {"$set": {"status": "revoked", "revoked_at": now, "updated_at": now}},
+    )
+
+
+# ── QF-354: Active session enumeration ────────────────────────────────────
+
+
+async def list_sessions_for_user(username: str, tenant_id: str) -> list[dict]:
+    """Return all active sessions for a user, sorted by most recent activity."""
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    cursor = db[COLLECTION_NAME].find(
+        {
+            "username": username,
+            "tenant_id": tenant_id,
+            "status": "active",
+            "expires_at": {"$gt": now},
+        }
+    ).sort("last_activity_at", -1)
+    return await cursor.to_list(length=50)
+
+
+async def touch_session_last_activity(session_id: str) -> None:
+    """Update the last_activity_at timestamp for idle timeout tracking (QF-352)."""
+    db = get_db()
+    await db[COLLECTION_NAME].update_one(
+        {"session_id": session_id},
+        {"$set": {"last_activity_at": datetime.now(timezone.utc)}},
     )

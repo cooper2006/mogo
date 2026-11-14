@@ -1,17 +1,9 @@
 {
-  "name": "movo-dsh-test-bundle",
+  "name": "mogo-dsh-test-bundle",
   "version": "1.0.0",
   "type": "module",
   "description": "Plugin installation smoke test",
-  "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" },
-    "client": { "platform": "web", "inject": ["@deepseek-ai/dsh-client-runtime"] }
-  },
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
   "peerDependencies": { "@deepseek-ai/dsh": "^0.2.1-alpha.1" },
-  "main": "./index.js",
-  "exports": {
-    ".": "./index.js",
-    "./client": "./client.js",
-    "./package.json": "./package.json"
-  }
+  "main": "./index.js"
 }

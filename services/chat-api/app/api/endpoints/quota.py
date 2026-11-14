@@ -20,5 +20,5 @@ class ApiResponse(BaseModel):
 @router.get("/quota/me", response_model=ApiResponse)
 async def get_my_quota(authorization: str | None = Header(default=None)) -> ApiResponse:
     resolved = await _resolve_session_user(authorization)
-    data = await get_quota_summary(str(resolved["main_id"]), resolved["user"])
+    data = await get_quota_summary(str(resolved["tenant_id"]), resolved["user"])
     return ApiResponse(code=0, message="success", data=data)

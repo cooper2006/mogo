@@ -65,17 +65,17 @@ function toggle(value: boolean) {
 .pricing-card {
   width: 100%;
   padding: 18px 20px;
-  border: 1px solid #dfe7f3;
+  border: 1px solid var(--mg-border);
   border-radius: 12px;
-  background: #f8faff;
+  background: var(--mg-bg-surface-hover);
   box-sizing: border-box;
 }
 .pricing-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.currency-control { display: flex; align-items: center; gap: 10px; color: #64748b; white-space: nowrap; }
+.currency-control { display: flex; align-items: center; gap: 10px; color: var(--mg-text-3); white-space: nowrap; }
 .currency-control :deep(.n-select) { width: 145px; }
-.pricing-help { margin: 8px 0 0; color: #728098; font-size: 13px; line-height: 1.5; }
+.pricing-help { margin: 8px 0 0; color: var(--mg-text-3); font-size: 13px; line-height: 1.5; }
 .rate-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 18px; }
-.rate-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; color: #334155; font-size: 13px; font-weight: 500; }
+.rate-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; color: var(--mg-text-2); font-size: 13px; font-weight: 500; }
 .rate-field :deep(.n-input-number) { width: 100%; }
 @media (max-width: 720px) {
   .pricing-heading { align-items: flex-start; flex-direction: column; }

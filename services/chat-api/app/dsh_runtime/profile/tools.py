@@ -6,7 +6,7 @@ import hashlib
 import json
 import logging
 import re
-from typing import Any, Awaitable, Callable, Literal, Protocol
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
@@ -14,13 +14,10 @@ from app.enterprise_capabilities.runtime import InternalCapabilityCatalog
 from app.enterprise_capabilities.runtime.timeouts import MAX_CAPABILITY_EXECUTION_MS
 from app.services.external_tools import external_tool_registry
 from app.governance.position_policy import EmployeePolicyResolver
-from app.product.resource_access import filter_allowed_resource_ids
-from app.product.execution_access import execution_is_allowed
 
 from .mcp_schema import McpSchemaCompatibilityError, normalize_mcp_schema
 
-
-logger = logging.getLogger(__name__)
+_logger = logging.getLogger(__name__)
 
 
 class ToolProfileDefinition(BaseModel):
@@ -77,33 +74,16 @@ class MongoToolCatalog:
 
 
 class ToolProfileCompiler:
-    def __init__(
-        self,
-        catalog: ToolCatalog,
-        internal_catalog: InternalCapabilityCatalog | None = None,
-        policy_resolver: EmployeePolicyResolver | None = None,
-        search_availability: Callable[[str], Awaitable[bool]] | None = None,
-        presentation_availability: Callable[[str], Awaitable[bool]] | None = None,
-        internal_availability: Any = None,
-    ) -> None:
+    def __init__(self, catalog: ToolCatalog, internal_catalog: InternalCapabilityCatalog | None = None, policy_resolver: EmployeePolicyResolver | None = None) -> None:
         self._catalog = catalog
         self._internal_catalog = internal_catalog
         self._policy_resolver = policy_resolver
-        self._search_availability = search_availability
-        self._presentation_availability = presentation_availability
-        self._internal_availability = internal_availability
 
     async def compile(self, *, tenant_id: str, user_id: str) -> tuple[ToolProfileDefinition, ...]:
         rows = await self._catalog.list_enabled(tenant_id, user_id)
-        candidate_count = len(rows)
         policy = await self._policy_resolver.resolve(tenant_id, user_id) if self._policy_resolver else None
-        allowed_external_ids = await filter_allowed_resource_ids(
-            "tool",
-            main_id=tenant_id,
-            user_id=user_id,
-            resource_ids=(str(row.get("id") or "") for row in rows),
-        )
-        rows = [row for row in rows if str(row.get("id") or "") in allowed_external_ids]
+        if policy is not None:
+            rows = [row for row in rows if policy.allows_external_tool(str(row.get("id") or ""))]
         definitions: list[ToolProfileDefinition] = []
         for row in rows:
             if str(row.get("type")) == "mcp":
@@ -111,25 +91,7 @@ class ToolProfileCompiler:
             else:
                 definitions.append(self._compile_http(row))
         if self._internal_catalog is not None:
-            public_search_available = (
-                await self._search_availability(tenant_id) if self._search_availability else True
-            )
-            capabilities = await self._internal_catalog.list_enabled(tenant_id, user_id)
-            unavailable = await self._internal_availability.unavailable_for_profile(
-                [item.capability_ref for item in capabilities], tenant_id, user_id,
-            ) if self._internal_availability else set()
-            for capability in capabilities:
-                if not await execution_is_allowed(
-                    main_id=tenant_id, user_id=user_id, capability=capability.capability_ref,
-                ):
-                    continue
-                if capability.capability_ref in unavailable:
-                    continue
-                if capability.capability_ref == "presentation.create@v1" and self._presentation_availability:
-                    if not await self._presentation_availability(tenant_id):
-                        continue
-                if not public_search_available and capability.tool_name in {"external_search", "progressive_research"}:
-                    continue
+            for capability in await self._internal_catalog.list_enabled(tenant_id, user_id):
                 if policy is not None and not policy.allows_internal(capability.capability_ref):
                     continue
                 definitions.append(ToolProfileDefinition(
@@ -159,13 +121,6 @@ class ToolProfileCompiler:
         names = [item.name for item in definitions]
         if len(names) != len(set(names)):
             raise ValueError("compiled Tool Profile contains duplicate names")
-        logger.info(
-            "tool_profile_compiled tenant_id=%s user_id=%s external_candidates=%d "
-            "external_allowed=%d total_count=%d mcp_tools=%s",
-            tenant_id, user_id, candidate_count, len(rows), len(definitions),
-            [(item.external_tool_id, item.mcp_tool_name, item.name)
-             for item in definitions if item.source_type == "mcp"],
-        )
         return tuple(sorted(definitions, key=lambda item: item.name))
 
     def _compile_http(self, row: dict[str, Any]) -> ToolProfileDefinition:
@@ -175,7 +130,7 @@ class ToolProfileCompiler:
         risk = explicit_risk if explicit_risk in {"read", "write", "dangerous"} else (
             "read" if method in {"GET", "HEAD", "OPTIONS"} else "write"
         )
-        approval = False
+        approval = bool(config.get("approvalRequired", config.get("approval_required", risk != "read")))
         tool_id = str(row.get("id") or "")
         payload = {
             "source_type": "http",
@@ -214,7 +169,11 @@ class ToolProfileCompiler:
             read_only = annotations.get("readOnlyHint") is True
             destructive = annotations.get("destructiveHint") is True
             risk = "dangerous" if destructive else ("read" if read_only else "write")
-            approval = False
+            approval = bool(config.get("approvalRequired", config.get("approval_required", risk != "read")))
+            # MCP servers publish full JSON Schema plus vendor extensions, while
+            # DSH enforces a deterministic subset. Normalising here (instead of
+            # shipping the raw schema) keeps a single misbehaving child tool from
+            # poisoning the whole profile: only that child is dropped.
             try:
                 input_schema = normalize_mcp_schema(
                     discovered.get("inputSchema"), object_root=True, schema_name="inputSchema",
@@ -222,18 +181,12 @@ class ToolProfileCompiler:
                 output_schema = normalize_mcp_schema(
                     discovered.get("outputSchema"), object_root=False, schema_name="outputSchema",
                 )
-            except McpSchemaCompatibilityError as exc:
-                logger.warning(
-                    "mcp_tool_schema_incompatible tool_id=%s mcp_tool_name=%s error=%s",
-                    tool_id, native_name, str(exc),
+            except McpSchemaCompatibilityError as error:
+                _logger.warning(
+                    "mcp_tool_schema_incompatible tool=%s tool_id=%s reason=%s",
+                    native_name, tool_id, error,
                 )
                 continue
-            removed_paths = (*input_schema.removed_paths, *output_schema.removed_paths)
-            if removed_paths:
-                logger.info(
-                    "mcp_tool_schema_normalized tool_id=%s mcp_tool_name=%s removed_paths=%s",
-                    tool_id, native_name, ",".join(removed_paths),
-                )
             payload = {
                 "source_type": "mcp",
                 "external_tool_id": tool_id,
@@ -250,16 +203,20 @@ class ToolProfileCompiler:
                 "timeout_ms": self._timeout_ms(config),
             }
             try:
-                result.append(ToolProfileDefinition(
+                definition = ToolProfileDefinition(
                     name=self._name("mcp", tool_id, native_name),
                     version=self._version(payload),
                     **payload,
-                ))
-            except (ValidationError, TypeError, ValueError) as exc:
-                logger.warning(
-                    "mcp_tool_profile_invalid tool_id=%s mcp_tool_name=%s error=%s",
-                    tool_id, native_name, str(exc),
                 )
+            except ValidationError as error:
+                # A protocol-authored name/description outside the DSH contract
+                # must isolate this child tool only.
+                _logger.warning(
+                    "mcp_tool_profile_invalid tool=%s tool_id=%s reason=%s",
+                    native_name, tool_id, error,
+                )
+                continue
+            result.append(definition)
         return result
 
     @staticmethod
@@ -333,8 +290,14 @@ class ToolProfileCompiler:
         return {"anyOf": [node, {"type": "null"}]}
 
     @staticmethod
+    def _json_schema(value: Any, *, object_root: bool) -> dict[str, Any]:
+        if isinstance(value, dict) and value:
+            return json.loads(json.dumps(value, ensure_ascii=False, default=str))
+        return {"type": "object", "properties": {}, "additionalProperties": True} if object_root else {}
+
+    @staticmethod
     def _description(row: dict[str, Any]) -> str:
-        return str(row.get("description") or row.get("usageHint") or row.get("name") or "MOVO enterprise tool")[:4000]
+        return str(row.get("description") or row.get("usageHint") or row.get("name") or "MOGO enterprise tool")[:4000]
 
     @staticmethod
     def _timeout_ms(config: dict[str, Any]) -> int:

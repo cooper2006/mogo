@@ -35,6 +35,7 @@ class RuntimeProfileResolver:
             raise ValueError("cross-tenant Runtime Profile access is forbidden")
         token = self._tokens.issue(
             tenant_id=snapshot.tenant_id,
+            user_id=snapshot.subject_user_id,
             profile_version=snapshot.profile_version,
             model_instance_id=snapshot.model_instance_id,
             user_id=snapshot.subject_user_id,

@@ -1,0 +1,149 @@
+/**
+ * 可视化编排画布 —— 终端用户侧文案（039 user-web）。
+ *
+ * 画布为投影、文档为权威：这里只描述画布操作文案；校验/环检测文案在
+ * `canvasValidation.ts`（引擎侧同格式错误）。
+ */
+export const orchestrationMessages = {
+  // 侧边栏 / 页面入口
+  'orchestration.sidebar': { zh: '编排画布', en: 'Orchestration Canvas' },
+  'orchestration.title': { zh: '可视化编排画布', en: 'Visual Orchestration Canvas' },
+  'orchestration.subtitle': {
+    zh: '以节点-连线方式编排 DAG 工作流，保存后可被编排引擎真实执行。文档为权威，画布为投影。',
+    en: 'Compose DAG workflows with nodes and edges; the saved document is executed by the orchestration engine. The document is authoritative, the canvas is a projection.',
+  },
+
+  // 顶部动作
+  'orchestration.back': { zh: '返回', en: 'Back' },
+  'orchestration.refresh': { zh: '刷新', en: 'Refresh' },
+  'orchestration.save': { zh: '保存草稿', en: 'Save Draft' },
+  'orchestration.publish': { zh: '发布', en: 'Publish' },
+  'orchestration.preview': { zh: '预览 / 试运行', en: 'Preview / Dry Run' },
+  'orchestration.release_notes': { zh: '发布说明', en: 'Release Notes' },
+  'orchestration.load_yaml': { zh: '打开现有编排', en: 'Open Existing' },
+  'orchestration.saved': { zh: '已保存（版本 {version}）', en: 'Saved (version {version})' },
+  'orchestration.published': { zh: '已发布（版本 {version}）', en: 'Published (version {version})' },
+
+  // 节点类型
+  'orchestration.node.start': { zh: '开始', en: 'Start' },
+  'orchestration.node.llm': { zh: 'LLM 节点', en: 'LLM Node' },
+  'orchestration.node.tool': { zh: '工具节点', en: 'Tool Node' },
+  'orchestration.node.condition': { zh: '条件节点', en: 'Condition Node' },
+  'orchestration.node.end': { zh: '结束', en: 'End' },
+  'orchestration.node.parallel': { zh: '并行', en: 'Parallel' },
+  'orchestration.node.aggregate': { zh: '聚合', en: 'Aggregate' },
+  'orchestration.node.roundRobin': { zh: '轮询模式', en: 'Round Robin' },
+  'orchestration.node.debate': { zh: '辩论模式', en: 'Debate' },
+  'orchestration.node.humanApproval': { zh: '转人工节点', en: 'Human Approval' },
+  // 侧栏节点列表下方的操作提示（缺失会导致 t() 回退成原始 key 字符串并撑出横向滚动条）
+  'orchestration.node.title_hint': {
+    zh: '拖拽节点到画布，或双击快速添加。',
+    en: 'Drag a node onto the canvas, or double-click to add.',
+  },
+
+  // 模式
+  'orchestration.mode.sequential': { zh: '串行（sequential）', en: 'Sequential' },
+  'orchestration.mode.graph': { zh: '图（graph）', en: 'Graph' },
+  'orchestration.mode.unsupported': {
+    zh: 'supervisor / hybrid 模式暂不支持可视化，请在 YAML 中维护。',
+    en: 'supervisor / hybrid modes are not yet supported in the canvas; maintain them in YAML.',
+  },
+
+  // 属性面板
+  'orchestration.prop.title': { zh: '节点属性', en: 'Node Properties' },
+  'orchestration.prop.id': { zh: '节点 ID', en: 'Node ID' },
+  'orchestration.prop.label': { zh: '显示名称', en: 'Label' },
+  'orchestration.prop.skill': { zh: '选择 Skill', en: 'Select Skill' },
+  'orchestration.prop.tool': { zh: '工具', en: 'Tool' },
+  'orchestration.prop.tools': { zh: '工具列表', en: 'Tools' },
+  'orchestration.prop.timeout': { zh: '超时（秒）', en: 'Timeout (s)' },
+  'orchestration.prop.output_key': { zh: '输出上下文键', en: 'Output Context Key' },
+  'orchestration.prop.description': { zh: '描述', en: 'Description' },
+  'orchestration.prop.condition_expr': { zh: '条件表达式', en: 'Condition Expression' },
+  'orchestration.prop.false_reason': { zh: '条件不成立说明', en: 'False-branch Reason' },
+  'orchestration.prop.multi_agent_mode': { zh: '多智能体模式', en: 'Multi-Agent Mode' },
+  'orchestration.prop.round_robin': { zh: '轮询（round_robin）', en: 'Round Robin' },
+  'orchestration.prop.debate': { zh: '辩论（debate）', en: 'Debate' },
+  'orchestration.prop.debate_pro': { zh: '正方节点（pro）', en: 'Pro node' },
+  'orchestration.prop.debate_con': { zh: '反方节点（con）', en: 'Con node' },
+  'orchestration.prop.debate_arbiter': { zh: '裁决节点（可选）', en: 'Arbiter node (optional)' },
+  'orchestration.prop.approver': { zh: '审批人', en: 'Approver' },
+  'orchestration.prop.approver_placeholder': { zh: '点击右侧按钮按部门选择用户（必填）', en: 'Pick an approver by department (required)' },
+  'orchestration.prop.approver_select': { zh: '选择审批人', en: 'Select Approver' },
+  'orchestration.prop.approver_picker_title': { zh: '选择审批人（按部门）', en: 'Select Approver (by department)' },
+  'orchestration.prop.approver_all_departments': { zh: '全部部门', en: 'All Departments' },
+  'orchestration.prop.approver_search_placeholder': { zh: '搜索姓名 / 账号 / 手机号', en: 'Search name / account / phone' },
+  'orchestration.prop.approver_loading': { zh: '加载中…', en: 'Loading…' },
+  'orchestration.prop.approver_no_dept': { zh: '暂无部门数据', en: 'No departments' },
+  'orchestration.prop.approver_no_user': { zh: '该部门下没有可选成员', en: 'No members in this department' },
+  'orchestration.prop.approver_selected': { zh: '已选', en: 'Selected' },
+  'orchestration.prop.approver_none': { zh: '未选择', en: 'None' },
+  'orchestration.prop.approver_cancel': { zh: '取消', en: 'Cancel' },
+  'orchestration.prop.approver_confirm': { zh: '确定', en: 'Confirm' },
+  'orchestration.prop.approver_dept_load_failed': { zh: '部门列表加载失败', en: 'Failed to load departments' },
+  'orchestration.prop.approver_user_load_failed': { zh: '成员列表加载失败', en: 'Failed to load members' },
+  'orchestration.prop.on_reject': { zh: '驳回分支节点', en: 'Reject Branch Node' },
+  'orchestration.prop.prompt': { zh: '审批说明', en: 'Approval Prompt' },
+  'orchestration.prop.round_robin_instances': {
+    zh: '该节点声明了 {count} 个候选实例（来自手工 YAML，画布暂不提供编辑，保存时原样保留）。',
+    en: 'This node declares {count} candidate instances (from hand-written YAML; preserved as-is on save).',
+  },
+  'orchestration.prop.unknown_payload': {
+    zh: '该节点来自手工 YAML，含无法识别的属性；编辑时保留原值。',
+    en: 'This node came from hand-written YAML and carries properties the canvas does not understand; they are preserved on save.',
+  },
+  // 属性面板占位符（此前直接写英文 "node_id" 等，未跟随语言）
+  'orchestration.prop.node_id_placeholder': { zh: '请输入节点 ID', en: 'Node ID' },
+  'orchestration.prop.condition_placeholder': {
+    zh: '如 completed_children_count < 3',
+    en: 'e.g. completed_children_count < 3',
+  },
+
+  // 校验
+  'orchestration.validate.blocked': {
+    zh: '存在 {count} 个错误，已阻止保存/发布。',
+    en: '{count} error(s) block saving/publishing.',
+  },
+  'orchestration.validate.ok': { zh: '校验通过，可以保存。', en: 'Validation passed — ready to save.' },
+  'orchestration.validate.cycle_highlight': { zh: '环已高亮', en: 'Cycle highlighted' },
+  'orchestration.validate.publish_denied': {
+    zh: '你没有发布权（需要权限码 orchestration:publish）。请先保存草稿。',
+    en: 'You do not have publish permission (permission code orchestration:publish). Save as draft instead.',
+  },
+
+  // 空态 / 加载
+  'orchestration.empty': { zh: '画布为空：从左侧拖入节点开始编排。', en: 'Empty canvas: drag nodes from the palette to start.' },
+  'orchestration.load_failed': { zh: '编排加载失败', en: 'Failed to load orchestration' },
+  'orchestration.delete_node': { zh: '删除节点', en: 'Delete Node' },
+  'orchestration.delete_edge': { zh: '删除连线', en: 'Delete Edge' },
+
+  // 050 审批待办页（站内待办入口，R-4）
+  'orchestration.todos.sidebar': { zh: '审批待办', en: 'Approval Todos' },
+  'orchestration.todos.title': { zh: '编排审批待办', en: 'Orchestration Approval Todos' },
+  'orchestration.todos.subtitle': {
+    zh: '等待你审批的编排节点；批准后运行继续推进，驳回需填写理由（运行将终止）。',
+    en: 'Orchestration nodes awaiting your approval; approving resumes the run, rejecting (with a required reason) terminates it.',
+  },
+  'orchestration.todos.refresh': { zh: '刷新', en: 'Refresh' },
+  'orchestration.todos.empty': { zh: '暂无待办', en: 'No pending approvals' },
+  'orchestration.todos.load_failed': { zh: '待办加载失败', en: 'Failed to load todos' },
+  'orchestration.todos.column_orchestration': { zh: '编排', en: 'Orchestration' },
+  'orchestration.todos.column_node': { zh: '节点', en: 'Node' },
+  'orchestration.todos.column_initiator': { zh: '发起人', en: 'Initiator' },
+  'orchestration.todos.column_prompt': { zh: '审批说明', en: 'Prompt' },
+  'orchestration.todos.column_deadline': { zh: '截止时间', en: 'Deadline' },
+  'orchestration.todos.column_actions': { zh: '操作', en: 'Actions' },
+  'orchestration.todos.approve': { zh: '批准', en: 'Approve' },
+  'orchestration.todos.reject': { zh: '驳回', en: 'Reject' },
+  'orchestration.todos.approve_title': { zh: '批准该待办', en: 'Approve' },
+  'orchestration.todos.reject_title': { zh: '驳回该待办', en: 'Reject' },
+  'orchestration.todos.cancel': { zh: '取消', en: 'Cancel' },
+  'orchestration.todos.reason_optional': { zh: '批准理由（可选）', en: 'Reason (optional)' },
+  'orchestration.todos.reject_reason_required': { zh: '驳回必须填写理由', en: 'A reason is required to reject' },
+  'orchestration.todos.modal_context': {
+    zh: '编排 {orchestration} · 节点 {node}',
+    en: 'Orchestration {orchestration} · node {node}',
+  },
+  'orchestration.todos.decided': { zh: '已提交，运行状态：{status}', en: 'Submitted — run status: {status}' },
+  'orchestration.todos.decide_failed': { zh: '决策提交失败', en: 'Failed to submit decision' },
+} as const

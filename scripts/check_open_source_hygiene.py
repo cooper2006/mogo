@@ -13,23 +13,11 @@ BLOCKED_PARTS = (
     "apps/official-website/docs/.vitepress/cache/",
 )
 BLOCKED_PREFIXES = (
-    "docs/",
     "apps/desktop-electron/",
     "apps/local-browser-agent/",
     "apps/official-website/",
     "apps/crm/",
     "services/crm-service/",
-)
-BLOCKED_INTERNAL_DOCS = frozenset(
-    {
-        "services/admin-api/README.md",
-        "services/document-parser/README.md",
-        "services/chat-api/app/enterprise_capabilities/content/evaluation/README.md",
-        "services/chat-api/dsh/COMPATIBILITY.md",
-        "services/chat-api/tests/manual/graph_planning_test_cases.md",
-        "services/chat-api/tests/ppt_image_edit_poc/README.md",
-        "services/chat-api/tests/task_scenarios/README.md",
-    }
 )
 PRIVATE_DEPLOYMENT_PATTERNS = (
     (
@@ -71,7 +59,36 @@ REQUIRED_ROOT_FILES = (
     "SUPPORT.md",
     "CODE_OF_CONDUCT.md",
 )
-EXPECTED_MOVO_VOLUMES = 10
+# 物理卷计数（按引入批次登记，防止随 compose 演进悄悄漂移）：
+#   1. 8 个基线卷：prometheus-data / grafana-data / alertmanager-data / tempo-data /
+#      loki-data / deployment-secrets / mongo-data / mongo-backup
+#   2. 1 个 panweidb-storage（PanWeiDB soft/ + data/ 卷，023 批次 bring into compose）
+#   3. 3 个 per-replica DSH runtime 卷（dsh-runtime-data-1/2/3，commit fddc97a）
+#   4. 3 个品牌归一卷（askai-storage / knowledge-storage / admin-static，commit
+#      c968dfaa 移除 MOVO_ 回退层时接入）
+#   5. 2 个 certbot 卷（certbot-webroot / certbot-etc，024 T090 证书值班）
+#   6. 1 个 redis-data + 1 个 weaviate-data（基础中间件数据卷）
+#   7. 1 个 dsh-runtime-data（单节点默认拓扑基线卷）
+#   8. 1 个 sandbox-workspaces（P0-P2 沙箱工作区卷，port-movo 批次接入；在
+#      docker-compose.yml 中以「内联前缀」形式出现 3 次——1 处卷定义 + 2 处
+#      服务挂载，故按前缀出现次数计 +3；distinct 物理卷 21 个）
+# 合计 23（distinct 物理卷 21，按前缀出现次数计 23）。Bump 此常量并在此登记
+# 来源，每当 docker-compose.yml 增减物理卷时同步。
+EXPECTED_MOGO_VOLUMES = 23
+# A physical volume name is ``<prefix>_<suffix>``, where the prefix is spelled
+# ``${MOGO_VOLUME_PREFIX:-mogo}`` — the transitional fallback chain that also
+# honoured a legacy prefix default has been retired, so ``MOGO_`` is the only
+# authoritative spelling now. Counting the literal flat string silently reports
+# 0 volumes once the spelling changes, so match the shape instead. The optional
+# second ``}`` keeps the pattern tolerant of a nested prefix spelling.
+MOGO_VOLUME_NAME_PATTERN = re.compile(
+    r"\$\{(?:[A-Z0-9_]*VOLUME_PREFIX)[^}]*\}\}?_(?=[a-z0-9][a-z0-9-]*)"
+)
+# Secret-shaped literals inside test fixtures are intentional inputs for
+# redaction/validation tests, not leaked credentials. Skip *content* scanning
+# for these paths; every other check (blocked paths, .env files, symlinks)
+# still applies to them.
+TEST_PATH_MARKERS = ("/tests/", "/test/", "/__tests__/", "/tests-", "/e2e/")
 
 
 def tracked_files() -> list[str]:
@@ -103,17 +120,11 @@ def main() -> int:
     compose_text = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     if re.search(r"^\s*name:\s*askai_", compose_text, flags=re.MULTILINE):
         failures.append("Compose reuses an AskAI physical volume name")
-    volume_prefix_count = len(
-        re.findall(
-            r"^\s{4}name:\s*\$\{MOVO_VOLUME_PREFIX:-movo\}_[-\w]+\s*$",
-            compose_text,
-            flags=re.MULTILINE,
-        )
-    )
-    if volume_prefix_count != EXPECTED_MOVO_VOLUMES:
+    volume_prefix_count = len(MOGO_VOLUME_NAME_PATTERN.findall(compose_text))
+    if volume_prefix_count != EXPECTED_MOGO_VOLUMES:
         failures.append(
             "Compose must define exactly "
-            f"{EXPECTED_MOVO_VOLUMES} MOVO-prefixed physical volumes; "
+            f"{EXPECTED_MOGO_VOLUMES} volume-prefix physical volumes; "
             f"found {volume_prefix_count}"
         )
     for relative in publication_files():
@@ -123,8 +134,6 @@ def main() -> int:
         name = Path(relative).name
         if normalized.startswith(BLOCKED_PREFIXES):
             failures.append(f"blocked non-community source: {relative}")
-        if normalized in BLOCKED_INTERNAL_DOCS:
-            failures.append(f"blocked internal document: {relative}")
         if name.startswith(".env") and name != ".env.example":
             failures.append(f"tracked environment file: {relative}")
         if any(part in normalized for part in BLOCKED_PARTS):
@@ -139,16 +148,21 @@ def main() -> int:
             continue
         if path.stat().st_size > 2 * 1024 * 1024:
             continue
+        # Fixture secrets under test paths are intentional inputs, but only the
+        # *content* checks are skipped — blocked paths, .env files and symlink
+        # escapes above still apply.
+        in_test_fixture = any(marker in f"/{normalized}" for marker in TEST_PATH_MARKERS)
         try:
             content = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        for pattern, label in PRIVATE_DEPLOYMENT_PATTERNS:
-            if pattern.search(content):
-                failures.append(f"{label}: {relative}")
-        for pattern, label in SECRET_PATTERNS:
-            if pattern.search(content):
-                failures.append(f"possible {label}: {relative}")
+        if not in_test_fixture:
+            for pattern, label in PRIVATE_DEPLOYMENT_PATTERNS:
+                if pattern.search(content):
+                    failures.append(f"{label}: {relative}")
+            for pattern, label in SECRET_PATTERNS:
+                if pattern.search(content):
+                    failures.append(f"possible {label}: {relative}")
         if name == ".env.example" and ENV_SECRET_PATTERN.search(content):
             failures.append(f"non-placeholder environment secret: {relative}")
 

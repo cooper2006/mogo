@@ -25,22 +25,6 @@ def split_docker_logs(raw: bytes) -> tuple[bytes, bytes]:
     return bytes(stdout), bytes(stderr)
 
 
-def merged_docker_logs(raw: bytes) -> bytes:
-    """Preserve Docker's interleaved stdout/stderr frame order."""
-    output = bytearray()
-    offset = 0
-    while offset + 8 <= len(raw):
-        size = int.from_bytes(raw[offset + 4:offset + 8], "big")
-        offset += 8
-        if size > len(raw) - offset:
-            raise ValueError("Docker returned a truncated log frame")
-        output.extend(raw[offset:offset + size])
-        offset += size
-    if offset != len(raw):
-        raise ValueError("Docker returned an invalid log frame")
-    return bytes(output)
-
-
 class DockerEngine:
     def __init__(self, socket_path: str = "/var/run/docker.sock") -> None:
         self.client = httpx.Client(
@@ -68,9 +52,6 @@ class DockerEngine:
 
     def logs(self, container_id: str) -> bytes:
         return self.request("GET", f"/containers/{container_id}/logs", params={"stdout": 1, "stderr": 1}).content
-
-    def recent_logs(self, container_id: str, lines: int = 200) -> bytes:
-        return self.request("GET", f"/containers/{container_id}/logs", params={"stdout": 1, "stderr": 1, "tail": lines}).content
 
     def execute(self, container_id: str, command: list[str], timeout: float) -> tuple[int, bytes, bytes]:
         created = self.request("POST", f"/containers/{container_id}/exec", json={
@@ -103,16 +84,10 @@ class DockerEngine:
                 raise
 
     def create_internal_network(self, name: str) -> str:
-        return self._create_network(name, internal=True)
-
-    def create_outbound_network(self, name: str) -> str:
-        return self._create_network(name, internal=False)
-
-    def _create_network(self, name: str, *, internal: bool) -> str:
         payload = {
-            "Name": name, "Driver": "bridge", "Internal": internal,
+            "Name": name, "Driver": "bridge", "Internal": True,
             "CheckDuplicate": True,
-            "Labels": {"movo.role": "sandbox-job-network"},
+            "Labels": {"mogo.role": "sandbox-job-network"},
         }
         return self.request("POST", "/networks/create", json=payload).json()["Id"]
 
@@ -126,31 +101,15 @@ class DockerEngine:
         try:
             self.request("POST", f"/networks/{network_id}/disconnect", json={"Container": container_id, "Force": True})
         except httpx.HTTPStatusError as exc:
-            if exc.response.status_code in {403, 404}:
-                return
-            try:
-                network = self.request("GET", f"/networks/{network_id}").json()
-            except httpx.HTTPStatusError as inspect_error:
-                if inspect_error.response.status_code == 404:
-                    return
-                raise exc from inspect_error
-            if container_id not in (network.get("Containers") or {}):
-                return
-            raise
+            if exc.response.status_code not in {403, 404}:
+                raise
 
     def remove_network(self, network_id: str) -> None:
         try:
             self.request("DELETE", f"/networks/{network_id}")
         except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 404:
-                return
-            try:
-                self.request("GET", f"/networks/{network_id}")
-            except httpx.HTTPStatusError as inspect_error:
-                if inspect_error.response.status_code == 404:
-                    return
-                raise exc from inspect_error
-            raise
+            if exc.response.status_code != 404:
+                raise
 
     def find_compose_service(self, project: str, service: str) -> str:
         filters = {"label": [f"com.docker.compose.project={project}", f"com.docker.compose.service={service}"]}

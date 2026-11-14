@@ -5,9 +5,9 @@ import { workspaceContextMessages } from '../src/locales/workspaceContextMessage
 import { workspaceChoiceMessages } from '../src/locales/codeWorkspaceMessages'
 
 const workspace = {
-  workspace_id: 'movo',
-  title: 'movo',
-  path: '/workspace/movo',
+  workspace_id: 'mogo',
+  title: 'mogo',
+  path: '/workspace/mogo',
   status: 'ok',
   session_ids: [],
   created_at: '2026-01-01T00:00:00Z',

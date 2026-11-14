@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import asyncio
 import time
@@ -58,6 +59,7 @@ async def run_evaluation_stage(
                 timeout=max(0.1, min(float(configured_timeout), remaining)),
             )
         except Exception as exc:
+            log_print(f"[enterprise_capabilities.content.evaluation.retry_policy.run_evaluation_stage] suppressed {type(exc).__name__}: {exc}", flush=True)
             last = EvaluationStageOutcome.failed(exc)
         if last.completed or not is_retryable_stage_error(last.error_type):
             break

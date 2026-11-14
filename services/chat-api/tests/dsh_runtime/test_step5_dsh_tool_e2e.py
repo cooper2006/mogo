@@ -74,12 +74,17 @@ class _BridgeHandler(BaseHTTPRequestHandler):
     def _model(self, payload: dict):
         session_id = str(payload.get("sessionId") or "")
         messages = list(payload.get("messages") or [])
+        # DSH 0.2.x replays tool results as `role: "tool"` messages (with
+        # `toolCallId`) rather than `tool-result` content blocks; accept both so
+        # the deterministic model stops re-issuing the same tool call forever.
         has_result = any(
-            message.get("role") == "tool" or any(
+            message.get("role") == "tool" or message.get("toolCallId")
+            or any(
                 isinstance(block, dict) and block.get("type") == "tool-result"
                 for block in list(message.get("content") or [])
             )
             for message in messages
+            if isinstance(message, dict)
         )
         if has_result:
             return self._ndjson([
@@ -171,7 +176,7 @@ async def _collect(gateway: DshAgentKernelGateway, session_id: str):
     raise AssertionError("turn did not complete")
 
 
-def test_real_dsh_tool_loop_http_mcp_without_enterprise_approval(tmp_path: Path) -> None:
+def test_real_dsh_tool_loop_http_mcp_approval_rejection_and_events(tmp_path: Path) -> None:
     asyncio.run(_run_e2e(tmp_path))
 
 
@@ -399,7 +404,7 @@ async def _run_e2e(tmp_path: Path) -> None:
             ))
             results[prompt] = await asyncio.wait_for(_collect(gateway, session.session_id), timeout=8)
 
-        assert len(_BridgeHandler.tool_calls) == 4
+        assert len(_BridgeHandler.tool_calls) == 3
         assert all(
             "Before calling a tool, briefly explain" in str(call.get("system") or "")
             for call in _BridgeHandler.model_calls
@@ -407,11 +412,9 @@ async def _run_e2e(tmp_path: Path) -> None:
         assert {call["toolName"] for call in _BridgeHandler.tool_calls} == {
             "askai_http_lookup", "askai_mcp_search", "askai_write_publish",
         }
-        assert not _BridgeHandler.approvals
-        assert all(
-            event.type not in {"tool.approval.requested", "tool.approval.decided"}
-            for events in results.values() for event in events
-        )
+        assert len(_BridgeHandler.approvals) == 2
+        assert any(event.type == "tool.approval.requested" for event in results["use write"])
+        assert any(event.type == "tool.approval.decided" for event in results["reject write"])
         assert any(event.type == "tool.call.completed" for event in results["use http"])
         assert all(any(event.type == "agent.message.completed" for event in events) for events in results.values())
     finally:

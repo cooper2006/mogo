@@ -1,4 +1,4 @@
-import { dirname, resolve } from 'node:path'
+import { basename, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 
@@ -9,7 +9,6 @@ import {
 } from './overlay.mjs'
 import { collectInsertedEntryIds } from './overlay-planner.mjs'
 import { extractOfficialPresetIsolation } from './preset-isolation.mjs'
-import { pluginClientShellPatches } from './plugin-client-shell.mjs'
 import { resolvePresetModules } from './preset-module-resolution.mjs'
 import { readPluginInventory } from './inventory-compat.mjs'
 import { prepareManagedProfile } from './managed-profile.mjs'
@@ -26,12 +25,10 @@ export class OfficialDshHostComposition {
   #ctx
   #inventory
 
-  constructor({ storageRoot, durableStorageRoot, webSearchProvider, plugins = [], pluginModelName }) {
+  constructor({ storageRoot, webSearchProvider, plugins = [] }) {
     this.storageRoot = resolve(storageRoot)
-    this.durableStorageRoot = durableStorageRoot
     this.webSearchProvider = webSearchProvider
     this.plugins = plugins
-    this.pluginModelName = pluginModelName
   }
 
   async start() {
@@ -57,8 +54,7 @@ export class OfficialDshHostComposition {
         for (const row of item.rows ?? []) {
           const entry = this.#inventory.entries.find(candidate => candidate.entryId === row.entryId)
           if (!entry || (entry.enabled && entry.fiberPhase !== 'active')) {
-            const reason = entry?.error?.message ?? entry?.error?.code ?? entry?.problem ?? entry?.fiberPhase ?? 'missing'
-            throw new Error(`DSH plugin ${plugin.name} row ${row.rowId} did not become active (${reason})`)
+            throw new Error(`DSH plugin ${plugin.name} row ${row.rowId} did not become active (${entry?.fiberPhase ?? 'missing'})`)
           }
         }
       }
@@ -72,7 +68,12 @@ export class OfficialDshHostComposition {
   async #boot() {
     const installation = await resolveDshInstallation()
     const appBoot = await loadAssociatedAppBoot(installation)
-    const moduleHome = resolve(this.storageRoot, 'host-profile-home')
+    // Host 配置 profile 必须落在“能向上回溯到 node_modules”的目录（本地修复）：
+    // 容器里 storageRoot 是独立数据卷（/data/dsh-runtime），其向上回溯目录没有
+    // node_modules，会导致 preset 行 never started（ERR_MODULE_NOT_FOUND）。故
+    // 放到运行时安装根目录；会话/工作区持久化仍用 storageRoot。用 storageRoot 的
+    // basename 作子目录，保证同进程多实例（测试）互不覆盖。
+    const moduleHome = resolve(RUNTIME_HOST_ROOT, 'host-profile-home', basename(this.storageRoot))
     await mkdir(moduleHome, { recursive: true })
     await recoverWindowsStaleModuleLock(moduleHome)
     await recoverWindowsEmptyModuleFallbacks(moduleHome)
@@ -81,28 +82,34 @@ export class OfficialDshHostComposition {
       appBoot, installation, moduleHome, overlays: [],
     })
     const basePatches = initialProfile.basePatches
-    const webAppPatches = installation.webAppPatchPaths.flatMap(path => appBoot.loadOverlayPatches(
+    const webAppPatches = installation.webAppPatchPath.flatMap(path => appBoot.loadOverlayPatches(
       'askai-dsh-official-preset-isolation', path,
     ))
     const presetIsolation = extractOfficialPresetIsolation(webAppPatches)
-    const askaiOverlay = buildAskaiHostOverlay({
+    // 0.1.7-rc.2 train：preset 条目（standard/ptc/minimal/code/cordis）的
+    // `agent-preset` insert 行在 web-app preset patch 里，registry 行在
+    // web-app cordis.patch.yml 里。extractOfficialPresetIsolation 在 0.1.7
+    // train 下返回空块（旧 agent-presets roster 行已移除），因此 overlay
+    // 负责从 webAppPatches 提取 preset 条目行 + registry 行，注册进
+    // agentPresets service。webAppPatches 全量透传给 overlay，overlay
+    // 内部分类使用。
+    const askaiOverlay = await buildAskaiHostOverlay({
       storageRoot: this.storageRoot,
-      durableStorageRoot: this.durableStorageRoot,
       askaiPresetRoot: ASKAI_PRESET_ROOT,
       shippedPresetRoot: installation.shippedPresetRoot,
       declarativePresets: presetIsolation.declarative,
       webSearchProvider: this.webSearchProvider,
-      pluginWeb: this.plugins.length > 0,
-      pluginModelName: this.pluginModelName,
       occupiedIds: collectInsertedEntryIds(basePatches),
       hostFeatures: {
         subagentModelSelection: installation.canResolveDependency(
           '@deepseek-ai/dsh-tool-subagent/model-selection-settings',
         ),
       },
+      isPresetRegistryTrain: installation.isPresetRegistryTrain,
+      webAppPatches,
+      hostRoot: RUNTIME_HOST_ROOT,
     })
-    const clientPatches = this.plugins.length === 0 ? [] : pluginClientShellPatches(webAppPatches)
-    const overlays = [...resolvePresetModules([...presetIsolation.patches, ...clientPatches, ...askaiOverlay], installation)]
+    const overlays = [...resolvePresetModules([...presetIsolation.patches, ...askaiOverlay], installation)]
     const managedProfile = await prepareManagedProfile({
       appBoot, installation, moduleHome, overlays,
     })
@@ -149,6 +156,8 @@ export class OfficialDshHostComposition {
 
 async function healModuleFallback(appBoot, installation, moduleHome) {
   const heal = appBoot.healProfilesModuleFallback
+  // 0.1.7-rc.2 起 dsh-app-boot 移除了 healProfilesModuleFallback 导出
+  //（模块 fallback 由 boot 阶段的 bundle 装配内置处理）。无该 API 时跳过，不阻断启动。
   if (typeof heal !== 'function') {
     return
   }

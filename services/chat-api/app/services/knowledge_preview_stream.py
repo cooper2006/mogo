@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from pathlib import Path
 from typing import Any, BinaryIO
@@ -19,8 +20,8 @@ def _iter_fileobj(fileobj: BinaryIO):
     finally:
         try:
             fileobj.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            log_print(f"[knowledge_preview] fileobj close failed: {exc}", flush=True)
 
 
 def parse_byte_range(value: str, size: int) -> tuple[int, int] | None:

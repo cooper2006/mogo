@@ -1,19 +1,34 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
 from typing import Any
 
-from bson import ObjectId
-from fastapi import APIRouter, Depends, Header
+from app.core.ids import is_valid_backend_id, to_backend_id
+from fastapi import APIRouter, Depends
 
-from app.api.dashboard_messages import localize_dashboard_todos
 from app.api.deps import get_current_admin_user
+from app.api.dashboard_metrics import (
+    DEFAULT_PERIOD_DAYS,
+    DEFAULT_FORECAST_PERIODS,
+    attribute_cost,
+    build_cost_section,
+    build_quality_section,
+    build_trend_section,
+    bottleneck_top_n,
+    QUOTA_ALERT_COLLECTION,
+    summarize_quota_alerts,
+    extract_percentiles,
+    forecast_cost,
+    percentile_stage,
+    previous_window,
+    reconciles,
+    tenant_match,
+    window_start,
+)
 from app.core.db import get_db
-from app.core.product_edition import billing_enabled, is_community_organization, member_limit
+from app.core.product_edition import billing_enabled, count_members, is_community_organization, resolve_member_limit
 from app.repositories.directory_repository import DEPARTMENT_COLLECTION, USER_COLLECTION, USER_ORG_REL_COLLECTION
 from app.repositories.model_repository import INSTANCE_COLLECTION
-from app.services.model_pricing import calculate_cost, load_model_prices, serialize_costs
 
 router = APIRouter()
 
@@ -22,54 +37,111 @@ TOOL_COLLECTION = "external_tools"
 ORG_COLLECTION = "organizations"
 TOKEN_USAGE_COLLECTION = "token_usage_logs"
 
+from app.common.shared_constants import MODEL_PRICES, DEFAULT_PRICE  # 单一来源（058 T015）
+
 
 def _fmt_time(value: Any) -> str | None:
-    if not isinstance(value, datetime):
+    normalized = _as_utc(value)
+    if normalized is None:
         return None
-    normalized = value
-    if normalized.tzinfo is None:
-        normalized = normalized.replace(tzinfo=timezone.utc)
-    return normalized.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    return normalized.isoformat().replace("+00:00", "Z")
+
+
+def _as_utc(value: Any) -> datetime | None:
+    """Normalize epoch / BSON datetime / ISO string to an aware UTC datetime.
+
+    PanWeiDB surfaces ``timestamptz`` columns as ISO strings
+    (``"2026-09-28 03:20:35.371000"``), so any consumer doing date math on a
+    stored timestamp has to accept that form alongside a real ``datetime``.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            dt = datetime.fromisoformat(text)
+        except ValueError:
+            try:
+                dt = datetime.fromtimestamp(float(text), tz=timezone.utc)
+            except (TypeError, ValueError, OSError, OverflowError):
+                return None
+    elif isinstance(value, (int, float)):
+        try:
+            dt = datetime.fromtimestamp(value, tz=timezone.utc)
+        except (TypeError, ValueError, OSError, OverflowError):
+            return None
+    else:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _to_ms(value: Any) -> int:
+    """start_time/end_time may be epoch int, BSON datetime or ISO string; normalize to ms."""
+    if value is None:
+        return 0
+    if isinstance(value, datetime):
+        return int(value.timestamp() * 1000)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        pass
+    dt = _as_utc(value)
+    return int(dt.timestamp() * 1000) if dt is not None else 0
 
 
 def _duration_ms(row: dict[str, Any]) -> int:
-    start_time = int(row.get("start_time") or 0)
-    end_time = int(row.get("end_time") or 0)
+    start_time = _to_ms(row.get("start_time"))
+    end_time = _to_ms(row.get("end_time"))
     return max(0, end_time - start_time) if start_time and end_time else 0
 
 
-async def _billing(db: Any, main_id: str, current_user: dict[str, Any]) -> dict[str, Any]:
-    org = await db[ORG_COLLECTION].find_one({"main_id": main_id})
+def _cost(model_name: str, prompt_tokens: int, completion_tokens: int) -> float:
+    in_price, out_price = MODEL_PRICES.get(str(model_name or "").strip(), DEFAULT_PRICE)
+    return (prompt_tokens * in_price + completion_tokens * out_price) / 1_000_000.0
+
+
+async def _billing(db: Any, tenant_id: str, current_user: dict[str, Any]) -> dict[str, Any]:
+    org = await db[ORG_COLLECTION].find_one({"tenant_id": tenant_id})
     if not org:
         from app.product.extensions import get_admin_product_extension
 
         org = {
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "org_name": current_user.get("org_name") or "组织空间",
             **dict(get_admin_product_extension().organization_defaults),
         }
-    current_members = await db[USER_COLLECTION].count_documents({"main_id": main_id})
+    current_members = await count_members(tenant_id)
     total_points = int(org.get("total_points") or 0)
     used_points = int(org.get("used_points") or 0)
+    # T037: personal/community spaces default to unlimited (decision 12);
+    # enterprise spaces use the org_quota_policies.unlimited flag.
+    points_unlimited = bool(org.get("points_unlimited", True))
     return {
-        "mainId": org.get("main_id") or main_id,
+        "tenantId": org.get("tenant_id") or tenant_id,
         "orgName": org.get("org_name") or current_user.get("org_name") or "组织空间",
         "edition": "community" if is_community_organization(org) else str(org.get("edition") or "cloud"),
         "tier": org.get("tier", "free"),
         "billingEnabled": billing_enabled(org),
-        "userLimit": member_limit(org),
+        "userLimit": await resolve_member_limit(tenant_id, org),
         "currentMembersCount": current_members,
         "totalPoints": total_points,
         "usedPoints": used_points,
-        "remainingPoints": max(0, total_points - used_points),
+        "unlimited": points_unlimited,
+        "remainingPoints": -1 if points_unlimited else max(0, total_points - used_points),
         "isOwnModel": bool(org.get("is_own_model", False)),
     }
 
 
-async def _usage_metrics(db: Any, main_id: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+async def _usage_metrics(db: Any, tenant_id: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     now = datetime.now(timezone.utc)
     since = now - timedelta(days=1)
-    match = {"main_id": main_id, "created_at": {"$gte": since}}
+    match = {"tenant_id": tenant_id, "created_at": {"$gte": since}}
     usage_coll = db[TOKEN_USAGE_COLLECTION]
 
     rows = await usage_coll.aggregate(
@@ -77,7 +149,7 @@ async def _usage_metrics(db: Any, main_id: str) -> tuple[dict[str, Any], list[di
             {"$match": match},
             {
                 "$group": {
-                    "_id": {"model_id": "$model_id", "model_name": "$model_name"},
+                    "_id": "$model_name",
                     "calls": {"$sum": 1},
                     "failed_calls": {"$sum": {"$cond": [{"$eq": ["$status", "failed"]}, 1, 0]}},
                     "total_tokens": {"$sum": {"$ifNull": ["$total_tokens", 0]}},
@@ -115,29 +187,20 @@ async def _usage_metrics(db: Any, main_id: str) -> tuple[dict[str, Any], list[di
     total_calls = 0
     failed_calls = 0
     total_tokens = 0
-    prices = await load_model_prices(db, main_id)
-    costs = {"CNY": Decimal(0), "USD": Decimal(0)}
-    priced_calls = {"CNY": 0, "USD": 0}
-    unpriced_calls = 0
+    total_cost = 0.0
     active_users: set[str] = set()
     last_called_at: datetime | None = None
     duration_sum = 0
     timed_calls = 0
 
     for row in rows:
-        model_identity = row.get("_id") or {}
+        model_name = str(row.get("_id") or "")
         row_prompt = int(row.get("prompt_tokens") or 0)
         row_completion = int(row.get("completion_tokens") or 0)
         total_calls += int(row.get("calls") or 0)
         failed_calls += int(row.get("failed_calls") or 0)
         total_tokens += int(row.get("total_tokens") or 0)
-        price_result = calculate_cost({"model_id": model_identity.get("model_id"), "model_name": model_identity.get("model_name"), "prompt_tokens": row_prompt, "completion_tokens": row_completion}, prices)
-        if price_result is None:
-            unpriced_calls += int(row.get("calls") or 0)
-        else:
-            currency, amount = price_result
-            costs[currency] += amount
-            priced_calls[currency] += int(row.get("calls") or 0)
+        total_cost += _cost(model_name, row_prompt, row_completion)
         duration_sum += int(row.get("duration_sum") or 0)
         timed_calls += int(row.get("timed_calls") or 0)
         for user_id in row.get("active_users") or []:
@@ -149,25 +212,23 @@ async def _usage_metrics(db: Any, main_id: str) -> tuple[dict[str, Any], list[di
 
     active_dept_count = 0
     if active_users:
-        active_depts = await db[USER_ORG_REL_COLLECTION].distinct("org_id", {"main_id": main_id, "user_id": {"$in": list(active_users)}})
+        active_depts = await db[USER_ORG_REL_COLLECTION].distinct("org_id", {"tenant_id": tenant_id, "user_id": {"$in": list(active_users)}})
         active_dept_count = len([item for item in active_depts if str(item or "").strip()])
 
     recent_rows = (
-        await usage_coll.find({"main_id": main_id})
+        await usage_coll.find({"tenant_id": tenant_id})
         .sort([("created_at", -1), ("end_time", -1)])
         .limit(8)
         .to_list(length=8)
     )
 
-    recent_activity = await _format_recent_activity(db, main_id, recent_rows)
+    recent_activity = await _format_recent_activity(db, tenant_id, recent_rows)
     avg_duration = int(duration_sum / timed_calls) if timed_calls else 0
     return (
         {
             "calls24h": total_calls,
             "tokens24h": total_tokens,
-            "costs24hByCurrency": serialize_costs(costs),
-            "pricedCalls24hByCurrency": priced_calls,
-            "unpricedCalls24h": unpriced_calls,
+            "cost24h": round(total_cost, 4),
             "activeUsers24h": len(active_users),
             "activeDepartments24h": active_dept_count,
             "failedCalls24h": failed_calls,
@@ -179,15 +240,266 @@ async def _usage_metrics(db: Any, main_id: str) -> tuple[dict[str, Any], list[di
     )
 
 
-async def _format_recent_activity(db: Any, main_id: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+_PERCENTILE_FALLBACK_ROWS = 5000
+
+
+async def _duration_percentiles_fallback(
+    usage_coll: Any, match: dict[str, Any]
+) -> tuple[int | None, int | None]:
+    """Compute P50/P95 from ``end_time - start_time`` without ``$percentile``.
+
+    ``$percentile`` only exists on MongoDB >= 7.0; the pinned image is 6.0,
+    where the aggregation raises and P50/P95 would silently stay ``None``.
+    Durations are computed here (they are not materialized as ``duration_ms``)
+    and the percentiles are taken with a nearest-rank sort.
+    """
+    try:
+        rows = (
+            await usage_coll.find(match, {"start_time": 1, "end_time": 1})
+            .limit(_PERCENTILE_FALLBACK_ROWS)
+            .to_list(length=_PERCENTILE_FALLBACK_ROWS)
+        )
+    except Exception:
+        return None, None
+
+    durations: list[int] = []
+    for row in rows:
+        start = _to_ms(row.get("start_time"))
+        end = _to_ms(row.get("end_time"))
+        if start > 0 and end > start:
+            durations.append(end - start)
+    if not durations:
+        return None, None
+
+    durations.sort()
+    last = len(durations) - 1
+
+    def at(fraction: float) -> int:
+        # Nearest-rank percentile.
+        index = int(round(fraction * last))
+        return int(durations[max(0, min(last, index))])
+
+    return at(0.5), at(0.95)
+
+
+async def _quality_metrics(db: Any, tenant_id: str) -> dict[str, Any]:
+    """Quality dimension (008 US4 / FR-4): success / anomaly / latency / manual.
+
+    P50/P95 are computed from ``start_time``/``end_time`` (epoch millis) via
+    Mongo ``$percentile``, with a nearest-rank fallback for MongoDB < 7.0.
+    Manual-intervention rate uses the approval-pending count when the persistent
+    approval store is present; the in-memory ``ApprovalRuntime`` has no durable
+    collection, so it degrades to ``None`` (an honest "not measurable here")
+    rather than reporting a fabricated 0%.
+    """
+    usage_coll = db[TOKEN_USAGE_COLLECTION]
+    match = tenant_match(tenant_id, since=window_start(DEFAULT_PERIOD_DAYS))
+
+    totals = await usage_coll.aggregate(
+        [
+            {"$match": match},
+            {
+                "$group": {
+                    "_id": None,
+                    "calls": {"$sum": 1},
+                    "failed": {"$sum": {"$cond": [{"$eq": ["$status", "failed"]}, 1, 0]}},
+                    "anomalies": {
+                        "$sum": {
+                            "$cond": [
+                                {"$in": [{"$toLower": {"$ifNull": ["$status", ""]}}, ["failed", "timeout", "error"]]},
+                                1,
+                                0,
+                            ]
+                        }
+                    },
+                    "duration_sum": {
+                        "$sum": {
+                            "$max": [
+                                0,
+                                {"$subtract": [{"$ifNull": ["$end_time", 0]}, {"$ifNull": ["$start_time", 0]}]},
+                            ]
+                        }
+                    },
+                    "timed_calls": {
+                        "$sum": {
+                            "$cond": [
+                                {
+                                    "$and": [
+                                        {"$gt": [{"$ifNull": ["$start_time", 0]}, 0]},
+                                        {"$gt": [{"$ifNull": ["$end_time", 0]}, 0]},
+                                    ]
+                                },
+                                1,
+                                0,
+                            ]
+                        }
+                    },
+                }
+            },
+        ]
+    ).to_list(length=1)
+
+    total_calls = int(totals[0].get("calls") or 0) if totals else 0
+    failed_calls = int(totals[0].get("failed") or 0) if totals else 0
+    anomaly_calls = int(totals[0].get("anomalies") or 0) if totals else 0
+    duration_sum = int(totals[0].get("duration_sum") or 0) if totals else 0
+    timed_calls = int(totals[0].get("timed_calls") or 0) if totals else 0
+    avg_ms = int(duration_sum / timed_calls) if timed_calls else None
+
+    p50_ms: int | None = None
+    p95_ms: int | None = None
+    try:
+        percentile_rows = await usage_coll.aggregate(
+            [{"$match": match}, {"$match": {"end_time": {"$gt": 0}}}, percentile_stage("duration_ms")]
+        ).to_list(length=1)
+        p50_ms, p95_ms = extract_percentiles(percentile_rows[0] if percentile_rows else None)
+    except Exception:
+        # Mongo < 7.0 has no $percentile; the fallback below computes them.
+        p50_ms, p95_ms = None, None
+    if p50_ms is None or p95_ms is None:
+        p50_ms, p95_ms = await _duration_percentiles_fallback(usage_coll, match)
+
+    approval_pending = await _approval_pending_count(db, tenant_id)
+
+    return build_quality_section(
+        total_calls=total_calls,
+        failed_calls=failed_calls,
+        anomaly_calls=anomaly_calls,
+        approval_pending=approval_pending,
+        p50_ms=p50_ms,
+        p95_ms=p95_ms,
+        avg_ms=avg_ms,
+    )
+
+
+async def _approval_pending_count(db: Any, tenant_id: str) -> int:
+    """Count pending approvals, if a persistent approval store exists.
+
+    Returns 0 when the collection is absent so the rate degrades gracefully
+    instead of erroring (the runtime approvals live in memory, not Mongo).
+    """
+    for collection_name in ("approval_requests", "approval_events"):
+        try:
+            collection = db[collection_name]
+            return int(
+                await collection.count_documents({"tenant_id": tenant_id, "status": "pending"})
+            )
+        except Exception:
+            continue
+    return 0
+
+
+async def _trend_metrics(db: Any, tenant_id: str, *, current_cost: float) -> dict[str, Any]:
+    """Trend dimension (008 US5 / FR-5): 环比 / 同比 + bottleneck top-5."""
+    usage_coll = db[TOKEN_USAGE_COLLECTION]
+    prev_start, prev_end = previous_window(DEFAULT_PERIOD_DAYS)
+
+    async def _cost_calls(start: datetime, end: datetime) -> tuple[float, int]:
+        rows = await usage_coll.aggregate(
+            [
+                {
+                    "$match": {
+                        "tenant_id": tenant_id,
+                        "created_at": {"$gte": start, "$lt": end},
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": "$model_name",
+                        "calls": {"$sum": 1},
+                        "prompt_tokens": {"$sum": {"$ifNull": ["$prompt_tokens", 0]}},
+                        "completion_tokens": {"$sum": {"$ifNull": ["$completion_tokens", 0]}},
+                    }
+                },
+            ]
+        ).to_list(length=1000)
+        cost = 0.0
+        calls = 0
+        for row in rows:
+            calls += int(row.get("calls") or 0)
+            cost += _cost(
+                str(row.get("_id") or ""),
+                int(row.get("prompt_tokens") or 0),
+                int(row.get("completion_tokens") or 0),
+            )
+        return cost, calls
+
+    prev_cost, prev_calls = await _cost_calls(prev_start, prev_end)
+    current_calls = 0
+    for row in await usage_coll.aggregate(
+        [
+            {"$match": tenant_match(tenant_id, since=window_start(DEFAULT_PERIOD_DAYS))},
+            {"$group": {"_id": None, "calls": {"$sum": 1}}},
+        ]
+    ).to_list(length=1):
+        current_calls = int(row.get("calls") or 0)
+
+    # Bottleneck: aggregate by model in the current window, rank by cost/latency.
+    bottleneck_rows = await usage_coll.aggregate(
+        [
+            {"$match": tenant_match(tenant_id, since=window_start(DEFAULT_PERIOD_DAYS))},
+            {
+                "$group": {
+                    "_id": "$model_name",
+                    "calls": {"$sum": 1},
+                    "prompt_tokens": {"$sum": {"$ifNull": ["$prompt_tokens", 0]}},
+                    "completion_tokens": {"$sum": {"$ifNull": ["$completion_tokens", 0]}},
+                    "duration_sum": {
+                        "$sum": {
+                            "$max": [
+                                0,
+                                {"$subtract": [{"$ifNull": ["$end_time", 0]}, {"$ifNull": ["$start_time", 0]}]},
+                            ]
+                        }
+                    },
+                    "timed_calls": {
+                        "$sum": {
+                            "$cond": [
+                                {
+                                    "$and": [
+                                        {"$gt": [{"$ifNull": ["$start_time", 0]}, 0]},
+                                        {"$gt": [{"$ifNull": ["$end_time", 0]}, 0]},
+                                    ]
+                                },
+                                1,
+                                0,
+                            ]
+                        }
+                    },
+                }
+            },
+        ]
+    ).to_list(length=1000)
+
+    modelled = []
+    for row in bottleneck_rows:
+        model_name = str(row.get("_id") or "")
+        cost = _cost(
+            model_name,
+            int(row.get("prompt_tokens") or 0),
+            int(row.get("completion_tokens") or 0),
+        )
+        modelled.append({**row, "model": model_name, "cost": cost})
+
+    trend = build_trend_section(
+        current_cost=current_cost,
+        previous_cost=prev_cost,
+        current_calls=current_calls,
+        previous_calls=prev_calls,
+    )
+    trend["bottlenecks"] = bottleneck_top_n(modelled, dimension="model")
+    return trend
+
+
+async def _format_recent_activity(db: Any, tenant_id: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     user_ids = [str(row.get("user_id") or "") for row in rows if str(row.get("user_id") or "").strip()]
-    user_oid_map = {user_id: ObjectId(user_id) for user_id in user_ids if ObjectId.is_valid(user_id)}
+    user_oid_map = {user_id: to_backend_id(user_id) for user_id in user_ids if is_valid_backend_id(user_id)}
     user_docs = []
     if user_oid_map:
         user_docs = await db[USER_COLLECTION].find({"_id": {"$in": list(user_oid_map.values())}}).to_list(length=500)
     user_map = {str(doc.get("_id")): doc for doc in user_docs}
 
-    rel_rows = await db[USER_ORG_REL_COLLECTION].find({"main_id": main_id, "user_id": {"$in": user_ids}}).to_list(length=1000) if user_ids else []
+    rel_rows = await db[USER_ORG_REL_COLLECTION].find({"tenant_id": tenant_id, "user_id": {"$in": user_ids}}).to_list(length=1000) if user_ids else []
     rel_map: dict[str, str] = {}
     dept_ids = set[str]()
     for rel in rel_rows:
@@ -197,7 +509,7 @@ async def _format_recent_activity(db: Any, main_id: str, rows: list[dict[str, An
             rel_map[user_id] = org_id
             dept_ids.add(org_id)
 
-    dept_oid_map = {dept_id: ObjectId(dept_id) for dept_id in dept_ids if ObjectId.is_valid(dept_id)}
+    dept_oid_map = {dept_id: to_backend_id(dept_id) for dept_id in dept_ids if is_valid_backend_id(dept_id)}
     dept_docs = []
     if dept_oid_map:
         dept_docs = await db[DEPARTMENT_COLLECTION].find({"_id": {"$in": list(dept_oid_map.values())}}, {"name": 1}).to_list(length=500)
@@ -232,21 +544,21 @@ async def _format_recent_activity(db: Any, main_id: str, rows: list[dict[str, An
     return items
 
 
-async def _assets(db: Any, main_id: str) -> dict[str, Any]:
-    users_total = await db[USER_COLLECTION].count_documents({"main_id": main_id})
-    users_disabled = await db[USER_COLLECTION].count_documents({"main_id": main_id, "status": "disabled"})
-    departments_total = await db[DEPARTMENT_COLLECTION].count_documents({"main_id": main_id})
+async def _assets(db: Any, tenant_id: str) -> dict[str, Any]:
+    users_total = await count_members(tenant_id)
+    users_disabled = await db[USER_COLLECTION].count_documents({"tenant_id": tenant_id, "status": "disabled"})
+    departments_total = await db[DEPARTMENT_COLLECTION].count_documents({"tenant_id": tenant_id})
 
-    model_rows = await db[INSTANCE_COLLECTION].find({"main_id": main_id}).to_list(length=1000)
+    model_rows = await db[INSTANCE_COLLECTION].find({"tenant_id": tenant_id}).to_list(length=1000)
     active_models = [row for row in model_rows if row.get("status") == "active"]
     failed_models = [row for row in model_rows if row.get("health_status") == "failed"]
 
-    skill_rows = await db[SKILL_COLLECTION].find({"main_id": main_id}).to_list(length=2000)
+    skill_rows = await db[SKILL_COLLECTION].find({"tenant_id": tenant_id}).to_list(length=2000)
     enabled_skills = [row for row in skill_rows if row.get("enabled", True)]
     workflow_skills = [row for row in skill_rows if row.get("type") == "workflow"]
     writing_skills = [row for row in skill_rows if row.get("type") == "writing_style"]
 
-    tool_rows = await db[TOOL_COLLECTION].find({"main_id": main_id}).to_list(length=2000)
+    tool_rows = await db[TOOL_COLLECTION].find({"tenant_id": tenant_id}).to_list(length=2000)
     active_tools = [row for row in tool_rows if row.get("status") == "active"]
     failed_tools = [row for row in tool_rows if row.get("last_test_status") == "failed"]
     untested_tools = [row for row in tool_rows if row.get("last_test_status") in (None, "", "untested")]
@@ -300,14 +612,296 @@ def _todos(metrics: dict[str, Any], assets: dict[str, Any]) -> list[dict[str, st
     return items[:6]
 
 
+async def _usage_tab(db: Any, tenant_id: str) -> dict[str, Any]:
+    """Usage-dimension dashboard (008 US3 / T014-T016): call time-series + active-user dedup + skill/retrieval ranking.
+
+    * T014: call volume time series (day grain) + active users deduped by user_id (day/week/month)
+    * T015: skill frequency (by skill name) + retrieval frequency (by retrieval type)
+    * Empty tenant / empty data -> 0 metrics + empty lists (T025 / FR-9 fallback).
+    """
+    from app.api.dashboard_usage import active_user_counts, empty_usage_section, rank_frequency, usage_time_series
+
+    try:
+        rows = await db[TOKEN_USAGE_COLLECTION].find(tenant_match(tenant_id, since=window_start(DEFAULT_PERIOD_DAYS))).to_list(length=5000)
+    except Exception:
+        return empty_usage_section()
+    if not rows:
+        return empty_usage_section()
+    return {
+        "calls": sum(1 for _ in rows),
+        "activeUsers": active_user_counts(rows, grains=("day", "week", "month")),
+        "skillRanking": rank_frequency(rows, key="skill_name", top_n=10),
+        "retrievalRanking": rank_frequency(rows, key="retrieval_type", top_n=10),
+        "timeSeries": usage_time_series(rows, grain="day"),
+    }
+
+
+async def _daily_costs(db: Any, tenant_id: str, days: int = 7) -> list[float]:
+    """Trailing daily cost history (oldest -> newest) for the cost forecast (OQ-5)."""
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(days=days)
+    rows = await db[TOKEN_USAGE_COLLECTION].find(
+        {"tenant_id": tenant_id, "created_at": {"$gte": since}}
+    ).to_list(length=20000)
+    if not rows:
+        return []
+    per_day: dict[str, float] = {}
+    for row in rows:
+        created = _as_utc(row.get("created_at"))
+        if created is None:
+            continue
+        day = created.date()
+        prompt = int(row.get("prompt_tokens") or 0)
+        completion = int(row.get("completion_tokens") or 0)
+        per_day[day] = per_day.get(day, 0.0) + _cost(str(row.get("model_name") or ""), prompt, completion)
+    ordered_days = sorted(per_day)
+    return [round(per_day[day], 6) for day in ordered_days]
+
+
+UNASSIGNED = "未分配"
+# 035: the attribution dimensions bucket the same 24h window's raw rows in memory;
+# this cap matches the analytics department resolution (50000) and is generous
+# enough for any single-tenant day while avoiding unbounded result sets.
+DIMENSION_ROW_LIMIT = 50000
+
+
+def _normalize_usage_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Shape a raw usage row for ``attribute_cost`` (needs calls/tokens/cost).
+
+    Cost is computed with the same ``_cost`` (MODEL_PRICES) used by the per-model
+    aggregation, so dimension buckets reconcile to the section total (FR-6).
+    """
+    model = str(row.get("model_name") or "")
+    prompt = int(row.get("prompt_tokens") or 0)
+    completion = int(row.get("completion_tokens") or 0)
+    normalized = dict(row)
+    normalized["calls"] = 1
+    normalized["total_tokens"] = int(row.get("total_tokens") or 0) or (prompt + completion)
+    normalized["cost"] = round(_cost(model, prompt, completion), 6)
+    return normalized
+
+
+def _build_attribution(
+    rows: list[dict[str, Any]],
+    *,
+    dimension: str,
+    dimension_of: Any,
+    note: str,
+) -> dict[str, Any]:
+    """Bucket cost by one attribution dimension; honest placeholder when no source.
+
+    ``available`` is True only when at least one row carries a real (non-未分配)
+    value for this dimension. A dimension with no data source at all is reported
+    as ``available: False`` with an explicit reason — never a fabricated zero
+    bucket (008 honesty discipline / 035 FR-009).
+    """
+    if not rows:
+        return {
+            "dimension": dimension,
+            "available": False,
+            "reason": f"近 24h 内无调用记录；{dimension} 维度无数据来源，不伪造数值。",
+            "note": note,
+            "items": [],
+        }
+    items = attribute_cost(rows, dimension=dimension, dimension_of=dimension_of)
+    has_real = any(str(item.get("key") or "") != UNASSIGNED for item in items)
+    return {
+        "dimension": dimension,
+        "available": has_real,
+        "reason": (
+            None
+            if has_real
+            else f"全部调用缺失 {dimension} 维度数据源，归入 未分配 桶，不伪造数值。"
+        ),
+        "note": note,
+        "items": items,
+    }
+
+
+async def _load_org_units(db: Any, org_ids: set[str]) -> dict[str, dict[str, Any]]:
+    oid_map = {oid: to_backend_id(oid) for oid in org_ids if is_valid_backend_id(oid)}
+    if not oid_map:
+        return {}
+    docs = await db[DEPARTMENT_COLLECTION].find({"_id": {"$in": list(oid_map.values())}}).to_list(
+        length=DIMENSION_ROW_LIMIT
+    )
+    return {str(doc.get("_id")): doc for doc in docs}
+
+
+
+async def _resolve_department(
+    db: Any, tenant_id: str, rows: list[dict[str, Any]]
+) -> dict[str, str]:
+    """Resolve user -> department name (035 T020).
+
+    Department comes from ``end_user_org_relations``: counted only, never
+    guessed. Users with no resolvable department stay unmapped and are bucketed
+    as 未分配 by the caller.
+    """
+    user_ids = sorted(
+        {str(row.get("user_id") or "").strip() for row in rows if str(row.get("user_id") or "").strip()}
+    )
+    department_map: dict[str, str] = {}
+    if not user_ids:
+        return department_map
+
+    rel_rows = await db[USER_ORG_REL_COLLECTION].find(
+        {"tenant_id": tenant_id, "user_id": {"$in": user_ids}}
+    ).to_list(length=DIMENSION_ROW_LIMIT)
+    rel_by_user: dict[str, str] = {}
+    dept_ids: set[str] = set()
+    for rel in rel_rows:
+        uid = str(rel.get("user_id") or "")
+        oid = str(rel.get("org_id") or "")
+        if not uid or not oid:
+            continue
+        rel_by_user.setdefault(uid, oid)
+        dept_ids.add(oid)
+    if not dept_ids:
+        return department_map
+
+    dept_by_id = await _load_org_units(db, dept_ids)
+    for uid, oid in rel_by_user.items():
+        dept = dept_by_id.get(oid)
+        if not dept:
+            continue
+        department_map[uid] = str(dept.get("name") or oid)
+    return department_map
+
+
+async def _attribution_dimensions(
+    db: Any, tenant_id: str, raw_rows: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Five-dimension cost attribution on the 24h window's rows (035 FR-005 / 048 FR-001).
+
+    The business-line dimension is removed by 048: it was derived from an
+    optional flag on org units rather than a first-class source, so dropping it
+    leaves the other five dimensions unchanged.
+    """
+    normalized = [_normalize_usage_row(row) for row in raw_rows]
+    department_map = await _resolve_department(db, tenant_id, raw_rows)
+
+    department = _build_attribution(
+        normalized,
+        dimension="department",
+        dimension_of=lambda row: department_map.get(str(row.get("user_id") or ""), UNASSIGNED),
+        note="部门经 end_user_org_relations 反查（仅计数，不伪造分摊）；无部门关系的用户归 未分配。",
+    )
+    agent = _build_attribution(
+        normalized,
+        dimension="agent",
+        dimension_of=lambda row: str(row.get("agent_id") or row.get("node_id") or "").strip() or UNASSIGNED,
+        note="Agent 维度取调用记录的 agent_id（Agent→Skill→资产链路）；无登记回落原始能力引用 ID。",
+    )
+    project = _build_attribution(
+        normalized,
+        dimension="project",
+        dimension_of=lambda row: str(row.get("project_id") or row.get("workspace_id") or "").strip() or UNASSIGNED,
+        note="项目维度取 project_id（046 FR-005），迁移期回退 workspace_id；无项目归属归 未分配。",
+    )
+    user = _build_attribution(
+        normalized,
+        dimension="user",
+        dimension_of=lambda row: str(row.get("user_id") or "").strip() or UNASSIGNED,
+        note="用户维度取调用记录的 user_id；匿名/系统调用归 未分配。",
+    )
+    enterprise = _build_attribution(
+        normalized,
+        dimension="enterprise",
+        dimension_of=lambda row: str(row.get("tenant_id") or tenant_id).strip() or UNASSIGNED,
+        note="企业维度取查询范围的 tenant_id（008 已固定租户隔离）。",
+    )
+    return {
+        "departmentAttribution": department,
+        "agentAttribution": agent,
+        "projectAttribution": project,
+        "userAttribution": user,
+        "enterpriseAttribution": enterprise,
+    }
+
+
+async def _cost_section(db: Any, tenant_id: str) -> dict[str, Any]:
+    """008 US2 / 035 US2: five-dimension cost attribution (FR-2 / FR-6 / FR-9).
+
+    Previously ``build_cost_section`` / ``forecast_cost`` / ``attribute_cost`` had
+    **zero production callers** and ``/overview`` never returned a cost section
+    (001 audit, 2026-10-03). This wires the dead code in: per-model cost
+    aggregation + reconciliation self-check + 4-period moving-average forecast,
+    plus the 035 attribution dimensions bucketed on the same 24h window.
+
+    Department / agent / project / user / enterprise attribution is **not fabricated**:
+    a dimension with no data source is surfaced as ``available: False`` with a
+    reason (008 honesty discipline / 035 FR-009), and unresolvable rows fall into
+    a real ``未分配`` bucket rather than a guessed one.
+    """
+    since = datetime.now(timezone.utc) - timedelta(days=1)
+    match = {"tenant_id": tenant_id, "created_at": {"$gte": since}}
+    rows = await db[TOKEN_USAGE_COLLECTION].aggregate(
+        [
+            {"$match": match},
+            {
+                "$group": {
+                    "_id": "$model_name",
+                    "calls": {"$sum": 1},
+                    "prompt_tokens": {"$sum": {"$ifNull": ["$prompt_tokens", 0]}},
+                    "completion_tokens": {"$sum": {"$ifNull": ["$completion_tokens", 0]}},
+                }
+            },
+        ]
+    ).to_list(length=1000)
+    costed = []
+    for row in rows:
+        model_name = str(row.get("_id") or "")
+        prompt = int(row.get("prompt_tokens") or 0)
+        completion = int(row.get("completion_tokens") or 0)
+        costed.append(
+            {
+                "model": model_name,
+                "calls": int(row.get("calls") or 0),
+                "prompt_tokens": prompt,
+                "completion_tokens": completion,
+                "total_tokens": prompt + completion,
+                "cost": round(_cost(model_name, prompt, completion), 6),
+            }
+        )
+    section = build_cost_section(costed)
+    # FR-6: model costs must reconcile to the total; surface the self-check.
+    section["reconciles"] = reconciles(section)
+    # Forecast the next period from the trailing daily cost history (OQ-5: 4-period avg).
+    section["forecast"] = forecast_cost(await _daily_costs(db, tenant_id, days=DEFAULT_FORECAST_PERIODS + 1))
+    # 035: attribution dimensions on the same 24h window's raw rows (memory bucketing,
+    # no extra aggregation pipeline per dimension).
+    raw_rows = await db[TOKEN_USAGE_COLLECTION].find(match).to_list(length=DIMENSION_ROW_LIMIT)
+    section.update(await _attribution_dimensions(db, tenant_id, raw_rows))
+    return section
+
+
+async def _quota_anomalies(db: Any, tenant_id: str) -> dict[str, Any]:
+    """042 R-12：读取窗口内 quota 告警事件并聚合成独立分组。"""
+
+    since = window_start(DEFAULT_PERIOD_DAYS)
+    try:
+        rows = await db[QUOTA_ALERT_COLLECTION].find(
+            {"tenant_id": tenant_id, "at": {"$gte": since}}
+        ).to_list(length=2000)
+    except Exception:  # 事件集合缺失或不可读时不放大成整页失败
+        rows = []
+    return summarize_quota_alerts(rows)
+
+
 @router.get("/overview")
-async def overview(current_user: dict = Depends(get_current_admin_user), accept_language: str | None = Header(default=None)) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
+async def overview(current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
-    billing = await _billing(db, main_id, current_user)
-    metrics, recent_activity = await _usage_metrics(db, main_id)
-    assets = await _assets(db, main_id)
-    todos = localize_dashboard_todos(_todos(metrics, assets), metrics, assets, accept_language)
+    billing = await _billing(db, tenant_id, current_user)
+    metrics, recent_activity = await _usage_metrics(db, tenant_id)
+    assets = await _assets(db, tenant_id)
+    quality = await _quality_metrics(db, tenant_id)
+    quota_anomalies = await _quota_anomalies(db, tenant_id)
+    trend = await _trend_metrics(db, tenant_id, current_cost=float(metrics.get("cost24h") or 0.0))
+    usage = await _usage_tab(db, tenant_id)
+    cost = await _cost_section(db, tenant_id)
+    todos = _todos(metrics, assets)
     status_text = "critical" if any(item["level"] == "error" for item in todos) else "warning" if todos else "healthy"
     return {
         "billing": billing,
@@ -317,6 +911,12 @@ async def overview(current_user: dict = Depends(get_current_admin_user), accept_
         },
         "metrics": metrics,
         "assets": assets,
+        "quality": quality,
+        # 042 R-12：quota 告警独立分组，与 quality 并列、不并入 ANOMALY_STATUSES。
+        "quotaAnomalies": quota_anomalies,
+        "trend": trend,
+        "usage": usage,
+        "cost": cost,
         "todos": todos,
         "recentActivity": recent_activity,
     }

@@ -6,9 +6,7 @@ from types import SimpleNamespace
 
 from bson import ObjectId
 
-from app.dsh_runtime import chat_service as chat_service_module
 from app.dsh_runtime.chat_service import DshChatService, PreparedTurn
-from app.governance.topic_admission import TopicAdmissionService
 from app.dsh_runtime.turn_admission import TurnSkillSelection
 from app.scheduled_tasks.dsh_execution import ScheduledDshExecution
 from app.scheduled_tasks.runner import ScheduledChatRunner
@@ -61,8 +59,8 @@ def test_workflow_skill_is_adaptive_and_never_compiles_a_task_graph() -> None:
     source = (
         CHAT_API_ROOT / "app" / "dsh_runtime" / "profile" / "skills" / "workflow.py"
     ).read_text(encoding="utf-8")
-    assert "This is an adaptive Skill for the DSH Agent Loop" in source
-    assert "not a fixed graph execution plan" in source
+    assert "供 DSH Agent Loop 使用的自适应 Skill" in source
+    assert "不是固定图执行计划" in source
     assert "TaskGraph(" not in source
 
 
@@ -113,11 +111,24 @@ def test_scheduled_turn_reuses_dsh_chat_profile_skill_and_projection(monkeypatch
         chat = _ScheduledChat(conversation_id)
 
         async def admit(**kwargs):
+            # 009 T009: the scheduled path now forwards a real `request` payload so
+            # PreToolUse require_field rules evaluate against actual context
+            # (empty payload would be rejected unconditionally).
+            request = kwargs.pop("request")
             assert kwargs == {
                 "tenant_id": "tenant-a",
                 "user_id": "user-a",
                 "selected_skill_id": "workflow-a",
+                "tool": "dsh_turn",
+                "session_id": "",
             }
+            assert request["selected_skill_id"] == "workflow-a"
+            assert request["output_spec"]["selected_skill_id"] == "workflow-a"
+            assert request["harness_mode"] == "thick"
+            # Admission runs before the conversation id is resolved, so the
+            # request/session ids are legitimately empty at this point.
+            assert request["conversation_id"] == ""
+            assert request["job_id"]
             return TurnSkillSelection(selected_skill_id="workflow-a")
 
         monkeypatch.setattr(module, "get_db", lambda: database)
@@ -181,13 +192,11 @@ def test_new_per_run_schedule_defers_conversation_creation_to_dsh() -> None:
     asyncio.run(run())
 
 
-def test_existing_pre_dsh_conversation_creates_a_kernel_binding_instead_of_falling_back(monkeypatch) -> None:
+def test_existing_pre_dsh_conversation_creates_a_kernel_binding_instead_of_falling_back(allow_all_topic_admission) -> None:
     async def run() -> None:
-        conversation_id = str(ObjectId())
-
         class Conversations:
             async def owned(self, *_args, **_kwargs):
-                return {"_id": conversation_id}
+                return {"_id": "conversation-a"}
 
             async def append_message(self, **_kwargs):
                 return None
@@ -199,7 +208,7 @@ def test_existing_pre_dsh_conversation_creates_a_kernel_binding_instead_of_falli
             async def current(self, *_args, **_kwargs):
                 return None
 
-            async def claim_turn_authorized(self, _binding_id, **_kwargs):
+            async def claim_turn(self, _binding_id, **_kwargs):
                 return binding
 
             async def finish_turn(self, *_args, **_kwargs):
@@ -227,7 +236,7 @@ def test_existing_pre_dsh_conversation_creates_a_kernel_binding_instead_of_falli
             "binding_id": "binding-a",
             "tenant_id": "tenant-a",
             "user_id": "user-a",
-            "conversation_id": conversation_id,
+            "conversation_id": "conversation-a",
             "kernel_session_id": "session-a",
             "runtime_id": "runtime-a",
             "profile_version": "profile-a",
@@ -235,29 +244,7 @@ def test_existing_pre_dsh_conversation_creates_a_kernel_binding_instead_of_falli
             "execution_location": "server",
         }
         coordinator = Coordinator()
-
-        async def _session_doc(query, *_args, **_kwargs):
-            # The mandatory admission authorizer's tenant-scoped session read:
-            # the caller is the seeded owner of tenant-a's session.
-            if query.get("_id") != ObjectId(conversation_id) or query.get("main_id") != "tenant-a":
-                return None
-            return {"_id": ObjectId(conversation_id), "user_id": "user-a", "main_id": "tenant-a"}
-
-        async def _no_participant(*_args, **_kwargs):
-            return None
-
-        monkeypatch.setattr(
-            chat_service_module,
-            "get_db",
-            lambda: SimpleNamespace(
-                chat_sessions=SimpleNamespace(find_one=_session_doc),
-                session_participants=SimpleNamespace(find_one=_no_participant),
-            ),
-        )
         service = DshChatService(
-            topic_admission=TopicAdmissionService({
-                "topic_admission_policies": SimpleNamespace(find_one=_no_participant),
-            }),
             gateway=SimpleNamespace(),
             coordinator=coordinator,  # type: ignore[arg-type]
             conversations=Conversations(),  # type: ignore[arg-type]
@@ -265,6 +252,7 @@ def test_existing_pre_dsh_conversation_creates_a_kernel_binding_instead_of_falli
             events=SimpleNamespace(),
             profiles=Profiles(),  # type: ignore[arg-type]
             kernel_version="0.1.0-rc.6",
+            topic_admission=allow_all_topic_admission,
         )
 
         async def finish_immediately(**_kwargs):
@@ -274,14 +262,14 @@ def test_existing_pre_dsh_conversation_creates_a_kernel_binding_instead_of_falli
         turn = await service.prepare_turn(
             tenant_id="tenant-a",
             user_id="user-a",
-            conversation_id=conversation_id,
+            conversation_id="conversation-a",
             text="继续旧会话",
             model_instance_id="model-a",
             timezone_name="Asia/Shanghai",
             images=[],
             documents=[],
         )
-        assert turn.conversation_id == conversation_id
+        assert turn.conversation_id == "conversation-a"
         assert coordinator.created == 1
         assert await service.wait_turn(turn.message_id) == "completed"
 

@@ -1,12 +1,15 @@
-# MOVO DSH dependency lock policy (format 1)
-# Updated for the DSH 0.2.2-rc.2 candidate on 2026-11-12.
+# MOGO DSH dependency lock policy (format 1)
+# Updated for the admitted DSH 0.2.2-rc.2 train on 2026-11-12.
 # This file records approved direct artifacts; pnpm-lock.yaml and the SBOM pin
 # the resolved graph, and the release gate rejects a mixed DSH release train.
 
 [upstream]
 repository = "https://github.com/deepseek-ai/deepseek-harness"
-reviewed_commit = "ddac96760b6edf8fa0fe17cbdcf0b512f4c12b2c"
-reviewed_commit_root_version = "0.2.2-rc.2"
+# 0a15e36e... 是 0.2.1-rc.5 列车时审查过的源码 commit。上游至今未发布
+# 「可安装列车 -> 源码 commit」映射，0.2.2-rc.2 没有新的 reviewed commit，
+# 故此处保留历史值仅作溯源记录，source_mapping 继续标记为 unverified。
+reviewed_commit = "0a15e36e7f82b6ed45af6fa9759f29b40dcd965d"
+reviewed_commit_root_version = "0.2.1-rc.5"
 default_branch = "master"
 deploy_from_branch = false
 allow_floating_versions = false
@@ -18,6 +21,13 @@ allow_floating_versions = false
 version = "0.2.2-rc.2"
 source_mapping = "unverified-by-upstream"
 policy = "all @deepseek-ai/dsh and @deepseek-ai/dsh-* packages must resolve exactly to 0.2.2-rc.2"
+# 0.2.2-rc.2 的依赖图里不再出现 @deepseek-ai/dsh-invariants（上游顶版仍是
+# 0.2.0-rc.2，但该 peer 已不再被解析进图），原 0.2.1-rc.5 列车的混用白名单
+# 因此清空。机器可读白名单：release gate 只认这一行，格式为
+# "<包名>@<版本>"，逐字匹配；条目一旦不再被依赖图或 SBOM 观测到就必须删除，
+# 否则守卫会因「例外已失效」报错。守卫脚本不依赖 TOML 库，故用行内数组。
+allowed_mixed_exceptions = []
+
 
 [[artifact]]
 name = "@deepseek-ai/dsh"
@@ -27,6 +37,9 @@ tarball = "https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh-0.2.2-rc.2.tgz"
 integrity = "sha512-J727r2C471x2cYXGjqZ0D9T1ZyaYQDFH/Ynx8iq+85oslM4nky5YTBnbAuTtxMhW7nhY8wuAEfjjFCQ+K6Swgw=="
 shasum = "ff003ca75f37975c40b800fb925df70b38841fd4"
 
+# 0.2.2-rc.2 train：cordis 对齐到 4.1.0（pnpm-workspace.yaml 的 override 同步），
+# plugin-loader / include / timer 解析到该列车依赖图中实际钉死版本（见
+# pnpm-lock.yaml）。cordis-plugin-hmr 在依赖图中已不再被引用。
 [[artifact]]
 name = "@deepseek-ai/cordis"
 version = "4.1.0"
@@ -49,13 +62,6 @@ integrity = "sha512-tD5JTHTDU1j1bkjgTK150UUSzypBSVhHoEl7/vgpYiDt7Czg43++IFUKaRlw
 shasum = "700a6d1a204b48e9e042d8b6d6ba6a3c57322ae3"
 
 [[artifact]]
-name = "@deepseek-ai/cordis-plugin-group"
-version = "1.1.0"
-registry = "https://registry.npmjs.org"
-integrity = "sha512-VVGcw29YWG83D9YqYsivyfIkcPdd+tgrc/Lj4GkxS5n0i6++jpY6nNSKM/6JU7F7phUT/Q5Y9o30rcYbE1pW4w=="
-shasum = "046f48b1a54e58ff3a93b833e320de1320171274"
-
-[[artifact]]
 name = "@deepseek-ai/cordis-plugin-timer"
 version = "1.2.0"
 registry = "https://registry.npmjs.org"
@@ -65,7 +71,7 @@ shasum = "af10b9b4028604e2cd7f3355b0222106d2009fde"
 [license_evidence]
 license = "MIT"
 license_sha256 = "ebb4f09972aee8608be255debaf78451a68e95c290f55c240dec2ecfa16ea6be"
-third_party_notices_sha256 = "4bd8832885ca31daf3e480fb950b9e849446438c0089b05fab67d6c2673fa2ef"
+third_party_notices_sha256 = "82211a06d79227912a4ca76d86b7bf5b18ab260515ce4912fd1787d66995a786"
 
 [step_2_requirements]
 generate_pnpm_lock = true

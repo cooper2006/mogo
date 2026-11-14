@@ -1,6 +1,7 @@
 """Prevent duplicate browser missions while a human handoff is active."""
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from typing import Any
 
@@ -15,7 +16,8 @@ async def pending_browser_result(*, user_id: str, conversation_id: str) -> dict[
             task_id=conversation_id,
             suspension_type=SuspensionType.USER_INPUT.value,
         )
-    except Exception:
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.browser.pending_intervention] silent exception caught: {exc}", flush=True)
         return None
     if record is None:
         return None

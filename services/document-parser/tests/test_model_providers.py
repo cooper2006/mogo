@@ -8,8 +8,7 @@ import json
 import urllib.error
 from unittest import TestCase
 from unittest.mock import patch
-
-from bson import ObjectId
+from uuid import uuid4
 
 from app.services.embedding_provider import _model_center_embed_texts
 from app.services.model_center_runtime import resolve_model_instance
@@ -33,9 +32,9 @@ class _Response:
 
 class ModelProviderTests(TestCase):
     def test_grouped_model_uses_group_connection_settings(self) -> None:
-        instance_id = ObjectId()
-        group_id = ObjectId()
-        provider_id = ObjectId()
+        instance_id = uuid4().hex
+        group_id = uuid4().hex
+        provider_id = uuid4().hex
 
         class Collection:
             def __init__(self, document: dict) -> None:

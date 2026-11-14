@@ -8,7 +8,7 @@ from app.services.presentation.execution.page_executor import BoundedPageExecuto
 
 def test_presentation_identity_survives_action_retry_but_not_new_message() -> None:
     arguments = {
-        "request": " 生成   8 页 MOVO 汇报 ",
+        "request": " 生成   8 页 MOGO 汇报 ",
         "page_count": 8,
         "required_sections": ["挑战", "方案"],
     }
@@ -24,7 +24,7 @@ def test_presentation_identity_survives_action_retry_but_not_new_message() -> No
         user_id="user-a",
         conversation_id="conversation-a",
         message_id="message-a",
-        arguments={**arguments, "request": "生成 8 页 MOVO 汇报"},
+        arguments={**arguments, "request": "生成 8 页 MOGO 汇报"},
     )
     next_message = build_presentation_job_identity(
         tenant_id="tenant-a",

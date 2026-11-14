@@ -4,10 +4,10 @@ import { clearDesktopAuthSession, restoreDesktopAuthToken } from '../src/composa
 import type { AgentStatus, Settings } from '../src/platform/types'
 
 const settings = (overrides: Partial<Settings> = {}): Settings => ({
-  service_url: 'https://movo.example.com',
+  service_url: 'https://mogo.example.com',
   server_configured: true,
-  backend_url: 'https://movo.example.com/askai-api',
-  agent_ws_url: 'wss://movo.example.com/api/agent/connect',
+  backend_url: 'https://mogo.example.com/askai-api',
+  agent_ws_url: 'wss://mogo.example.com/api/agent/connect',
   user_id: 'user-1',
   auth_token: 'persisted-token',
   auto_start_agent: true,
@@ -68,5 +68,5 @@ test('stops the desktop agent and clears persisted identity on logout', async ()
   assert.deepEqual(calls, ['stop', 'update'])
   assert.equal(current.auth_token, '')
   assert.equal(current.user_id, '')
-  assert.equal(current.backend_url, 'https://movo.example.com/askai-api')
+  assert.equal(current.backend_url, 'https://mogo.example.com/askai-api')
 })

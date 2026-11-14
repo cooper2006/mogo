@@ -1,0 +1,18 @@
+# 025 FR-5 (T014)：请求载荷限制配置（QF-211）。
+#
+# 由 `app/config/payload_limits.py::load_payload_limits()` 读取，
+# T013 的载荷限制中间件据此执行；超限分别返回 413 / 422。
+# 环境变量 `MOGO_PAYLOAD_LIMITS_<KEY>` 可逐项覆盖（未设置时用本文件默认）。
+
+limits:
+  max_bytes: 10485760        # 10 MiB：请求体字节数上限（413）
+  max_depth: 16              # JSON 嵌套最大深度（422）
+  max_array_length: 10000    # 单个数组最大元素数（422）
+  max_string_length: 1048576 # 单个字符串最大长度，1 MiB（422）
+
+  # 路由级覆盖：`path_prefix` -> 覆盖值；命中前缀的路由用覆盖值。
+  overrides:
+    /internal:               # 内部服务凭证接口，载荷较大，放宽到 20 MiB
+      max_bytes: 20971520
+    /internal/personal-knowledge:
+      max_bytes: 20971520

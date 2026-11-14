@@ -11,8 +11,8 @@
       style="backdrop-filter: blur(16px);"
     >
       <div class="brand-block" :class="{ compact: collapsed }">
-        <img class="brand-logo" :src="movoLogo" alt="MOVO" />
-        <span v-if="!collapsed" class="brand-name">MOVO</span>
+        <img class="brand-logo" :src="mogoLogo" alt="墨攻" />
+        <span v-if="!collapsed" class="brand-name">墨攻</span>
       </div>
       <n-menu
         :collapsed="collapsed"
@@ -67,8 +67,46 @@
         </div>
         <n-space align="center" :size="12">
           <div id="header-actions-teleport-target" class="header-actions-teleport"></div>
+          <n-dropdown trigger="click" show-arrow :options="themeOptions" @select="handleThemeSelect">
+            <n-button quaternary circle class="header-round-button" :title="`${t('主题')}: ${currentThemeLabel}`">
+              <span class="header-icon" aria-hidden="true">
+                <svg
+                  v-if="activeTheme === 'dark'"
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+                </svg>
+                <svg
+                  v-else
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <circle cx="12" cy="12" r="4" />
+                  <path d="M12 2v2" />
+                  <path d="M12 20v2" />
+                  <path d="m4.93 4.93 1.41 1.41" />
+                  <path d="m17.66 17.66 1.41 1.41" />
+                  <path d="M2 12h2" />
+                  <path d="M20 12h2" />
+                  <path d="m6.34 17.66-1.41 1.41" />
+                  <path d="m19.07 4.93-1.41 1.41" />
+                </svg>
+              </span>
+            </n-button>
+          </n-dropdown>
           <n-dropdown trigger="click" show-arrow :options="languageOptions" @select="handleLanguageSelect">
-            <n-button quaternary circle class="header-round-button" :title="`${t('legacy.language')}: ${currentLanguageLabel}`">
+            <n-button quaternary circle class="header-round-button" :title="`${t('语言')}: ${currentLanguageLabel}`">
               <span class="header-icon" aria-hidden="true">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -93,7 +131,7 @@
           </n-dropdown>
           <!-- <n-dropdown trigger="hover" :options="noticeOptions" @select="handleNoticeSelect">
             <n-badge :value="3" :max="99" class="notice-badge">
-              <n-button quaternary circle class="header-round-button" :title="t('legacy.notifications')">
+              <n-button quaternary circle class="header-round-button" :title="t('系统通知')">
                 <span class="header-icon" aria-hidden="true">
                   <svg
                     data-v-798ba459=""
@@ -144,11 +182,11 @@ import { useRoute, useRouter } from 'vue-router';
 import { appRoutes } from '@/router/routes';
 import { useMenuOptions } from '@/composables/useMenuOptions';
 import { useAuthStore } from '@/stores/auth';
-import movoLogo from '@/assets/images/movo-logo.png';
+import mogoLogo from '@/assets/images/mogo-logo.png';
 import { resolveAdminAssetUrlWithVersion } from '@/composables/adminAsset';
-import { isLocale, useLocale, t, translateSourceText } from '@/composables/i18n';
-import { adminLanguageChangedMessages, adminLanguageNames } from '@/locales/adminRegionOptions';
+import { isLocale, useLocale, t } from '@/composables/i18n';
 import { displayAdminName, isMobileLike } from '@/composables/privacy';
+import { useTheme, type ThemeMode } from '@/composables/theme';
 
 const router = useRouter();
 const route = useRoute();
@@ -159,6 +197,23 @@ const dynamicRouteTitle = ref('');
 const dynamicRouteTag = ref('');
 const { menuOptions, selectedKey, expandedKeys, handleUpdate, handleExpandedKeysUpdate } = useMenuOptions();
 const { locale: currentLanguage, setLocale } = useLocale();
+const { theme: themeMode, activeTheme, setTheme } = useTheme();
+
+const themeOptions = computed(() => [
+  { label: t('浅色'), key: 'light' },
+  { label: t('深色'), key: 'dark' },
+  { label: t('跟随系统'), key: 'system' },
+]);
+
+const currentThemeLabel = computed(() => {
+  if (themeMode.value === 'system') return t('跟随系统');
+  return themeMode.value === 'dark' ? t('深色') : t('浅色');
+});
+
+function handleThemeSelect(key: string) {
+  if (key !== 'light' && key !== 'dark' && key !== 'system') return;
+  setTheme(key as ThemeMode);
+}
 
 const routeTitleMap = new Map<string, string>();
 const rootRoute = appRoutes.find((item) => item.path === '/');
@@ -171,46 +226,48 @@ for (const child of rootRoute?.children ?? []) {
 
 const currentRouteTitle = computed(() => {
   if (dynamicRouteTitle.value) {
-    return translateSourceText(dynamicRouteTitle.value);
+    return t(dynamicRouteTitle.value);
   }
   const metaTitle = route.meta?.title;
   if (typeof metaTitle === 'string' && metaTitle) {
-    return translateSourceText(metaTitle);
+    return t(metaTitle);
   }
-  return routeTitleMap.get(route.path) ? translateSourceText(routeTitleMap.get(route.path)!) : 'MOVO Admin';
+  return routeTitleMap.get(route.path) ? t(routeTitleMap.get(route.path)!) : 'MOGO Admin';
 });
 const isToolEditPage = computed(() => route.path === '/tools/new' || route.name === 'ToolEdit');
 const isSkillConfigPage = computed(() => route.name === 'SkillConfig');
 const showBackButton = computed(() => isToolEditPage.value || isSkillConfigPage.value);
-const backButtonText = computed(() => t('legacy.back'));
-const backButtonTitle = computed(() => (isSkillConfigPage.value ? t('legacy.back_to_skills') : t('legacy.back_to_tools')));
-const profileDisplayName = computed(() => displayAdminName(authStore.profile, t('legacy.admin')));
+const backButtonText = computed(() => t('返回'));
+const backButtonTitle = computed(() => (isSkillConfigPage.value ? t('返回 Skill 列表') : t('返回工具列表')));
+const profileDisplayName = computed(() => displayAdminName(authStore.profile, t('管理员')));
 const profileAvatarUrl = computed(() => resolveAdminAssetUrlWithVersion(authStore.profile?.avatarUrl, authStore.profile?.avatarUpdatedAt));
 const profileAvatarFailedUrl = ref('');
 const showProfileAvatar = computed(() => Boolean(profileAvatarUrl.value) && profileAvatarFailedUrl.value !== profileAvatarUrl.value);
-const profileInitial = computed(() => (isMobileLike(profileDisplayName.value) || profileDisplayName.value.includes('****') ? t('profile.adminInitial') : profileDisplayName.value.slice(0, 1).toUpperCase()));
-const currentLanguageLabel = computed(() => adminLanguageNames[currentLanguage.value]);
+const profileInitial = computed(() => (isMobileLike(profileDisplayName.value) || profileDisplayName.value.includes('****') ? '管' : profileDisplayName.value.slice(0, 1).toUpperCase()));
+const currentLanguageLabel = computed(() =>
+  currentLanguage.value === 'en-US' ? 'English' : '简体中文',
+);
 
 const profileOptions = computed(() => [
   {
-    label: t('legacy.profile'),
+    label: t('个人中心'),
     key: 'profile',
   },
   {
-    label: t('legacy.sign_out'),
+    label: t('退出登录'),
     key: 'logout',
   },
 ]);
 
 const languageOptions = [
-  { label: adminLanguageNames['zh-CN'], key: 'zh-CN' },
-  { label: adminLanguageNames['en-US'], key: 'en-US' },
+  { label: '简体中文', key: 'zh-CN' },
+  { label: 'English', key: 'en-US' },
 ];
 
 const noticeOptions = computed(() => [
-  { label: t('legacy.system_upgrade_window_starts_at_23_00_tonight'), key: 'notice-1' },
-  { label: t('legacy.model_config_changes_pending_approval_2_items'), key: 'notice-2' },
-  { label: t('legacy.active_orgs_increased_by_12_today_compared_to_yesterday'), key: 'notice-3' },
+  { label: t('系统升级窗口将于今晚 23:00 开始'), key: 'notice-1' },
+  { label: t('模型配置变更待审批: 2 条'), key: 'notice-2' },
+  { label: t('今日活跃组织数较昨日提升 12%'), key: 'notice-3' },
 ]);
 
 function toggleSidebar() {
@@ -236,11 +293,11 @@ function handleBack() {
 function handleLanguageSelect(key: string) {
   if (!isLocale(key)) return;
   setLocale(key);
-  message.success(adminLanguageChangedMessages[key]);
+  message.success(key === 'en-US' ? 'Language switched to English' : '语言已切换为简体中文');
 }
 
 function handleNoticeSelect() {
-  message.info(t('legacy.notification_details_page_is_coming_soon'));
+  message.info(t('通知详情页待接入'));
 }
 
 function handleProfileAvatarError() {
@@ -297,12 +354,8 @@ async function handleSelect(key: string) {
 
 .shell-sider {
   position: relative;
-  background: rgba(255, 255, 255, 0.8) !important;
-}
-
-html.dark .shell-sider {
-  background: rgba(17, 24, 39, 0.86) !important;
-  border-color: #263044 !important;
+  background: color-mix(in srgb, var(--mg-bg-surface) 82%, transparent) !important;
+  border-color: var(--mg-border) !important;
 }
 
 .brand-block.compact {
@@ -325,14 +378,10 @@ html.dark .shell-sider {
 }
 
 .brand-name {
-  color: #14213d;
+  color: var(--mg-text-1);
   font-size: 20px;
   font-weight: 800;
   letter-spacing: 0.12em;
-}
-
-html.dark .brand-name {
-  color: #f8fafc;
 }
 
 .sider-footer {
@@ -347,6 +396,11 @@ html.dark .brand-name {
 
 :deep(.n-menu-item-content-header) {
   font-size: 14px;
+}
+
+/* 分组型一级菜单（如「资产中心」）：点文字跳转到自身页面，点箭头展开二级 */
+:deep(.menu-group-label) {
+  cursor: pointer;
 }
 
 :deep(.menu-symbol) {
@@ -394,23 +448,15 @@ html.dark .brand-name {
 
 .shell-header {
   position: relative;
-  z-index: 10;
+  z-index: var(--mg-z-header);
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 15px 24px;
-  background: rgba(255, 255, 255, 0.72);
+  padding: 15px var(--mg-page-padding-x);
+  background: color-mix(in srgb, var(--mg-bg-surface) 76%, transparent);
   backdrop-filter: blur(16px);
-  box-shadow:
-    0 8px 24px rgba(23, 53, 118, 0.08),
-    0 1px 0 rgba(255, 255, 255, 0.8) inset;
-}
-
-html.dark .shell-header {
-  background: rgba(17, 24, 39, 0.78);
-  box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.28),
-    0 1px 0 rgba(255, 255, 255, 0.06) inset;
+  box-shadow: var(--mg-shadow-sm);
 }
 
 .shell-header::after {
@@ -420,12 +466,13 @@ html.dark .shell-header {
   right: 0;
   bottom: -1px;
   height: 1px;
-  background: linear-gradient(90deg, rgba(110, 145, 235, 0.2), rgba(110, 145, 235, 0.55), rgba(110, 145, 235, 0.2));
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--mg-brand) 42%, transparent),
+    transparent
+  );
   pointer-events: none;
-}
-
-html.dark .shell-header::after {
-  background: linear-gradient(90deg, rgba(37, 99, 235, 0.1), rgba(96, 165, 250, 0.38), rgba(37, 99, 235, 0.1));
 }
 
 .header-left {
@@ -437,27 +484,16 @@ html.dark .shell-header::after {
 .header-back-pill {
   height: 32px;
   padding: 0 12px !important;
-  border-radius: 999px;
-  border: 1px solid #d7e2f5;
-  background: #f7faff;
-  color: #3558a8;
-  font-weight: 600;
+  border-radius: var(--mg-radius-pill);
+  border: 1px solid var(--mg-brand-soft-border);
+  background: var(--mg-brand-soft);
+  color: var(--mg-brand-text);
+  font-weight: var(--mg-weight-semibold);
 }
 
 .header-back-pill:hover {
-  border-color: #b7c9ee;
-  background: #eef4ff;
-}
-
-html.dark .header-back-pill {
-  border-color: #334155;
-  background: #111827;
-  color: #bfdbfe;
-}
-
-html.dark .header-back-pill:hover {
-  border-color: #3b82f6;
-  background: #172033;
+  border-color: var(--mg-brand);
+  background: var(--mg-brand-soft-hover);
 }
 
 .header-back-icon {
@@ -475,13 +511,9 @@ html.dark .header-back-pill:hover {
 }
 
 .header-title {
-  font-size: 16px;
+  font-size: var(--mg-font-size-lg);
   font-weight: 800;
-  color: #12234b;
-}
-
-html.dark .header-title {
-  color: #f8fafc;
+  color: var(--mg-text-1);
 }
 
 .header-title-row {
@@ -495,29 +527,20 @@ html.dark .header-title {
   display: inline-flex;
   align-items: center;
   height: 24px;
-  border-radius: 6px;
-  background: #fff2dd;
-  color: #d97706;
-  font-size: 13px;
-  font-weight: 700;
+  border-radius: var(--mg-radius-sm);
+  background: var(--mg-warning-bg);
+  color: var(--mg-warning-text);
+  font-size: var(--mg-font-size-sm);
+  font-weight: var(--mg-weight-bold);
   line-height: 1;
   padding: 0 10px;
   white-space: nowrap;
 }
 
-html.dark .header-type-tag {
-  background: rgba(217, 119, 6, 0.18);
-  color: #fbbf24;
-}
-
 .header-subtitle {
-  color: #5f736d;
-  font-size: 12px;
+  color: var(--mg-text-3);
+  font-size: var(--mg-font-size-xs);
   margin-top: 1px;
-}
-
-html.dark .header-subtitle {
-  color: #9ca3af;
 }
 
 .header-round-button {
@@ -559,7 +582,7 @@ html.dark .header-subtitle {
 }
 
 .profile-trigger:hover {
-  background: rgba(54, 106, 255, 0.09);
+  background: var(--mg-brand-soft);
 }
 
 .header-avatar {
@@ -570,10 +593,10 @@ html.dark .header-subtitle {
   flex: 0 0 28px;
   overflow: hidden;
   border-radius: 50%;
-  background: #366aff;
-  color: #fff;
-  font-size: 14px;
-  font-weight: 700;
+  background: var(--mg-brand);
+  color: var(--mg-text-on-brand);
+  font-size: var(--mg-font-size-base);
+  font-weight: var(--mg-weight-bold);
   line-height: 1;
 }
 
@@ -584,81 +607,42 @@ html.dark .header-subtitle {
   object-fit: cover;
 }
 
-html.dark .profile-trigger:hover {
-  background: rgba(96, 165, 250, 0.14);
-}
-
 .profile-text {
-  font-size: 13px;
-  color: #1b2c52;
-}
-
-html.dark .profile-text {
-  color: #e5e7eb;
+  font-size: var(--mg-font-size-sm);
+  color: var(--mg-text-1);
 }
 
 .shell-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 24px;
-  color: #5f736d;
-  font-size: 12px;
-  background: rgba(255,255,255,0.64);
+  padding: 12px var(--mg-page-padding-x);
+  color: var(--mg-text-3);
+  font-size: var(--mg-font-size-xs);
+  background: color-mix(in srgb, var(--mg-bg-surface) 64%, transparent);
 }
 
-:deep(.n-layout.n-layout--static-positioned),
-:deep(.n-layout.n-layout--static-positioned > .n-layout-scroll-container) {
+/* 框架固定：顶栏 / 侧边栏保持不动，仅内容区纵向滚动 */
+:deep(.n-layout.n-layout--static-positioned:not(.n-layout-content)) {
+  overflow: hidden;
+}
+
+:deep(.n-layout.n-layout--static-positioned:not(.n-layout-content) > .n-layout-scroll-container) {
+  display: flex;
+  flex-direction: column;
   overflow: hidden !important;
 }
 
-/* Dark mode layout adjustments. */
-html.dark .app-shell {
-  background-color: #101014 !important;
+:deep(.n-layout-content) {
+  min-height: 0;
 }
 
-html.dark :deep(.n-layout) {
-  --n-color: #101014 !important;
+:deep(.n-layout-content > .n-layout-scroll-container) {
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
-html.dark :deep(.n-layout-scroll-container) {
-  background-color: #101014 !important;
-}
-
-html.dark .shell-header {
-  background: rgba(24, 24, 28, 0.72) !important;
-  box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.3),
-    0 1px 0 rgba(255, 255, 255, 0.05) inset;
-}
-
-html.dark .shell-header::after {
-  background: linear-gradient(90deg, rgba(110, 145, 235, 0.1), rgba(110, 145, 235, 0.3), rgba(110, 145, 235, 0.1));
-}
-
-html.dark .header-title {
-  color: #e2e8f0;
-}
-
-html.dark .profile-text {
-  color: currentColor;
-}
-
-html.dark .header-back-pill {
-  border-color: #2c2c32;
-  background: #1e2433;
-  color: #8ba7e8;
-}
-
-html.dark .header-back-pill:hover {
-  border-color: #3e4d6d;
-  background: #2b354a;
-}
-
-html.dark .shell-footer {
-  background: rgba(24, 24, 28, 0.64);
-  color: #8b96a8;
-}
+/* 深色主题无需在此覆盖：颜色全部来自 tokens.css 的语义变量，由 html.dark 统一切换 */
 
 .header-title-teleport {
   display: inline-flex;
@@ -666,14 +650,10 @@ html.dark .shell-footer {
   gap: 8px;
   margin-left: 12px;
   padding-left: 12px;
-  border-left: 1px solid #e2e8f0;
+  border-left: 1px solid var(--mg-border);
 }
 
-html.dark .header-title-teleport {
-  border-color: #334155;
-}
-
-/* Hide the global route title and divider when the teleported header is present. */
+/* 当传送容器不为空时，自动隐藏原本的全局路由标题，并去除左侧分界线 */
 .header-title-row:has(.header-title-teleport > *) .header-title {
   display: none;
 }

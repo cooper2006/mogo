@@ -3,36 +3,6 @@
 import type { ExecutionEventV3 } from '../features/execution-v3/domain/protocol'
 import { notifyAuthExpiredFromResponse } from '../api/authExpiry'
 import { createStreamReadiness } from './tasks/streamReadiness'
-import { ChatStreamConnectionLostError, heartbeatDeadline } from './chatStreamHeartbeat'
-import { isChatStreamAccessRevokedEvent, type ChatStreamAccessRevokedEvent } from './sessionLiveProjection'
-
-export {
-  CHAT_STREAM_ACCESS_REVOKED, isChatStreamAccessRevokedEvent,
-  type ChatStreamAccessRevokedEvent, type ChatStreamAccessRevokedReason,
-} from './sessionLiveProjection'
-
-/** Server contract on POST /chat/completions 409: a concurrent run holds the session. */
-export const SESSION_ALREADY_RUNNING = 'session_already_running'
-
-/** Server contract on POST /chat/completions 409: the client user-message id was rejected. */
-export const USER_MESSAGE_ID_CONFLICT = 'user_message_id_conflict'
-
-/**
- * Non-OK chat-completions response. `code` is the parsed FastAPI dict-detail
- * error code; consumers distinguish server contracts on status + code, never
- * on the display message.
- */
-export class ChatStreamHttpError extends Error {
-  status: number
-  code: string | null
-
-  constructor(status: number, code: string | null, message: string) {
-    super(message)
-    this.name = 'ChatStreamHttpError'
-    this.status = status
-    this.code = code
-  }
-}
 
 export interface ChatStreamRequest {
   messages: any[]
@@ -48,10 +18,6 @@ export interface ChatStreamHandle {
   sessionId: string | null
   /** Per-turn message id (returned via X-Message-Id header on stream start) */
   messageId: string | null
-  /** Effective user-message id: the X-User-Message-Id response header when the
-   *  server returned one, otherwise the requested opts.userMessageId. Optional
-   *  because non-chat resume handles (taskResume) never send the header. */
-  userMessageId?: string | null
   /** Resolves after response headers are available, including failed requests. */
   ready: Promise<void>
   /** Promise that resolves when the stream finishes (or aborts cleanly) */
@@ -60,17 +26,80 @@ export interface ChatStreamHandle {
   abort: () => void
 }
 
+function buildChatStreamHeaders(opts: { authToken?: string | null }): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (opts.authToken) headers.Authorization = `Bearer ${opts.authToken}`
+  return headers
+}
+
+/** 从失败响应体中提取人类可读的错误文案；解析失败时回退到状态码文案。 */
+async function readChatStreamError(resp: Response): Promise<string> {
+  const fallback = `Request failed: ${resp.status}`
+  try {
+    if (String(resp.headers.get('content-type') || '').includes('application/json')) {
+      const payload = await resp.json()
+      const detail = payload?.detail
+      if (typeof detail === 'string' && detail.trim()) return detail.trim()
+      if (detail?.message) return String(detail.message)
+      if (payload?.message) return String(payload.message)
+      return fallback
+    }
+    return (await resp.text()).trim() || fallback
+  } catch {
+    // Ignore parse failures and keep the status-based fallback.
+    return fallback
+  }
+}
+
+function captureStreamHeaders(resp: Response, handle: ChatStreamHandle, opts: {
+  onSessionId?: (sid: string) => void
+  onMessageId?: (mid: string) => void
+}): void {
+  const sid = resp.headers.get('X-Session-Id')
+  if (sid) {
+    handle.sessionId = sid
+    opts.onSessionId?.(sid)
+  }
+  const mid = resp.headers.get('X-Message-Id')
+  if (mid) {
+    handle.messageId = mid
+    opts.onMessageId?.(mid)
+  }
+}
+
+/** 按行读取 NDJSON 响应体并逐条派发事件，尾部残行同样按完整事件处理。 */
+async function pumpChatStreamBody(body: NonNullable<Response['body']>, onEvent: (ev: ExecutionEventV3) => void): Promise<void> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() || ''
+    for (const line of lines) {
+      const s = line.trim()
+      if (!s) continue
+      try {
+        onEvent(JSON.parse(s) as ExecutionEventV3)
+      } catch {
+        console.warn('[chat-stream] bad line', s)
+      }
+    }
+  }
+  if (buffer.trim()) {
+    try { onEvent(JSON.parse(buffer.trim()) as ExecutionEventV3) } catch { /* ignore */ }
+  }
+}
+
 export function startChatStream(
   body: ChatStreamRequest,
   onEvent: (ev: ExecutionEventV3) => void,
   opts: {
     authToken?: string | null
-    /** Sent as X-User-Message-Id so the server can key the user row to this id. */
-    userMessageId?: string
     onSessionId?: (sid: string) => void
     onMessageId?: (mid: string) => void
-    onUserMessageId?: (mid: string) => void
-    onAccessRevoked?: (event: ChatStreamAccessRevokedEvent) => void
   } = {},
 ): ChatStreamHandle {
   const ctrl = new AbortController()
@@ -78,7 +107,6 @@ export function startChatStream(
   const handle: ChatStreamHandle = {
     sessionId: null,
     messageId: null,
-    userMessageId: opts.userMessageId || null,
     ready: readiness.ready,
     done: Promise.resolve(),
     abort: () => ctrl.abort(),
@@ -86,119 +114,18 @@ export function startChatStream(
 
   handle.done = (async () => {
     try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-      if (opts.authToken) headers.Authorization = `Bearer ${opts.authToken}`
-      if (opts.userMessageId) headers['X-User-Message-Id'] = opts.userMessageId
       const resp = await fetch('/askai-api/api/chat/completions', {
         method: 'POST',
-        headers,
+        headers: buildChatStreamHeaders(opts),
         body: JSON.stringify(body),
         signal: ctrl.signal,
       })
       notifyAuthExpiredFromResponse(resp, Boolean(opts.authToken))
-      if (!resp.ok) {
-        let errorMessage = `Request failed: ${resp.status}`
-        let errorCode: string | null = null
-        try {
-          const contentType = resp.headers.get('content-type') || ''
-          if (contentType.includes('application/json')) {
-            const payload = await resp.json()
-            const detail = payload?.detail
-            if (typeof detail === 'string' && detail.trim()) {
-              errorMessage = detail.trim()
-            } else if (detail?.message) {
-              errorMessage = String(detail.message)
-              if (typeof detail.code === 'string' && detail.code.trim()) errorCode = detail.code
-            } else if (payload?.message) {
-              errorMessage = String(payload.message)
-              if (typeof payload?.code === 'string' && payload.code.trim()) errorCode = payload.code
-            }
-          } else {
-            const text = (await resp.text()).trim()
-            if (text) errorMessage = text
-          }
-        } catch {
-          // Ignore parse failures and keep the status-based fallback.
-        }
-        throw new ChatStreamHttpError(resp.status, errorCode, errorMessage)
-      }
-      const sid = resp.headers.get('X-Session-Id')
-      if (sid) {
-        handle.sessionId = sid
-        opts.onSessionId?.(sid)
-      }
-      const mid = resp.headers.get('X-Message-Id')
-      if (mid) {
-        handle.messageId = mid
-        opts.onMessageId?.(mid)
-      }
-      const umid = resp.headers.get('X-User-Message-Id') || opts.userMessageId || null
-      if (umid) {
-        handle.userMessageId = umid
-        opts.onUserMessageId?.(umid)
-      }
+      if (!resp.ok) throw new Error(await readChatStreamError(resp))
+      captureStreamHeaders(resp, handle, opts)
       readiness.settle()
       if (!resp.body) throw new Error('No response body')
-
-      const reader = resp.body.getReader()
-      const heartbeat = heartbeatDeadline(resp, ctrl)
-      const decoder = new TextDecoder()
-      let buffer = ''
-      let accessRevoked = false
-      const pumpLine = (raw: string) => {
-        const s = raw.trim()
-        if (!s || accessRevoked) return
-        let parsed: unknown
-        try {
-          parsed = JSON.parse(s)
-        } catch {
-          console.warn('[chat-stream] bad line', s)
-          return
-        }
-        if (isChatStreamAccessRevokedEvent(parsed)) {
-          accessRevoked = true
-          opts.onAccessRevoked?.(parsed)
-          return
-        }
-        try {
-          onEvent(parsed as ExecutionEventV3)
-        } catch (e) {
-          console.warn('[chat-stream] bad line', s)
-        }
-      }
-      try {
-        while (!accessRevoked) {
-          let chunk: ReadableStreamReadResult<Uint8Array>
-          try { chunk = await reader.read() }
-          catch (error) {
-            if (heartbeat?.expired()) throw new ChatStreamConnectionLostError()
-            throw error
-          }
-          if (heartbeat?.expired()) throw new ChatStreamConnectionLostError()
-          if (chunk.done) break
-          heartbeat?.received()
-          buffer += decoder.decode(chunk.value, { stream: true })
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || ''
-          for (const line of lines) {
-            pumpLine(line)
-            if (accessRevoked) break
-          }
-        }
-      } finally {
-        heartbeat?.close()
-      }
-      if (accessRevoked) {
-        // Terminal line already seen: close our side of the reader without
-        // cancelling the backend run (the server EOFs right after it).
-        try {
-          reader.releaseLock()
-        } catch {
-          /* the reader is already released */
-        }
-      } else if (buffer.trim()) {
-        pumpLine(buffer)
-      }
+      await pumpChatStreamBody(resp.body, onEvent)
     } finally {
       readiness.settle()
     }

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, Optional
 
@@ -40,7 +40,7 @@ class SuspensionRecord(BaseModel):
     ready_signal: Dict[str, Any] = Field(default_factory=dict)
     resume_token_hash: str = ""
     expires_at: Optional[datetime] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
     ready_at: Optional[datetime] = None
     resumed_at: Optional[datetime] = None

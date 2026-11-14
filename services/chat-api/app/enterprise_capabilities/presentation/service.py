@@ -1,4 +1,4 @@
-"""Thin DSH adapter over MOVO's durable, editable presentation pipeline."""
+"""Thin DSH adapter over MOGO's durable, editable presentation pipeline."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from app.llm.configured_models import (
     set_configured_model_context,
 )
 from app.llm.configured_image_models import get_image_model_config
-from app.infrastructure.request_context import reset_request_context, set_request_context
+from app.infrastructure.request_context import merge_request_context, reset_request_context
 from app.services.presentation.image_native.pipeline import ImageNativePresentationPipeline
 from app.services.presentation.settings import get_presentation_generation_settings
 from app.services.presentation.execution.failures import PresentationStepError
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 def build_presentation_pipeline(_: dict[str, Any] | None = None) -> ImageNativePresentationPipeline:
-    """Build MOVO's single supported presentation pipeline."""
+    """Build MOGO's single supported presentation pipeline."""
 
     return ImageNativePresentationPipeline()
 
@@ -77,13 +77,13 @@ class PresentationCreationCapability:
                 requested=args["page_count"],
             )
         request_context = {
-            "main_id": context.tenant_id,
+            "tenant_id": context.tenant_id,
             "user_id": context.user_id,
             "configured_model": model_config,
             "model_instance_id": context.model_instance_id,
         }
         request_context["image_model_id"] = str(image_model_config.get("id") or "")
-        previous_request = set_request_context(request_context)
+        previous_request = merge_request_context(request_context)
         previous_model = set_configured_model_context(model_config)
         try:
             resolved_context = await self._with_conversation_evidence(args, context)
@@ -106,7 +106,7 @@ class PresentationCreationCapability:
             resolved = await conversation_evidence_service.collect(
                 session_id=context.conversation_id,
                 user_id=context.user_id,
-                main_id=context.tenant_id,
+                tenant_id=context.tenant_id,
                 current_request=str(
                     context.turn_context.get("user_request") or args["request"]
                 ),
@@ -238,9 +238,9 @@ class PresentationCreationCapability:
             return request
         language = str(context.turn_context.get("language") or "zh").lower()
         contract = (
-            f"MOVO 交付合同：必须生成且仅生成 {count} 页幻灯片。"
+            f"MOGO 交付合同：必须生成且仅生成 {count} 页幻灯片。"
             if language.startswith("zh")
-            else f"MOVO delivery contract: produce exactly {count} slides."
+            else f"MOGO delivery contract: produce exactly {count} slides."
         )
         return f"{request}\n\n{contract}"
 
@@ -256,7 +256,7 @@ class PresentationCreationCapability:
         ]
         return {
             "user_id": context.user_id,
-            "main_id": context.tenant_id,
+            "tenant_id": context.tenant_id,
             "request_id": context.action_id,
             "task_id": context.action_id,
             "language": str(context.turn_context.get("language") or "zh"),

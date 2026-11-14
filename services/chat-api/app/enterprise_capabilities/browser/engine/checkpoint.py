@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 import uuid
@@ -235,7 +236,8 @@ class BrowserCheckpointSession:
             return None
         try:
             return BrowserExecutionCheckpoint.model_validate_json(payload)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[checkpoint] load failed: {exc}", flush=True)
             return None
 
 
@@ -245,5 +247,6 @@ def _stable_args(args: Dict[str, Any]) -> Dict[str, Any]:
     safe.pop("ref", None)
     try:
         return json.loads(json.dumps(safe, ensure_ascii=False, default=str))
-    except Exception:
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.browser.engine.checkpoint] silent exception caught: {exc}", flush=True)
         return {}

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import datetime
 import uuid
@@ -65,10 +66,10 @@ class AskPayload(BaseModel):
 @router.get("/personal-knowledge/directories")
 async def list_directories(principal: ApiPrincipal = Depends(require_end_user_principal)):
     rows = await get_db()[DIRECTORY_COLLECTION].find({
-        "main_id": principal.main_id, "owner_user_id": principal.user_id, "deleted_at": None,
+        "tenant_id": principal.tenant_id, "owner_user_id": principal.user_id, "deleted_at": None,
     }).sort("created_at", 1).to_list(length=5000)
     counts_pipeline = [
-        {"$match": {"main_id": principal.main_id, "owner_user_id": principal.user_id, "deleted_at": None}},
+        {"$match": {"tenant_id": principal.tenant_id, "owner_user_id": principal.user_id, "deleted_at": None}},
         {"$group": {"_id": "$directory_id", "count": {"$sum": 1}}},
     ]
     counts = {str(item.get("_id") or ""): int(item.get("count") or 0) async for item in get_db().knowledge_resources.aggregate(counts_pipeline)}
@@ -82,8 +83,8 @@ async def list_directories(principal: ApiPrincipal = Depends(require_end_user_pr
 
 @router.post("/personal-knowledge/directories")
 async def create_directory(payload: DirectoryPayload, principal: ApiPrincipal = Depends(require_end_user_principal)):
-    await service.require_directory(main_id=principal.main_id, owner_user_id=principal.user_id, directory_id=payload.parent_id)
-    query = {"main_id": principal.main_id, "owner_user_id": principal.user_id, "parent_id": payload.parent_id, "name": payload.name.strip(), "deleted_at": None}
+    await service.require_directory(tenant_id=principal.tenant_id, owner_user_id=principal.user_id, directory_id=payload.parent_id)
+    query = {"tenant_id": principal.tenant_id, "owner_user_id": principal.user_id, "parent_id": payload.parent_id, "name": payload.name.strip(), "deleted_at": None}
     if await get_db()[DIRECTORY_COLLECTION].find_one(query):
         raise HTTPException(status_code=409, detail="knowledge_directory_duplicate")
     now, row_id = datetime.datetime.now(datetime.timezone.utc), uuid.uuid4().hex
@@ -93,8 +94,8 @@ async def create_directory(payload: DirectoryPayload, principal: ApiPrincipal = 
 
 @router.patch("/personal-knowledge/directories/{directory_id}")
 async def update_directory(directory_id: str, payload: DirectoryPayload, principal: ApiPrincipal = Depends(require_end_user_principal)):
-    await service.require_directory(main_id=principal.main_id, owner_user_id=principal.user_id, directory_id=directory_id)
-    await service.require_directory(main_id=principal.main_id, owner_user_id=principal.user_id, directory_id=payload.parent_id)
+    await service.require_directory(tenant_id=principal.tenant_id, owner_user_id=principal.user_id, directory_id=directory_id)
+    await service.require_directory(tenant_id=principal.tenant_id, owner_user_id=principal.user_id, directory_id=payload.parent_id)
     if payload.parent_id == directory_id:
         raise HTTPException(status_code=400, detail="knowledge_directory_cycle")
     # Parent-only traversal is cheap for personal trees and avoids maintaining duplicated path state.
@@ -103,10 +104,10 @@ async def update_directory(directory_id: str, payload: DirectoryPayload, princip
         if cursor in visited:
             raise HTTPException(status_code=400, detail="knowledge_directory_cycle")
         visited.add(cursor)
-        parent = await get_db()[DIRECTORY_COLLECTION].find_one({"_id": cursor, "main_id": principal.main_id, "owner_user_id": principal.user_id}, {"parent_id": 1})
+        parent = await get_db()[DIRECTORY_COLLECTION].find_one({"_id": cursor, "tenant_id": principal.tenant_id, "owner_user_id": principal.user_id}, {"parent_id": 1})
         cursor = str((parent or {}).get("parent_id") or "")
     duplicate = await get_db()[DIRECTORY_COLLECTION].find_one({
-        "_id": {"$ne": directory_id}, "main_id": principal.main_id,
+        "_id": {"$ne": directory_id}, "tenant_id": principal.tenant_id,
         "owner_user_id": principal.user_id, "parent_id": payload.parent_id,
         "name": payload.name.strip(), "deleted_at": None,
     })
@@ -118,10 +119,10 @@ async def update_directory(directory_id: str, payload: DirectoryPayload, princip
 
 @router.delete("/personal-knowledge/directories/{directory_id}")
 async def delete_directory(directory_id: str, principal: ApiPrincipal = Depends(require_end_user_principal)):
-    await service.require_directory(main_id=principal.main_id, owner_user_id=principal.user_id, directory_id=directory_id)
-    if await get_db()[DIRECTORY_COLLECTION].find_one({"main_id": principal.main_id, "owner_user_id": principal.user_id, "parent_id": directory_id, "deleted_at": None}):
+    await service.require_directory(tenant_id=principal.tenant_id, owner_user_id=principal.user_id, directory_id=directory_id)
+    if await get_db()[DIRECTORY_COLLECTION].find_one({"tenant_id": principal.tenant_id, "owner_user_id": principal.user_id, "parent_id": directory_id, "deleted_at": None}):
         raise HTTPException(status_code=409, detail="knowledge_directory_not_empty")
-    if await get_db().knowledge_resources.find_one({"main_id": principal.main_id, "owner_user_id": principal.user_id, "directory_id": directory_id, "deleted_at": None}):
+    if await get_db().knowledge_resources.find_one({"tenant_id": principal.tenant_id, "owner_user_id": principal.user_id, "directory_id": directory_id, "deleted_at": None}):
         raise HTTPException(status_code=409, detail="knowledge_directory_not_empty")
     await get_db()[DIRECTORY_COLLECTION].update_one({"_id": directory_id}, {"$set": {"deleted_at": datetime.datetime.now(datetime.timezone.utc)}})
     return _response({"id": directory_id})
@@ -134,7 +135,7 @@ async def list_resources(
     principal: ApiPrincipal = Depends(require_end_user_principal),
 ):
     result = await service.list_resources(
-        main_id=principal.main_id, user_id=principal.user_id, view=view,
+        tenant_id=principal.tenant_id, user_id=principal.user_id, view=view,
         directory_id=directoryId, keyword=keyword, page=page, page_size=pageSize,
     )
     return _response(result)
@@ -147,11 +148,12 @@ async def upload_resources(files: list[UploadFile] = File(...), directoryId: str
     tag_list = [item.strip() for item in tags.replace("，", ",").split(",") if item.strip()]
     results = []
     for file in files:
-        resource = await service.create_resource(main_id=principal.main_id, owner_user_id=principal.user_id, filename=file.filename or "document", directory_id=directoryId, tags=tag_list)
+        resource = await service.create_resource(tenant_id=principal.tenant_id, owner_user_id=principal.user_id, filename=file.filename or "document", directory_id=directoryId, tags=tag_list)
         try:
-            document = await knowledge_lifecycle_client.upload(main_id=principal.main_id, owner_user_id=principal.user_id, resource_id=str(resource["_id"]), file=file, name=str(resource["name"]), description="", tags=tag_list)
+            document = await knowledge_lifecycle_client.upload(tenant_id=principal.tenant_id, owner_user_id=principal.user_id, resource_id=str(resource["_id"]), file=file, name=str(resource["name"]), description="", tags=tag_list)
             results.append({**service.resource_view(resource), "status": str(document.get("status") or "pending_parse"), "activeDocumentId": str(document.get("id") or "")})
         except Exception as exc:
+            log_print(f"[api.endpoints.personal_knowledge.upload_resources] suppressed {type(exc).__name__}: {exc}", flush=True)
             await service.mark_upload(resource_id=str(resource["_id"]), error=str(exc))
             results.append({**service.resource_view(resource), "status": "failed", "error": str(exc)[:500]})
         finally:
@@ -190,10 +192,10 @@ async def get_selectable_resource(
 @router.get("/personal-knowledge/{resource_id}")
 async def get_resource(resource_id: str, principal: ApiPrincipal = Depends(require_end_user_principal)):
     try:
-        access = await service.access.require_view(main_id=principal.main_id, user_id=principal.user_id, resource_id=resource_id)
+        access = await service.access.require_view(tenant_id=principal.tenant_id, user_id=principal.user_id, resource_id=resource_id)
     except Exception as exc:
         inactive = await inactive_access_service.resolve(
-            main_id=principal.main_id, user_id=principal.user_id, resource_id=resource_id,
+            tenant_id=principal.tenant_id, user_id=principal.user_id, resource_id=resource_id,
         )
         if inactive is None:
             _raise(exc)
@@ -203,21 +205,40 @@ async def get_resource(resource_id: str, principal: ApiPrincipal = Depends(requi
             **service.resource_view(inactive.resource, grant=inactive_grant),
             "isOwner": False, "canShare": False,
         })
-    if access.grant:
-        seen_at = datetime.datetime.now(datetime.timezone.utc)
-        await get_db()[GRANT_COLLECTION].update_one({"_id": access.grant["_id"]}, {"$set": {"seen_at": seen_at}})
-        access_grant = {**access.grant, "seen_at": seen_at}
-    else:
-        access_grant = None
-    return _response({**service.resource_view(access.resource, grant=access_grant), "isOwner": access.is_owner, "canShare": access.can_share})
+    # 022 FR-15（T032 / QF-637）：GET 必须无副作用。原先读取共享资源详情会
+    # 顺手写入 ``grant.seen_at``（表示"看过"），属于惰性写语义 —— GET 重放
+    # （代理缓存、浏览器重试、预取）确实会产生数据变更。ack 拆到显式的
+    # ``POST /personal-knowledge/{id}/ack``（见 :func:`acknowledge_resource`），
+    # 前端在用户真正打开资源后再调用。
+    return _response({**service.resource_view(access.resource, grant=access.grant), "isOwner": access.is_owner, "canShare": access.can_share})
+
+
+@router.post("/personal-knowledge/{resource_id}/ack")
+async def acknowledge_resource(resource_id: str, principal: ApiPrincipal = Depends(require_end_user_principal)):
+    """显式确认已查看共享资源（022 FR-15 / T032）。
+
+    从 ``GET /personal-knowledge/{id}`` 拆出的写操作：把 ``grant.seen_at``
+    置为当前时间。用 POST 显式声明副作用，避免 GET 重放写入数据。
+    """
+    try:
+        access = await service.access.require_view(tenant_id=principal.tenant_id, user_id=principal.user_id, resource_id=resource_id)
+    except Exception as exc:
+        _raise(exc)
+    if not access.grant:
+        return _response({"acknowledged": False})
+    seen_at = datetime.datetime.now(datetime.timezone.utc)
+    await get_db()[GRANT_COLLECTION].update_one(
+        {"_id": access.grant["_id"]}, {"$set": {"seen_at": seen_at}}
+    )
+    return _response({"acknowledged": True, "seenAt": seen_at.isoformat()})
 
 
 @router.patch("/personal-knowledge/{resource_id}")
 async def update_resource(resource_id: str, payload: ResourcePatch, principal: ApiPrincipal = Depends(require_end_user_principal)):
     try:
-        await service.access.require_owner(main_id=principal.main_id, user_id=principal.user_id, resource_id=resource_id)
+        await service.access.require_owner(tenant_id=principal.tenant_id, user_id=principal.user_id, resource_id=resource_id)
         if payload.directory_id is not None:
-            await service.require_directory(main_id=principal.main_id, owner_user_id=principal.user_id, directory_id=payload.directory_id)
+            await service.require_directory(tenant_id=principal.tenant_id, owner_user_id=principal.user_id, directory_id=payload.directory_id)
     except Exception as exc:
         _raise(exc)
     values = {key: value for key, value in {
@@ -233,13 +254,13 @@ async def update_resource(resource_id: str, payload: ResourcePatch, principal: A
 @router.delete("/personal-knowledge/{resource_id}")
 async def delete_resource(resource_id: str, principal: ApiPrincipal = Depends(require_end_user_principal)):
     try:
-        await service.access.require_owner(main_id=principal.main_id, user_id=principal.user_id, resource_id=resource_id)
-        await knowledge_lifecycle_client.action(action="delete", main_id=principal.main_id, owner_user_id=principal.user_id, resource_id=resource_id)
+        await service.access.require_owner(tenant_id=principal.tenant_id, user_id=principal.user_id, resource_id=resource_id)
+        await knowledge_lifecycle_client.action(action="delete", tenant_id=principal.tenant_id, owner_user_id=principal.user_id, resource_id=resource_id)
     except Exception as exc:
         _raise(exc)
     now = datetime.datetime.now(datetime.timezone.utc)
     await get_db().knowledge_resources.update_one({"_id": resource_id}, {"$set": {"status": "deleted", "deleted_at": now, "updated_at": now}})
-    await get_db()[GRANT_COLLECTION].update_many({"main_id": principal.main_id, "resource_type": "personal_knowledge", "resource_id": resource_id, "status": "active"}, {"$set": {"status": "revoked", "revoke_reason": "source_deleted", "revoked_by_user_id": principal.user_id, "revoked_at": now, "seen_at": None, "updated_at": now}})
+    await get_db()[GRANT_COLLECTION].update_many({"tenant_id": principal.tenant_id, "resource_type": "personal_knowledge", "resource_id": resource_id, "status": "active"}, {"$set": {"status": "revoked", "revoke_reason": "source_deleted", "revoked_by_user_id": principal.user_id, "revoked_at": now, "seen_at": None, "updated_at": now}})
     return _response({"id": resource_id})
 
 
@@ -247,7 +268,7 @@ async def delete_resource(resource_id: str, principal: ApiPrincipal = Depends(re
 async def dismiss_deleted_shared_record(resource_id: str, principal: ApiPrincipal = Depends(require_end_user_principal)):
     try:
         await inactive_access_service.dismiss_deleted(
-            main_id=principal.main_id, user_id=principal.user_id, resource_id=resource_id,
+            tenant_id=principal.tenant_id, user_id=principal.user_id, resource_id=resource_id,
         )
     except Exception as exc:
         _raise(exc)
@@ -257,10 +278,10 @@ async def dismiss_deleted_shared_record(resource_id: str, principal: ApiPrincipa
 @router.post("/personal-knowledge/{resource_id}/ask")
 async def ask_resource(resource_id: str, payload: AskPayload, principal: ApiPrincipal = Depends(require_end_user_principal)):
     try:
-        await service.access.require_view(main_id=principal.main_id, user_id=principal.user_id, resource_id=resource_id)
+        await service.access.require_view(tenant_id=principal.tenant_id, user_id=principal.user_id, resource_id=resource_id)
         from app.services.rag_service.internal_knowledge_qa_service import internal_knowledge_qa_service
         result = await internal_knowledge_qa_service.answer(
-            query=payload.query, user_id=principal.user_id, main_id=principal.main_id,
+            query=payload.query, user_id=principal.user_id, tenant_id=principal.tenant_id,
             knowledge_ids=[resource_id], top_k=8,
         )
     except Exception as exc:
@@ -271,8 +292,8 @@ async def ask_resource(resource_id: str, payload: AskPayload, principal: ApiPrin
 @router.post("/personal-knowledge/{resource_id}/relearn")
 async def relearn(resource_id: str, principal: ApiPrincipal = Depends(require_end_user_principal)):
     try:
-        await service.access.require_owner(main_id=principal.main_id, user_id=principal.user_id, resource_id=resource_id)
-        result = await knowledge_lifecycle_client.action(action="relearn", main_id=principal.main_id, owner_user_id=principal.user_id, resource_id=resource_id)
+        await service.access.require_owner(tenant_id=principal.tenant_id, user_id=principal.user_id, resource_id=resource_id)
+        result = await knowledge_lifecycle_client.action(action="relearn", tenant_id=principal.tenant_id, owner_user_id=principal.user_id, resource_id=resource_id)
     except Exception as exc:
         _raise(exc)
     await get_db().knowledge_resources.update_one(
@@ -284,9 +305,9 @@ async def relearn(resource_id: str, principal: ApiPrincipal = Depends(require_en
 @router.post("/personal-knowledge/{resource_id}/replace")
 async def replace_resource(resource_id: str, file: UploadFile = File(...), principal: ApiPrincipal = Depends(require_end_user_principal)):
     try:
-        access = await service.access.require_owner(main_id=principal.main_id, user_id=principal.user_id, resource_id=resource_id)
+        access = await service.access.require_owner(tenant_id=principal.tenant_id, user_id=principal.user_id, resource_id=resource_id)
         document = await knowledge_lifecycle_client.upload(
-            main_id=principal.main_id, owner_user_id=principal.user_id, resource_id=resource_id,
+            tenant_id=principal.tenant_id, owner_user_id=principal.user_id, resource_id=resource_id,
             file=file, name=str(access.resource.get("name") or ""),
             description=str(access.resource.get("description") or ""), tags=list(access.resource.get("tags") or []),
             replace_existing=True,
@@ -301,14 +322,14 @@ async def replace_resource(resource_id: str, file: UploadFile = File(...), princ
 @router.get("/personal-knowledge/{resource_id}/grants")
 async def list_grants(resource_id: str, principal: ApiPrincipal = Depends(require_end_user_principal)):
     try:
-        await service.access.require_owner(main_id=principal.main_id, user_id=principal.user_id, resource_id=resource_id)
+        await service.access.require_owner(tenant_id=principal.tenant_id, user_id=principal.user_id, resource_id=resource_id)
     except Exception as exc:
         _raise(exc)
-    rows = await get_db()[GRANT_COLLECTION].find({"main_id": principal.main_id, "resource_type": "personal_knowledge", "resource_id": resource_id}).sort("created_at", -1).to_list(length=5000)
+    rows = await get_db()[GRANT_COLLECTION].find({"tenant_id": principal.tenant_id, "resource_type": "personal_knowledge", "resource_id": resource_id}).sort("created_at", -1).to_list(length=5000)
     from app.services.skill_sharing.member_directory import member_id_candidates
     ids = list({str(value) for row in rows for value in (row.get("recipient_user_id"), row.get("granted_by_user_id")) if value})
     members = await get_db().end_users.find({
-        "_id": {"$in": member_id_candidates(ids)}, "main_id": principal.main_id,
+        "_id": {"$in": member_id_candidates(ids)}, "tenant_id": principal.tenant_id,
     }, {"name": 1, "display_name": 1, "login_name": 1, "email": 1}).to_list(length=len(ids)) if ids else []
     identities = {str(row.get("_id") or ""): service.members.member_view(row) for row in members}
     return _response({"items": [{
@@ -323,7 +344,7 @@ async def list_grants(resource_id: str, principal: ApiPrincipal = Depends(requir
 @router.post("/personal-knowledge/{resource_id}/grants")
 async def share_resource(resource_id: str, payload: SharePayload, principal: ApiPrincipal = Depends(require_end_user_principal)):
     try:
-        items = await service.share(main_id=principal.main_id, user_id=principal.user_id, resource_id=resource_id, recipients=[item.model_dump(by_alias=True) for item in payload.recipients])
+        items = await service.share(tenant_id=principal.tenant_id, user_id=principal.user_id, resource_id=resource_id, recipients=[item.model_dump(by_alias=True) for item in payload.recipients])
     except Exception as exc:
         _raise(exc)
     return _response({"items": items})
@@ -332,7 +353,7 @@ async def share_resource(resource_id: str, payload: SharePayload, principal: Api
 @router.delete("/personal-knowledge/{resource_id}/grants/{recipient_user_id}")
 async def revoke_resource(resource_id: str, recipient_user_id: str, cascade: bool = False, principal: ApiPrincipal = Depends(require_end_user_principal)):
     try:
-        await service.revoke(main_id=principal.main_id, user_id=principal.user_id, resource_id=resource_id, recipient_user_id=recipient_user_id, cascade=cascade)
+        await service.revoke(tenant_id=principal.tenant_id, user_id=principal.user_id, resource_id=resource_id, recipient_user_id=recipient_user_id, cascade=cascade)
     except Exception as exc:
         _raise(exc)
     return _response({"userId": recipient_user_id})
@@ -341,11 +362,11 @@ async def revoke_resource(resource_id: str, recipient_user_id: str, cascade: boo
 @router.patch("/personal-knowledge/{resource_id}/grants/{recipient_user_id}")
 async def update_grant(resource_id: str, recipient_user_id: str, payload: GrantPatch, principal: ApiPrincipal = Depends(require_end_user_principal)):
     try:
-        await service.access.require_owner(main_id=principal.main_id, user_id=principal.user_id, resource_id=resource_id)
+        await service.access.require_owner(tenant_id=principal.tenant_id, user_id=principal.user_id, resource_id=resource_id)
     except Exception as exc:
         _raise(exc)
     result = await get_db()[GRANT_COLLECTION].update_one({
-        "main_id": principal.main_id, "resource_type": "personal_knowledge", "resource_id": resource_id,
+        "tenant_id": principal.tenant_id, "resource_type": "personal_knowledge", "resource_id": resource_id,
         "recipient_user_id": recipient_user_id, "status": "active",
     }, {"$set": {"can_reshare": payload.can_reshare, "updated_at": datetime.datetime.now(datetime.timezone.utc)}})
     if not result.matched_count:
@@ -357,7 +378,7 @@ async def update_grant(resource_id: str, recipient_user_id: str, payload: GrantP
 async def counts(principal: ApiPrincipal = Depends(require_end_user_principal)):
     db = get_db()
     grant_query = {
-        "main_id": principal.main_id,
+        "tenant_id": principal.tenant_id,
         "resource_type": "personal_knowledge",
         "recipient_user_id": principal.user_id,
         "status": {"$in": ["active", "revoked"]},
@@ -367,10 +388,10 @@ async def counts(principal: ApiPrincipal = Depends(require_end_user_principal)):
     shared_resource_ids = list({str(row.get("resource_id") or "") for row in grants if row.get("resource_id")})
     from app.services.resource_feedback import ResourceFeedbackService
     feedback = await ResourceFeedbackService().unread_count(
-        main_id=principal.main_id, user_id=principal.user_id, resource_types=["personal_knowledge"],
+        tenant_id=principal.tenant_id, user_id=principal.user_id, resource_types=["personal_knowledge"],
     )
     shared_feedback = await db.resource_feedback_notifications.count_documents({
-        "main_id": principal.main_id,
+        "tenant_id": principal.tenant_id,
         "resource_type": "personal_knowledge",
         "recipient_user_id": principal.user_id,
         "resource_id": {"$in": shared_resource_ids},

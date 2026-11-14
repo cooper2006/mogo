@@ -16,7 +16,7 @@ import httpx
 
 
 def container_backend_enabled() -> bool:
-    return bool(os.environ.get("MOVO_SANDBOX_MANAGER_URL", "").strip())
+    return bool(os.environ.get("MOGO_SANDBOX_MANAGER_URL", "").strip())
 
 
 def task_key(message_id: str) -> str:
@@ -24,7 +24,7 @@ def task_key(message_id: str) -> str:
 
 
 def task_workspace(message_id: str) -> Path:
-    return Path(os.environ.get("MOVO_SANDBOX_WORKSPACE_ROOT", "/workspaces")) / task_key(message_id)
+    return Path(os.environ.get("MOGO_SANDBOX_WORKSPACE_ROOT", "/workspaces")) / task_key(message_id)
 
 
 @contextmanager
@@ -33,7 +33,7 @@ def script_workspace(task_id: str = "") -> Iterator[Path]:
         with tempfile.TemporaryDirectory(prefix="askai_script_plugin_") as path:
             yield Path(path)
         return
-    root = Path(os.environ.get("MOVO_SANDBOX_WORKSPACE_ROOT", "/workspaces"))
+    root = Path(os.environ.get("MOGO_SANDBOX_WORKSPACE_ROOT", "/workspaces"))
     root.mkdir(parents=True, exist_ok=True)
     if task_id:
         task_root = task_workspace(task_id)
@@ -74,8 +74,8 @@ def run_script_job(
             cwd=str(work_dir), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, timeout=timeout_seconds, preexec_fn=limit_child_process,
         )
-    url = os.environ["MOVO_SANDBOX_MANAGER_URL"].rstrip("/")
-    token = os.environ.get("MOVO_SANDBOX_MANAGER_TOKEN", "")
+    url = os.environ["MOGO_SANDBOX_MANAGER_URL"].rstrip("/")
+    token = os.environ.get("MOGO_SANDBOX_MANAGER_TOKEN", "")
     if len(token) < 32:
         raise RuntimeError("Sandbox manager token is missing")
     if skill_digest:

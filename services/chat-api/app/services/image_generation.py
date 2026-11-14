@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import asyncio
 import base64
@@ -14,7 +15,7 @@ import dashscope
 import httpx
 from dashscope import MultiModalConversation
 
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 from app.llm.configured_image_models import get_default_image_model_config, get_image_model_config
 from app.llm.configured_models import ModelConfigError
 from app.llm.providers.azure_gpt_image import AzureGptImageClient, AzureGptImageConfig
@@ -52,7 +53,8 @@ def _is_valid_remote_image_url(value: str) -> bool:
         return True
     try:
         parsed = urlparse(raw)
-    except Exception:
+    except Exception as exc:
+        log_print(f"[services.image_generation] silent exception caught: {exc}", flush=True)
         return False
     if parsed.scheme not in {"http", "https"}:
         return False
@@ -213,7 +215,7 @@ class ConfiguredImageGenerationService:
         merged_output_spec = dict(get_request_context() or {})
         if isinstance(output_spec, dict):
             merged_output_spec.update(output_spec)
-        main_id = resolve_main_id(merged_output_spec.get("main_id") or merged_output_spec.get("mainId"))
+        tenant_id = resolve_tenant_id(merged_output_spec.get("tenant_id") or merged_output_spec.get("tenantId"))
         image_model_id = str(
             merged_output_spec.get("image_model_id")
             or merged_output_spec.get("imageModelId")
@@ -228,11 +230,11 @@ class ConfiguredImageGenerationService:
                 capability="image_generation",
             ) or "")
         if image_model_id:
-            config = await get_image_model_config(image_model_id, main_id)
+            config = await get_image_model_config(image_model_id, tenant_id)
             if config is None:
                 raise ModelConfigError("图片模型配置不存在或不可用")
             return config, "admin_config"
-        config = await get_default_image_model_config(main_id)
+        config = await get_default_image_model_config(tenant_id)
         if config is None:
             return None, "admin_config"
         return config, "admin_config"

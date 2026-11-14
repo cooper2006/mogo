@@ -35,7 +35,7 @@ def test_external_tool_service_passes_auth_and_runtime_identity_to_mcp_transport
             tool,
             "tools/call",
             {"name": "search", "arguments": {}},
-            runtime_headers={"X-MOVO-User-ID": "user-7"},
+            runtime_headers={"X-MOGO-User-ID": "user-7"},
         )
     )
 
@@ -44,7 +44,7 @@ def test_external_tool_service_passes_auth_and_runtime_identity_to_mcp_transport
     assert captured["timeout"] == 9
     assert captured["headers"]["Authorization"] == "Bearer configured-token"
     assert captured["headers"]["X-Custom"] == "kept"
-    assert captured["headers"]["X-MOVO-User-ID"] == "user-7"
+    assert captured["headers"]["X-MOGO-User-ID"] == "user-7"
     assert captured["method"] == "tools/call"
 
 
@@ -172,7 +172,9 @@ def test_discovery_debug_and_runtime_paths_all_use_initialized_sessions(monkeypa
     async def fake_get(*args, **kwargs):
         return tool
 
-    monkeypatch.setattr(service, "get", fake_get)
+    # 034-credential-encryption：执行/发现路径读取原始 Mongo 文档（config 未掩码），
+    # 以便解密凭证；mock 点相应改为 `_raw_get`。
+    monkeypatch.setattr(service, "_raw_get", fake_get)
 
     async def exercise_all_paths():
         discovery = await service.discover_mcp_tools("tool-1")

@@ -22,11 +22,10 @@ from .contracts import (
 from .credential_lease import KeyedAsyncLock
 from .errors import DshNotFoundError, DshProtocolError, DshTransportError
 from .event_mapper import DshEventMapper
-from .transport import KernelHostTransport
-from .temporal_context import build_temporal_context
 from .profile.plugin_runtime_recovery import profile_without_unavailable_plugins
-from .plugin_management.runtime_health import mark_runtime_unavailable
-from app.execution_isolation.personal_space import conversation_space_key
+from .transport import KernelHostTransport
+from .turn_backpressure import TurnBackpressure
+from .temporal_context import build_temporal_context
 
 
 @dataclass(frozen=True)
@@ -37,7 +36,10 @@ class _SessionBinding:
     model_instance_id: str | None
     preset_id: str
     workspace_id: str | None
-    cursor_floor: int = 0
+    # Carried from the runtime binding so that sticky routing survives a chat-api
+    # restart: after restore() rebuilds _sessions (but before _runtimes may be
+    # lazily repopulated), send()/subscribe() can still resolve the stable key.
+    isolation_key: str = ""
 
 
 @dataclass(frozen=True)
@@ -45,6 +47,12 @@ class _RuntimeBinding:
     tenant_id: str
     profile_version: str
     model_instance_id: str | None
+    # The isolation key is the *stable* identity of a runtime: it is known
+    # before the runtime exists and is shared by create_runtime and
+    # discover_runtime. Multi-replica sticky routing keys on it, because a
+    # runtime id hashes to a different replica than its isolation key did at
+    # creation time.
+    isolation_key: str = ""
 
 
 class RuntimeProfileResolver(Protocol):
@@ -72,6 +80,33 @@ class DshAgentKernelGateway(AgentKernelContract):
         self._runtimes: dict[str, _RuntimeBinding] = {}
         self._profile_resolver = profile_resolver
         self._credential_refresh_locks = KeyedAsyncLock()
+        # L3: the backpressure cap is owned by the coordinator so one cap
+        # spans the whole process (all runtimes, all sessions). The turn
+        # runner acquires/releases the slot around each turn. It is a plain
+        # public attribute (not a property) so the application can set it
+        # after construction.
+        self.backpressure: TurnBackpressure | None = None
+
+    def _isolation_key(self, runtime_id: str) -> str | None:
+        """The stable sticky key for a runtime, when it is known.
+
+        Multi-replica routing must key on the isolation key rather than the
+        runtime id: the two hash differently, so keying on the runtime id would
+        send a session to a replica that does not own the runtime.
+
+        The process-internal ``_runtimes`` map is the primary source, but after a
+        chat-api restart ``_sessions`` may already be rebuilt (via
+        ``restore``) while ``_runtimes`` is still lazily repopulated. Fall back
+        to any session bound to the same runtime so routing never degrades to the
+        runtime id (which would scatter a session across replicas).
+        """
+        binding = self._runtimes.get(runtime_id)
+        if binding is not None and binding.isolation_key:
+            return binding.isolation_key
+        for session_binding in self._sessions.values():
+            if session_binding.runtime_id == runtime_id and session_binding.isolation_key:
+                return session_binding.isolation_key
+        return None
 
     async def create_runtime(self, request: CreateRuntimeRequest) -> RuntimeHandle:
         payload: dict[str, Any] = {
@@ -87,22 +122,13 @@ class DshAgentKernelGateway(AgentKernelContract):
             )
             payload["modelProfile"] = model_profile
             model_instance_id = self._optional_text(model_profile, "modelInstanceId")
-        try:
-            response = await self._transport.request("POST", "/v1/runtimes", json=payload)
-        except DshTransportError as failure:
-            recovered = await profile_without_unavailable_plugins(self._transport, payload, failure)
-            response = await self._transport.request("POST", "/v1/runtimes", json=recovered)
-            original_plugins = payload.get("modelProfile", {}).get("plugins") or []
-            active_plugins = recovered.get("modelProfile", {}).get("plugins") or []
-            await mark_runtime_unavailable(
-                tenant_id=request.tenant_id, requested=original_plugins,
-                activated=active_plugins, reason=str(failure),
-            )
+        response = await self._create_runtime_request(payload, request.isolation_key)
         runtime_id = self._required_text(response, "runtimeId")
         self._runtimes[runtime_id] = _RuntimeBinding(
             tenant_id=request.tenant_id,
             profile_version=request.profile_version,
             model_instance_id=model_instance_id,
+            isolation_key=request.isolation_key,
         )
         return RuntimeHandle(
             runtime_id=runtime_id,
@@ -113,8 +139,41 @@ class DshAgentKernelGateway(AgentKernelContract):
             isolation_key=self._required_text(response, "isolationKey"),
         )
 
+    async def _create_runtime_request(
+        self, payload: dict[str, Any], isolation_key: str,
+    ) -> dict[str, Any]:
+        """Create the runtime, dropping optional plugins that cannot install.
+
+        A third-party DSH plugin that fails to install must not take the whole
+        runtime (and therefore every turn) down with it: probe the plugins one
+        by one, rebuild the profile from the healthy subset and retry once.
+        """
+        try:
+            return await self._transport.request(
+                "POST",
+                "/v1/runtimes",
+                json=payload,
+                # The isolation key travels in the JSON body, which the sticky
+                # router (nginx LB) cannot read. Pass it explicitly so the create
+                # lands on the same replica that later session calls will be
+                # routed to; without it the LB falls back to ``$request_id`` and
+                # scatters a runtime away from its own follow-up requests.
+                sticky_key=isolation_key,
+            )
+        except DshTransportError as error:
+            recovered = await profile_without_unavailable_plugins(
+                self._transport, payload, error,
+            )
+            return await self._transport.request(
+                "POST", "/v1/runtimes", json=recovered, sticky_key=isolation_key,
+            )
+
     async def dispose_runtime(self, runtime_id: str) -> None:
-        await self._transport.request("DELETE", f"/v1/runtimes/{runtime_id}")
+        await self._transport.request(
+            "DELETE",
+            f"/v1/runtimes/{runtime_id}",
+            sticky_key=self._isolation_key(runtime_id),
+        )
         self._runtimes.pop(runtime_id, None)
         self._credential_refresh_locks.discard(runtime_id)
         self._sessions = {
@@ -148,6 +207,7 @@ class DshAgentKernelGateway(AgentKernelContract):
             tenant_id=tenant_id,
             profile_version=profile_version,
             model_instance_id=model_instance_id,
+            isolation_key=isolation_key,
         )
         return RuntimeHandle(
             runtime_id=runtime_id,
@@ -157,6 +217,51 @@ class DshAgentKernelGateway(AgentKernelContract):
             model_instance_id=model_instance_id,
             isolation_key=isolation_key,
         )
+
+    async def probe_session_owner(
+        self,
+        *,
+        runtime_id: str,
+        session_id: str,
+    ) -> dict[str, Any]:
+        """Ask every replica which one holds ``session_id`` (§12.4 option B).
+
+        Unlike every other call here this deliberately bypasses sticky routing:
+        the whole point is to find the replica that owns the session even when
+        the router would send us somewhere else. Returns
+        ``{"found": bool, "instance_id": str | None, "url": str | None, ...}``.
+        """
+        probe = getattr(self._transport, "probe_session_owner", None)
+        if probe is None:
+            return {"found": False, "instance_id": None, "url": None, "probed": []}
+        return await probe(runtime_id=runtime_id, session_id=session_id)
+
+    async def export_session_seed(
+        self,
+        *,
+        runtime_id: str,
+        session_id: str,
+    ) -> dict[str, Any]:
+        """Fetch the sealed seed of ``session_id`` from its owning replica.
+
+        §12.4 option A. Unlike every other call here this deliberately bypasses
+        sticky routing: the whole point is to pull the session's completed event
+        log off the one replica that still has it, so another replica can
+        rehydrate it via a signed ``create_session``. The MAC binds the payload
+        to the pool token, so it cannot be forged in flight.
+        """
+        probe = getattr(self._transport, "export_session_seed", None)
+        if probe is None:
+            return {
+                "found": False,
+                "seed": None,
+                "seedSignature": None,
+                "seedSourceInstanceId": None,
+                "seedSourceSessionId": None,
+                "source_url": None,
+                "probed": [],
+            }
+        return await probe(runtime_id=runtime_id, session_id=session_id)
 
     def attach_session(
         self,
@@ -168,7 +273,6 @@ class DshAgentKernelGateway(AgentKernelContract):
         model_instance_id: str | None,
         preset_id: str = "askai-enterprise",
         workspace_id: str | None = None,
-        cursor_floor: int = 0,
     ) -> None:
         runtime = self._runtime_binding(runtime_id)
         if runtime.profile_version != profile_version or runtime.model_instance_id != model_instance_id:
@@ -180,7 +284,7 @@ class DshAgentKernelGateway(AgentKernelContract):
             model_instance_id=model_instance_id,
             preset_id=preset_id,
             workspace_id=workspace_id,
-            cursor_floor=max(0, int(cursor_floor)),
+            isolation_key=runtime.isolation_key,
         )
 
     async def describe_session(self, session_id: str) -> SessionHandle:
@@ -188,28 +292,45 @@ class DshAgentKernelGateway(AgentKernelContract):
         response = await self._transport.request(
             "GET",
             f"/v1/runtimes/{binding.runtime_id}/sessions/{session_id}",
+            sticky_key=self._isolation_key(binding.runtime_id),
         )
         return self._session_handle(session_id, response)
 
-    async def create_session(self, request: CreateSessionRequest) -> SessionHandle:
+    async def create_session(
+        self,
+        request: CreateSessionRequest,
+        *,
+        sealed_seed: dict[str, Any] | None = None,
+    ) -> SessionHandle:
         session_id = f"dsh-{uuid4()}"
         spec = request.session_spec
         runtime_binding = self._runtime_binding(request.runtime_id)
         if spec.tenant_id != runtime_binding.tenant_id or spec.profile_version != runtime_binding.profile_version:
             raise DshProtocolError("Session identity does not match its immutable Runtime Profile")
+        seed_payload: dict[str, Any] = {}
+        if sealed_seed:
+            # Cross-replica rebuild (§12.4 option A): a sealed seed is the
+            # event log a source replica exported for this very session. The
+            # receiving replica re-verifies the MAC with the pool token.
+            seed_payload = {
+                "seed": sealed_seed.get("seed"),
+                "seedSignature": sealed_seed.get("seedSignature"),
+                "seedSourceInstanceId": sealed_seed.get("seedSourceInstanceId"),
+                "seedSourceSessionId": sealed_seed.get("seedSourceSessionId"),
+            }
         response = await self._transport.request(
             "POST",
             f"/v1/runtimes/{request.runtime_id}/sessions",
+            sticky_key=self._isolation_key(request.runtime_id),
             json={
                 "sessionId": session_id,
                 "presetId": spec.preset_id,
-                **({"personalConversationKey": conversation_space_key(spec.conversation_id)}
-                   if spec.execution_location == "server" and spec.user_id else {}),
                 **({"workspaceId": spec.workspace_id} if spec.workspace_id else {}),
                 **({
                     "seedRuntimeId": spec.seed_runtime_id,
                     "seedSessionId": spec.seed_session_id,
                 } if spec.seed_runtime_id and spec.seed_session_id else {}),
+                **seed_payload,
             },
         )
         returned_id = self._required_text(response, "sessionId")
@@ -222,6 +343,7 @@ class DshAgentKernelGateway(AgentKernelContract):
             model_instance_id=runtime_binding.model_instance_id,
             preset_id=spec.preset_id,
             workspace_id=spec.workspace_id,
+            isolation_key=runtime_binding.isolation_key,
         )
         return self._session_handle(session_id, response)
 
@@ -230,7 +352,7 @@ class DshAgentKernelGateway(AgentKernelContract):
         response = await self._transport.request(
             "POST",
             f"/v1/runtimes/{binding.runtime_id}/sessions/{session_id}/resume",
-            json={"cursorFloor": binding.cursor_floor},
+            sticky_key=self._isolation_key(binding.runtime_id),
         )
         return self._session_handle(session_id, response)
 
@@ -241,6 +363,7 @@ class DshAgentKernelGateway(AgentKernelContract):
         response = await self._transport.request(
             "POST",
             f"/v1/runtimes/{binding.runtime_id}/sessions/{request.session_id}/send",
+            sticky_key=self._isolation_key(binding.runtime_id),
             json={
                 "requestId": request.request_id,
                 "mode": "steer" if request.mode is SendMode.STEER else "followup",
@@ -253,17 +376,6 @@ class DshAgentKernelGateway(AgentKernelContract):
         )
         return self._required_text(response, "messageId")
 
-    async def execute_plugin_command(
-        self, session_id: str, selected_id: str, line: str,
-    ) -> dict[str, Any]:
-        binding = self._binding(session_id)
-        await self._refresh_model_credential(binding.runtime_id)
-        return await self._transport.request(
-            "POST",
-            f"/v1/runtimes/{binding.runtime_id}/sessions/{session_id}/plugin-command",
-            json={"selectedId": selected_id, "line": line},
-        )
-
     async def refresh_session_credentials(self, session_id: str) -> None:
         """Refresh scoped gateway credentials without starting another turn."""
         binding = self._binding(session_id)
@@ -274,6 +386,7 @@ class DshAgentKernelGateway(AgentKernelContract):
         response = await self._transport.request(
             "POST",
             f"/v1/runtimes/{binding.runtime_id}/sessions/{request.session_id}/cancel",
+            sticky_key=self._isolation_key(binding.runtime_id),
             json={"cause": request.cause},
         )
         if response.get("accepted") is not True:
@@ -285,6 +398,7 @@ class DshAgentKernelGateway(AgentKernelContract):
         await self._transport.request(
             "DELETE",
             f"/v1/runtimes/{binding.runtime_id}/sessions/{session_id}",
+            sticky_key=self._isolation_key(binding.runtime_id),
         )
         self._sessions.pop(session_id, None)
 
@@ -294,6 +408,7 @@ class DshAgentKernelGateway(AgentKernelContract):
         return await self._transport.request(
             "POST",
             f"/v1/runtimes/{runtime_id}/plugins/{action}",
+            sticky_key=self._isolation_key(runtime_id),
             json={"specifier": specifier},
         )
 
@@ -305,6 +420,7 @@ class DshAgentKernelGateway(AgentKernelContract):
                 "GET",
                 f"/v1/runtimes/{binding.runtime_id}/sessions/{session_id}/event-stream",
                 params={"after": cursor},
+                sticky_key=self._isolation_key(binding.runtime_id),
             ):
                 event = self._mapper.map_event(
                     native,
@@ -330,6 +446,7 @@ class DshAgentKernelGateway(AgentKernelContract):
         response = await self._transport.request(
             "GET",
             f"/v1/runtimes/{binding.runtime_id}/sessions/{session_id}/events",
+            sticky_key=self._isolation_key(binding.runtime_id),
             params={"after": after_cursor},
         )
         native_events = response.get("events")
@@ -351,32 +468,6 @@ class DshAgentKernelGateway(AgentKernelContract):
             cursor = event.cursor
             mapped.append(event)
         return mapped
-
-    async def head_cursor(self, session_id: str) -> int:
-        """Return the runtime journal's CURRENT head cursor for a session.
-
-        After a resume the host rebuilds the journal via ``resetFromSession``
-        (cursors renumbered from 1), so the durable binding cursor may point
-        inside reimported history. The turn runner probes this head BEFORE
-        ``send`` and subscribes after it, so only the new turn's events flow
-        live. Hosts that predate ``head_only`` ignore the flag and return the
-        full list; the max-cursor fallback keeps them working (at the cost of
-        one history-sized fetch per turn).
-        """
-        binding = self._binding(session_id)
-        response = await self._transport.request(
-            "GET",
-            f"/v1/runtimes/{binding.runtime_id}/sessions/{session_id}/events",
-            params={"after": 0, "head_only": 1},
-        )
-        head = response.get("head")
-        if isinstance(head, bool) or not isinstance(head, int) or head < 0:
-            native_events = response.get("events")
-            if not isinstance(native_events, list):
-                raise DshProtocolError("DSH events-head response must contain a head cursor")
-            head = max((self._event_cursor(item) for item in native_events), default=0)
-            head = max(head, 0)
-        return head
 
     def _binding(self, session_id: str) -> _SessionBinding:
         try:
@@ -425,6 +516,7 @@ class DshAgentKernelGateway(AgentKernelContract):
             await self._transport.request(
                 "PUT",
                 f"/v1/runtimes/{runtime_id}/model-credential",
+                sticky_key=self._isolation_key(runtime_id),
                 json={
                     "gatewayUrl": model_profile.get("gatewayUrl"),
                     "accessToken": model_profile.get("accessToken"),
@@ -435,11 +527,9 @@ class DshAgentKernelGateway(AgentKernelContract):
                 await self._transport.request(
                     "PUT",
                     f"/v1/runtimes/{runtime_id}/tool-credential",
+                    sticky_key=self._isolation_key(runtime_id),
                     json={"accessToken": tool_profile.get("accessToken")},
                 )
-
-    async def refresh_runtime_credentials(self, runtime_id: str) -> None:
-        await self._refresh_model_credential(runtime_id)
 
     @staticmethod
     def _event_cursor(item: object) -> int:

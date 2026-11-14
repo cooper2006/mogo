@@ -6,6 +6,7 @@ these intermediate results into HTML or python-pptx calls — they never
 re-derive style/z-order/coordinate logic independently.
 """
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 import re
@@ -116,7 +117,8 @@ def render_order(shape: FreeformBlock) -> Tuple[int, str]:
         z_raw = dict(shape.style or {}).get("z_index")
         try:
             z = int(z_raw)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[services.presentation.render_utils.render_order] suppressed {type(exc).__name__}: {exc}", flush=True)
             z = 0
     if z != 0:
         return z, str(shape.id or "")
@@ -386,7 +388,8 @@ def infer_text_vertical_align(
 
     try:
         box_px = max(0.0, float(box_height_norm or 0.0) * float(canvas_height_px))
-    except Exception:
+    except Exception as exc:
+        log_print(f"[services.presentation.render_utils.infer_text_vertical_align] suppressed {type(exc).__name__}: {exc}", flush=True)
         return "top"
     if box_px <= 0:
         return "top"
@@ -398,7 +401,8 @@ def infer_text_vertical_align(
         if m:
             try:
                 font_px = max(8.0, float(m.group(1)))
-            except Exception:
+            except Exception as exc:
+                log_print(f"[services.presentation.render_utils.infer_text_vertical_align] suppressed {type(exc).__name__}: {exc}", flush=True)
                 font_px = 18.0
 
     raw_lh = style.get("line_height", 1.2)

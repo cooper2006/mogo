@@ -1,5 +1,5 @@
 /**
- * The narrow boundary between MOVO and DSH's evolving Session APIs.
+ * The narrow boundary between MOGO and DSH's evolving Session APIs.
  * Keep persistence and in-memory history access out of the runtime facade so
  * later DSH upgrades have one compatibility surface instead of scattered
  * version checks.

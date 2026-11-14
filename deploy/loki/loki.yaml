@@ -1,0 +1,45 @@
+# 023 observability-resilience (T009)
+# Loki 日志后端：接收 OTel Collector 的 logs push，以及 span 摘要日志。
+# 存储：本地文件系统，保留 15 天（OQ-7 RPO 15min 口径：Loki 可丢，不
+# 在数据面范围内）。
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: info
+
+# 单一 instance（非分布式）。生产多副本时改为多 pipeline。
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+compactor:
+  enabled: true
+  retention:
+    enable: true
+    period: 15d
+    resolution: 5m
+
+schema:
+  configs:
+    - from: "2026-01-01"
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 27h
+
+limits:
+  allow_template: true
+  reject_old_samples: true
+  retention_period: 15d
+  max_query_series: 5000
+  ingestion_rate_mb: 10

@@ -1,6 +1,6 @@
 <template>
   <div class="preview-page">
-    <!-- Teleport the back button, file icon, name, and size to the left header area -->
+    <!-- 将返回按钮、类型图标、文档名字与大小传送到顶部全局 Header 左侧 -->
     <Teleport v-if="headerTeleportReady" to="#header-title-teleport-target">
       <div v-if="document" class="header-doc-title-block">
         <n-button size="small" secondary @click="closePage" style="margin-right: 4px;">
@@ -9,7 +9,7 @@
               <svg viewBox="0 0 24 24"><path d="M19 12H5" /><path d="M12 19l-7-7 7-7" /></svg>
             </span>
           </template>
-          {{ t('legacy.back') }}
+          {{ t('返回') }}
         </n-button>
         <FileIcon :ext="document.fileExt" :size="20" />
         <span class="header-doc-title" :title="document.name">{{ document.name }}</span>
@@ -17,7 +17,7 @@
       </div>
     </Teleport>
 
-    <!-- Teleport download actions to the right header area -->
+    <!-- 将下载操作按钮传送到顶部全局 Header 右侧 -->
     <Teleport v-if="headerTeleportReady" to="#header-actions-teleport-target">
       <n-space :size="8">
         <n-button size="small" secondary :loading="downloading" :disabled="!objectUrl || downloading" @click="downloadFile">
@@ -26,7 +26,7 @@
               <svg viewBox="0 0 24 24"><path d="M12 3v12" /><path d="M7 10l5 5 5-5" /><path d="M5 21h14" /></svg>
             </span>
           </template>
-          {{ t('legacy.download') }}
+          {{ t('下载') }}
         </n-button>
       </n-space>
     </Teleport>
@@ -39,16 +39,16 @@
               <div class="converting-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" class="converting-spin"><path d="M21 12a9 9 0 0 0-15.3-6.4" /><path d="M3 3v5h5" /><path d="M3 12a9 9 0 0 0 15.3 6.4" /><path d="M21 21v-5h-5" /></svg>
               </div>
-              <div class="converting-title">{{ t('legacy.generating_online_preview') }}</div>
-              <div class="converting-copy">{{ t('legacy.the_document_is_being_converted_please_wait_the_page') }}</div>
-              <n-button type="primary" secondary @click="reload">{{ t('legacy.refresh_manually') }}</n-button>
+              <div class="converting-title">{{ t('在线预览生成中') }}</div>
+              <div class="converting-copy">{{ t('文档正在进行格式转换，请稍候...系统将自动刷新。') }}</div>
+              <n-button type="primary" secondary @click="reload">{{ t('手动刷新') }}</n-button>
             </section>
           </template>
 
           <template v-else-if="errorText">
             <n-empty :description="errorText">
               <template #extra>
-                <n-button type="primary" secondary @click="reload">{{ t('legacy.reload') }}</n-button>
+                <n-button type="primary" secondary @click="reload">{{ t('重新加载') }}</n-button>
               </template>
             </n-empty>
           </template>
@@ -74,15 +74,15 @@
               <div class="unsupported-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /><path d="M16 13H8" /><path d="M16 17H8" /></svg>
               </div>
-              <div class="unsupported-title">{{ t('legacy.this_format_cannot_be_previewed_online') }}</div>
-              <div class="unsupported-copy">{{ t('legacy.docx_pptx_xlsx_conversion_preview_can_be_added_later') }}</div>
+              <div class="unsupported-title">{{ t('当前格式暂不支持在线预览') }}</div>
+              <div class="unsupported-copy">{{ t('DOCX/PPTX/XLSX 后续可接入转换预览，当前可下载查看。') }}</div>
               <n-button type="primary" secondary :loading="downloading" :disabled="downloading" @click="downloadFile">
                 <template #icon>
                   <span class="button-icon" aria-hidden="true">
                     <svg viewBox="0 0 24 24"><path d="M12 3v12" /><path d="M7 10l5 5 5-5" /><path d="M5 21h14" /></svg>
                   </span>
                 </template>
-                {{ t('legacy.download_to_view') }}
+                {{ t('下载查看') }}
               </n-button>
             </section>
           </template>
@@ -94,63 +94,67 @@
       <aside class="detail-sidebar">
         <section class="detail-panel">
           <section v-if="activePanel === 'detail'" class="detail-card">
-            <div class="detail-card-title">{{ t('legacy.document_details') }}</div>
+            <div class="detail-card-title">{{ t('文档详情') }}</div>
             <div class="meta-list">
               <div class="meta-row meta-row-full">
-                <span>{{ t('legacy.file_name') }}</span>
+                <span>{{ t('文件名') }}</span>
                 <strong>{{ document?.originalFilename || '-' }}</strong>
               </div>
               <div class="meta-grid">
                 <div class="meta-row">
-                  <span>{{ t('legacy.type') }}</span>
+                  <span>{{ t('类型') }}</span>
                   <div style="margin-top: 4px; display: inline-flex;">
                     <FileIcon v-if="document" :ext="document.fileExt" :show-label="true" />
                     <span v-else>-</span>
                   </div>
                 </div>
                 <div class="meta-row">
-                  <span>{{ t('legacy.size_fd20702') }}</span>
+                  <span>{{ t('大小') }}</span>
                   <strong>{{ formatFileSize(document?.fileSize || 0) }}</strong>
                 </div>
                 <div class="meta-row">
-                  <span>{{ t('legacy.storage') }}</span>
-                  <strong>{{ document?.storageType === 'oss' ? 'OSS' : t('legacy.local') }}</strong>
+                  <span>{{ t('存储') }}</span>
+                  <strong>{{ document?.storageType === 'oss' ? 'OSS' : t('本地') }}</strong>
                 </div>
                 <div class="meta-row">
-                  <span>{{ t('legacy.uploaded_by') }}</span>
+                  <span>{{ t('上传人') }}</span>
                   <strong>{{ document?.createdByName || '-' }}</strong>
                 </div>
                 <div class="meta-row">
-                  <span>{{ t('legacy.updated_at') }}</span>
+                  <span>{{ t('更新时间') }}</span>
                   <strong>{{ formatAdminDateTime(document?.updatedAt, '-') }}</strong>
                 </div>
                 <div class="meta-row">
-                  <span>{{ t('legacy.status') }}</span>
+                  <span>{{ t('状态') }}</span>
                   <div style="margin-top: 4px; display: inline-flex;">
                     <DocumentStatus v-if="document" :row="document" @retry="retryParse" />
                     <span v-else>-</span>
                   </div>
                 </div>
                 <div class="meta-row">
-                  <span>{{ t('legacy.preview_status') }}</span>
+                  <span>{{ t('预览状态') }}</span>
                   <strong>{{ previewStatusLabel(document?.previewStatus || 'not_required') }}</strong>
                 </div>
                 <div class="meta-row">
-                  <span>{{ t('legacy.segmentation_status') }}</span>
+                  <span>{{ t('分段状态') }}</span>
                   <strong>{{ processLabel(document?.chunkStatus || 'not_started') }}</strong>
                 </div>
                 <div class="meta-row">
-                  <span>{{ t('legacy.segment_count') }}</span>
+                  <span>{{ t('分段数量') }}</span>
                   <strong>{{ document?.chunkCount || 0 }}</strong>
                 </div>
               </div>
+              <ProductKnowledgeDocumentPermissions
+                v-if="ProductKnowledgeDocumentPermissions && document"
+                :document-id="document.id"
+              />
             </div>
           </section>
 
-          <section v-else-if="activePanel === 'chunks'" class="chunks-card">
+          <section v-else class="chunks-card">
             <div class="chunks-head">
               <div>
-                <div class="detail-card-title">{{ t('legacy.document_segments') }}</div>
+                <div class="detail-card-title">{{ t('文档分段') }}</div>
                 <div class="chunks-subtitle">{{ chunkTotalText }}</div>
               </div>
               <n-button size="small" secondary :loading="chunksLoading" @click="loadChunks">
@@ -167,15 +171,15 @@
                 <span class="source-target-icon" aria-hidden="true">
                   <svg viewBox="0 0 24 24"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
                 </span>
-                <div class="source-target-title">{{ t('legacy.current_source') }}</div>
+                <div class="source-target-title">{{ t('当前依据') }}</div>
               </div>
               <div class="source-target-meta">
                 <span>{{ targetChunkId }}</span>
-                <span v-if="targetPageNo">{{ t('legacy.page', { page: targetPageNo }) }}</span>
+                <span v-if="targetPageNo">{{ t('第 {page} 页', { page: targetPageNo }) }}</span>
               </div>
               <div v-if="targetSourceText" class="source-target-path">{{ targetSourceText }}</div>
               <pre v-if="targetChunk" class="source-target-text">{{ targetChunk.text }}</pre>
-              <div v-else-if="targetChunkLoading" class="source-target-loading">{{ t('legacy.loading_source') }}</div>
+              <div v-else-if="targetChunkLoading" class="source-target-loading">{{ t('依据加载中') }}</div>
             </section>
 
             <div class="chunks-filter">
@@ -183,7 +187,7 @@
                 v-model:value="chunkKeyword"
                 size="small"
                 clearable
-                :placeholder="t('legacy.search_segment_content')"
+                :placeholder="t('搜索分段内容')"
                 @keyup.enter="handleChunkSearch"
                 @clear="handleChunkSearch"
               >
@@ -200,24 +204,24 @@
                 <div class="empty-icon" aria-hidden="true">
                   <svg viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /><path d="M12 9v4" /><path d="M12 17h.01" /></svg>
                 </div>
-                <div class="empty-title">{{ t('legacy.parsing_failed') }}</div>
-                <div class="empty-copy">{{ document.parseError || t('additional.please_upload_again_or_try_later') }}</div>
+                <div class="empty-title">{{ t('解析失败') }}</div>
+                <div class="empty-copy">{{ document.parseError || t('请重新上传或稍后重试。') }}</div>
               </section>
 
               <section v-else-if="document && document.chunkStatus !== 'succeeded'" class="chunks-empty">
                 <div class="empty-icon empty-icon-running" aria-hidden="true">
                   <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 0-15.3-6.4" /><path d="M3 3v5h5" /><path d="M3 12a9 9 0 0 0 15.3 6.4" /><path d="M21 21v-5h-5" /></svg>
                 </div>
-                <div class="empty-title">{{ t('legacy.generating_segments') }}</div>
-                <div class="empty-copy">{{ t('additional.after_parsing_the_segments_saved_in_mongodb_will_appear') }}</div>
+                <div class="empty-title">{{ t('分段生成中') }}</div>
+                <div class="empty-copy">{{ t('解析完成后，这里会自动展示 MongoDB 中保存的分段。') }}</div>
               </section>
 
               <section v-else-if="!chunks.length" class="chunks-empty">
                 <div class="empty-icon" aria-hidden="true">
                   <svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5z" /><path d="M9 10h6" /><path d="M9 14h4" /></svg>
                 </div>
-                <div class="empty-title">{{ t('legacy.no_segments') }}</div>
-                <div class="empty-copy">{{ t('legacy.this_document_has_no_segments_to_display') }}</div>
+                <div class="empty-title">{{ t('暂无分段') }}</div>
+                <div class="empty-copy">{{ t('当前文档没有可展示的分段内容。') }}</div>
               </section>
 
               <div v-else class="chunk-list">
@@ -231,10 +235,10 @@
                   <div class="chunk-item-head">
                     <div class="chunk-index">#{{ String(chunk.ordinal + 1).padStart(3, '0') }}</div>
                     <div class="chunk-badges">
-                      <span v-if="isImageDerivedChunk(chunk)" class="chunk-badge chunk-badge-image">{{ t('legacy.image_ocr') }}</span>
+                      <span v-if="isImageDerivedChunk(chunk)" class="chunk-badge chunk-badge-image">{{ t('图片 OCR') }}</span>
                       <span class="chunk-badge">{{ chunk.contentType || 'text' }}</span>
-                      <span v-if="chunk.rowCount > 1" class="chunk-badge">{{ chunk.rowCount }} {{ t('additional.rows') }}</span>
-                      <span v-if="chunk.pageNo" class="chunk-badge">{{ t('legacy.page', { page: chunk.pageNo }) }}</span>
+                      <span v-if="chunk.rowCount > 1" class="chunk-badge">{{ chunk.rowCount }} {{ t('行') }}</span>
+                      <span v-if="chunk.pageNo" class="chunk-badge">{{ t('第 {page} 页', { page: chunk.pageNo }) }}</span>
                       <button
                         v-if="isImageDerivedChunk(chunk) && ['image', 'pdf'].includes(previewKind) && objectUrl"
                         type="button"
@@ -242,7 +246,7 @@
                         @click="openChunkSourceImage(chunk)"
                       >
                         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="m21 15-5-5L5 21" /></svg>
-                        {{ t('legacy.view_image') }}
+                        {{ t('查看图片') }}
                       </button>
                     </div>
                   </div>
@@ -265,22 +269,15 @@
               @update:page-size="handleChunkPageSizeChange"
             />
           </section>
-
-          <section v-else-if="activePanel === 'permissions'" class="permission-card">
-            <ProductKnowledgeDocumentPermissions
-              v-if="ProductKnowledgeDocumentPermissions && document"
-              :document-id="document.id"
-            />
-          </section>
         </section>
 
-        <nav class="detail-rail" :aria-label="t('legacy.detail_navigation')">
+        <nav class="detail-rail" :aria-label="t('详情导航')">
           <button
             type="button"
             class="rail-button"
             :class="{ active: activePanel === 'detail' }"
-            :title="t('legacy.document_details')"
-            :aria-label="t('legacy.document_details')"
+            :title="t('文档详情')"
+            :aria-label="t('文档详情')"
             @click="activePanel = 'detail'"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /><path d="M16 13H8" /><path d="M16 17H8" /></svg>
@@ -289,23 +286,12 @@
             type="button"
             class="rail-button"
             :class="{ active: activePanel === 'chunks' }"
-            :title="t('legacy.document_segments')"
-            :aria-label="t('legacy.document_segments')"
+            :title="t('文档分段')"
+            :aria-label="t('文档分段')"
             @click="openChunksPanel"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16" /><path d="M4 12h16" /><path d="M4 18h10" /><path d="M3 4v4" /><path d="M3 10v4" /><path d="M3 16v4" /></svg>
             <span v-if="document?.chunkCount" class="rail-count">{{ document.chunkCount }}</span>
-          </button>
-          <button
-            v-if="ProductKnowledgeDocumentPermissions"
-            type="button"
-            class="rail-button"
-            :class="{ active: activePanel === 'permissions' }"
-            :title="t('legacy.document_permissions')"
-            :aria-label="t('legacy.document_permissions')"
-            @click="activePanel = 'permissions'"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="15" r="4" /><path d="m11 12 8-8" /><path d="m16 7 2 2" /><path d="m14 9 2 2" /></svg>
           </button>
         </nav>
       </aside>
@@ -313,9 +299,9 @@
 
     <n-modal v-model:show="imagePreviewVisible" class="chunk-image-modal">
       <div class="chunk-image-modal-body">
-        <button type="button" class="chunk-image-modal-close" :aria-label="t('legacy.close')" @click="imagePreviewVisible = false">×</button>
+        <button type="button" class="chunk-image-modal-close" :aria-label="t('关闭')" @click="imagePreviewVisible = false">×</button>
         <n-spin :show="imagePreviewLoading">
-          <img v-if="imagePreviewUrl" :src="imagePreviewUrl" :alt="document?.name || t('additional.image_source')" />
+          <img v-if="imagePreviewUrl" :src="imagePreviewUrl" :alt="document?.name || t('图片来源')" />
         </n-spin>
       </div>
     </n-modal>
@@ -324,7 +310,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
-import adminProductUiExtension from '@movo-admin-product-extension';
+import adminProductUiExtension from '@mogo-admin-product-extension';
 import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 import { apiClient } from '@/api/client';
@@ -333,12 +319,11 @@ import {
   fetchKnowledgeDocumentChunk,
   fetchKnowledgeDocumentChunks,
   knowledgeDocumentPreviewUrl,
+  retryKnowledgeDocumentParse,
   type KnowledgeDocumentChunkItem,
   type KnowledgeDocumentItem,
 } from '@/api/knowledge-documents';
-import { retryKnowledgeDocument } from '@/utils/knowledgeDocumentRetry';
 import { t } from '@/composables/i18n';
-import { localizedServerText } from '@/utils/serverText';
 import { formatAdminDateTime } from '@/composables/adminTimezone';
 import FileIcon from '@/components/FileIcon.vue';
 import DocumentStatus from '@/components/DocumentStatus.vue';
@@ -352,6 +337,11 @@ interface DisplayChunkItem extends KnowledgeDocumentChunkItem {
   rowCount: number;
 }
 
+/** 需要走 PDF 预览链路的 Office 源文件扩展名。 */
+const OFFICE_EXTENSIONS = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
+/** 文档预览仍在进行中的状态集合。 */
+const CONVERTING_STATUSES = ['pending', 'queued', 'running'];
+
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
@@ -364,7 +354,7 @@ const isConverting = ref(false);
 const pollTimer = ref<number | null>(null);
 const downloading = ref(false);
 const headerTeleportReady = ref(false);
-const activePanel = ref<'detail' | 'chunks' | 'permissions'>('detail');
+const activePanel = ref<'detail' | 'chunks'>('detail');
 const ProductKnowledgeDocumentPermissions = adminProductUiExtension.knowledgeDocumentPermissions;
 const chunkStage = 'rag';
 const chunksLoading = ref(false);
@@ -396,7 +386,7 @@ const targetPageNo = computed(() => {
 });
 const chunkTotalText = computed(() => {
   const fallback = document.value?.ragChunkCount || document.value?.chunkCount || 0;
-  return t('legacy.segments', { count: chunkPagination.total || fallback });
+  return t('共分段', { count: chunkPagination.total || fallback });
 });
 
 const displayChunks = computed<DisplayChunkItem[]>(() => {
@@ -441,18 +431,40 @@ const targetSourceText = computed(() => {
   if (targetChunk.value?.titlePath?.length) {
     return targetChunk.value.titlePath.join(' / ');
   }
-  return targetPageNo.value ? t('legacy.located_at_page', { page: targetPageNo.value }) : t('legacy.located_at_the_cited_segment');
+  return targetPageNo.value ? t('已定位到第 {page} 页', { page: targetPageNo.value }) : t('已定位到引用分段');
 });
-const previewKind = computed(() => {
+type PreviewKind = 'pdf' | 'markdown' | 'html' | 'image' | 'text' | 'unsupported';
+
+/** 判断某类预览类型是否匹配当前 MIME 类型与文件扩展名。 */
+function matchesPreviewKind(kind: PreviewKind, mime: string, ext: string): boolean {
+  if (kind === 'pdf') {
+    return mime.includes('pdf') || ext === 'pdf' || OFFICE_EXTENSIONS.includes(ext);
+  }
+  if (kind === 'markdown') {
+    return mime.includes('markdown') || ['md', 'markdown'].includes(ext);
+  }
+  if (kind === 'html') {
+    return mime.includes('html') || ['html', 'htm'].includes(ext);
+  }
+  if (kind === 'image') {
+    return mime.startsWith('image/') || ['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext);
+  }
+  if (kind === 'text') {
+    return mime.startsWith('text/') || ['txt', 'csv', 'json', 'tsv', 'log'].includes(ext);
+  }
+  return false;
+}
+
+const previewKind = computed<PreviewKind>(() => {
   const mime = document.value?.mimeType || '';
   const previewMime = document.value?.previewMimeType || '';
   const ext = (document.value?.fileExt || '').toLowerCase();
   const effectiveMime = String(previewMime || mime).toLowerCase();
-  if (effectiveMime.includes('pdf') || ext === 'pdf' || ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'].includes(ext)) return 'pdf';
-  if (effectiveMime.includes('markdown') || ['md', 'markdown'].includes(ext)) return 'markdown';
-  if (effectiveMime.includes('html') || ['html', 'htm'].includes(ext)) return 'html';
-  if (mime.startsWith('image/') || ['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext)) return 'image';
-  if (effectiveMime.startsWith('text/') || ['txt', 'csv', 'json', 'tsv', 'log'].includes(ext)) return 'text';
+  if (matchesPreviewKind('pdf', effectiveMime, ext)) return 'pdf';
+  if (matchesPreviewKind('markdown', effectiveMime, ext)) return 'markdown';
+  if (matchesPreviewKind('html', effectiveMime, ext)) return 'html';
+  if (matchesPreviewKind('image', mime, ext)) return 'image';
+  if (matchesPreviewKind('text', effectiveMime, ext)) return 'text';
   return 'unsupported';
 });
 
@@ -503,7 +515,7 @@ async function openChunkSourceImage(chunk: KnowledgeDocumentChunkItem) {
       await pdf.destroy();
     }
   } catch (error) {
-    window.alert(readError(error, t('additional.image_failed_to_load')));
+    window.alert(readError(error, t('图片加载失败')));
     imagePreviewVisible.value = false;
   } finally {
     imagePreviewLoading.value = false;
@@ -534,7 +546,7 @@ function formatFileSize(bytes: number) {
 
 function readError(error: unknown, fallback: string) {
   if (axios.isAxiosError(error)) {
-    return localizedServerText(error.response?.data?.detail || error.message, fallback);
+    return String(error.response?.data?.detail || error.message || fallback);
   }
   if (error instanceof Error) {
     return error.message || fallback;
@@ -553,23 +565,23 @@ function mergeTableRowMarkdown(current: string, next: string) {
 
 function processLabel(value: string) {
   const map: Record<string, string> = {
-    not_started: t('additional.not_started'),
-    queued: t('legacy.queued'),
-    running: t('legacy.running'),
-    succeeded: t('legacy.success_51991a5'),
-    failed: t('legacy.failed'),
+    not_started: t('未开始'),
+    queued: t('排队'),
+    running: t('运行中'),
+    succeeded: t('成功'),
+    failed: t('失败'),
   };
   return map[value] || value;
 }
 
 function previewStatusLabel(value: string) {
   const map: Record<string, string> = {
-    not_required: t('legacy.no_conversion_needed'),
-    pending: t('legacy.waiting_to_generate'),
-    queued: t('legacy.queued_4dcbbcf'),
-    running: t('legacy.generating'),
-    succeeded: t('legacy.generated'),
-    failed: t('legacy.failed_to_generate'),
+    not_required: t('无需转换'),
+    pending: t('等待生成'),
+    queued: t('排队中'),
+    running: t('生成中'),
+    succeeded: t('已生成'),
+    failed: t('生成失败'),
   };
   return map[value] || value;
 }
@@ -586,7 +598,7 @@ async function loadChunks() {
       keyword: chunkKeyword.value.trim(),
       chunkStage,
     });
-    const items = result.items;
+    const items = result.data;
     if (targetChunk.value && !items.some((item) => item.chunkId === targetChunk.value?.chunkId)) {
       chunks.value = [targetChunk.value, ...items];
     } else {
@@ -594,7 +606,7 @@ async function loadChunks() {
     }
     chunkPagination.total = result.total;
   } catch (error) {
-    window.alert(readError(error, t('legacy.failed_to_load_segments')));
+    window.alert(readError(error, t('分段加载失败')));
   } finally {
     chunksLoading.value = false;
   }
@@ -699,44 +711,63 @@ function startPolling() {
   }, 5000);
 }
 
+/** 判断文档预览状态是否仍在进行中（用于决定是否轮询）。 */
+function isConvertingStatus(status?: string): boolean {
+  return CONVERTING_STATUSES.includes(status ?? '');
+}
+
+/** 处理 PDF 预览的转换状态：进行中则启动轮询并返回 true，失败则抛出错误。 */
+function handlePdfPreviewState(): boolean {
+  const status = document.value?.previewStatus;
+  const convertedOfficeFile = OFFICE_EXTENSIONS.includes(String(document.value?.fileExt || '').toLowerCase());
+  if (convertedOfficeFile && isConvertingStatus(status)) {
+    isConverting.value = true;
+    startPolling();
+    return true;
+  }
+  if (convertedOfficeFile && status === 'failed') {
+    throw new Error(document.value?.previewError || t('预览文件生成失败'));
+  }
+  return false;
+}
+
+/** 拉取非 PDF 文档的二进制预览内容，并按预览类型读取文本正文。 */
+async function loadPreviewBlob(): Promise<void> {
+  const response = await apiClient.get<Blob>(`/api/v1/knowledge/documents/${documentId.value}/preview`, {
+    responseType: 'blob',
+    timeout: 120000,
+  });
+  const blob = response.data;
+  objectUrl.value = URL.createObjectURL(blob);
+  if (previewKind.value === 'text' || previewKind.value === 'markdown' || previewKind.value === 'html') {
+    textContent.value = await blob.text();
+  } else {
+    textContent.value = '';
+  }
+}
+
+/** 409 冲突且文档仍在转换中时返回 true，表示应转入轮询而不是抛错。 */
+function handlePreviewConflict(error: unknown): boolean {
+  if (!axios.isAxiosError(error) || error.response?.status !== 409) return false;
+  return isConvertingStatus(document.value?.previewStatus);
+}
+
 async function loadBlob() {
   isConverting.value = false;
   try {
     revokeObjectUrl();
     if (previewKind.value === 'pdf') {
-      const status = document.value?.previewStatus;
-      const convertedOfficeFile = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx']
-        .includes(String(document.value?.fileExt || '').toLowerCase());
-      if (convertedOfficeFile && ['pending', 'queued', 'running'].includes(String(status))) {
-        isConverting.value = true;
-        startPolling();
-        return;
-      }
-      if (convertedOfficeFile && status === 'failed') {
-        throw new Error(document.value?.previewError || t('additional.failed_to_generate_preview_file'));
-      }
+      const converting = handlePdfPreviewState();
+      if (converting) return;
       objectUrl.value = knowledgeDocumentPreviewUrl(documentId.value);
       return;
     }
-    const response = await apiClient.get<Blob>(`/api/knowledge/documents/${documentId.value}/preview`, {
-      responseType: 'blob',
-      timeout: 120000,
-    });
-    const blob = response.data;
-    objectUrl.value = URL.createObjectURL(blob);
-    if (previewKind.value === 'text' || previewKind.value === 'markdown' || previewKind.value === 'html') {
-      textContent.value = await blob.text();
-    } else {
-      textContent.value = '';
-    }
+    await loadPreviewBlob();
   } catch (error) {
-    if (axios.isAxiosError(error) && error.response?.status === 409) {
-      const status = document.value?.previewStatus;
-      if (status === 'pending' || status === 'queued' || status === 'running') {
-        isConverting.value = true;
-        startPolling();
-        return;
-      }
+    if (handlePreviewConflict(error)) {
+      isConverting.value = true;
+      startPolling();
+      return;
     }
     throw error;
   }
@@ -744,7 +775,7 @@ async function loadBlob() {
 
 async function reload() {
   if (!documentId.value) {
-    errorText.value = t('additional.invalid_document_id');
+    errorText.value = t('文档 ID 无效');
     return;
   }
   loading.value = true;
@@ -752,7 +783,7 @@ async function reload() {
   try {
     document.value = await fetchKnowledgeDocument(documentId.value);
   } catch (error) {
-    errorText.value = readError(error, t('additional.failed_to_load_document_details'));
+    errorText.value = readError(error, t('文档详情加载失败'));
     loading.value = false;
     return;
   }
@@ -764,7 +795,7 @@ async function reload() {
     await loadBlob();
     await applySourceTarget();
   } catch (error) {
-    errorText.value = readError(error, t('additional.failed_to_load_document_preview'));
+    errorText.value = readError(error, t('文档预览加载失败'));
   } finally {
     loading.value = false;
   }
@@ -775,14 +806,14 @@ async function retryParse() {
     return;
   }
   try {
-    document.value = await retryKnowledgeDocument(document.value);
+    document.value = await retryKnowledgeDocumentParse(document.value.id);
     activePanel.value = 'detail';
     chunks.value = [];
     chunkPagination.page = 1;
     chunkPagination.total = 0;
     startPolling();
   } catch (error) {
-    window.alert(readError(error, t('additional.failed_to_relearn')));
+    window.alert(readError(error, t('重新学习失败')));
   }
 }
 
@@ -792,7 +823,7 @@ async function downloadFile() {
   }
   downloading.value = true;
   try {
-    const response = await apiClient.get<Blob>(`/api/knowledge/documents/${document.value.id}/content`, {
+    const response = await apiClient.get<Blob>(`/api/v1/knowledge/documents/${document.value.id}/content`, {
       responseType: 'blob',
       timeout: 180000,
     });
@@ -806,7 +837,7 @@ async function downloadFile() {
     link.remove();
     URL.revokeObjectURL(url);
   } catch (error) {
-    window.alert(readError(error, t('additional.failed_to_download_file')));
+    window.alert(readError(error, t('文件下载失败')));
   } finally {
     downloading.value = false;
   }
@@ -866,12 +897,12 @@ watch(documentId, (next, previous) => {
 
 <style scoped>
 .preview-page {
-  height: calc(100vh - 65px);
+  height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 12px;
+  padding: var(--mg-page-padding-y) var(--mg-page-padding-x);
 }
 
 .preview-toolbar {
@@ -880,9 +911,9 @@ watch(documentId, (next, previous) => {
   justify-content: space-between;
   gap: 18px;
   padding: 14px 16px;
-  border: 1px solid #e6ebf5;
+  border: 1px solid var(--mg-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--mg-bg-surface);
   box-shadow: 0 4px 14px rgba(16, 38, 84, 0.05);
 }
 
@@ -905,7 +936,7 @@ watch(documentId, (next, previous) => {
 }
 
 .title-icon {
-  color: #366aff;
+  color: var(--mg-brand);
 }
 
 .title-icon svg,
@@ -922,7 +953,7 @@ watch(documentId, (next, previous) => {
 .page-title {
   min-width: 0;
   overflow: hidden;
-  color: #17233d;
+  color: var(--mg-text-1);
   font-size: 16px;
   font-weight: 800;
   text-overflow: ellipsis;
@@ -931,7 +962,7 @@ watch(documentId, (next, previous) => {
 
 .page-meta {
   margin-top: 4px;
-  color: #687789;
+  color: var(--mg-text-2);
   font-size: 12px;
 }
 
@@ -950,9 +981,9 @@ watch(documentId, (next, previous) => {
 .preview-shell {
   min-height: 0;
   overflow: hidden;
-  border: 1px solid #e6ebf5;
+  border: 1px solid var(--mg-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--mg-bg-surface);
 }
 
 .preview-shell :deep(.n-spin-container),
@@ -983,9 +1014,9 @@ watch(documentId, (next, previous) => {
   align-items: center;
   gap: 8px;
   padding: 8px 6px;
-  border: 1px solid #e6ebf5;
+  border: 1px solid var(--mg-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--mg-bg-surface);
   box-shadow: 0 4px 14px rgba(16, 38, 84, 0.04);
 }
 
@@ -999,16 +1030,16 @@ watch(documentId, (next, previous) => {
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
-  color: #687789;
+  color: var(--mg-text-2);
   cursor: pointer;
   transition: color 0.16s ease, background 0.16s ease, border-color 0.16s ease;
 }
 
 .rail-button:hover,
 .rail-button.active {
-  border-color: #dbe6ff;
-  background: #f1f5ff;
-  color: #366aff;
+  border-color: var(--mg-brand-soft-border);
+  background: var(--mg-brand-soft);
+  color: var(--mg-brand);
 }
 
 .rail-button svg {
@@ -1030,7 +1061,7 @@ watch(documentId, (next, previous) => {
   padding: 0 4px;
   border: 1px solid #fff;
   border-radius: 999px;
-  background: #366aff;
+  background: var(--mg-brand);
   color: #fff;
   font-size: 10px;
   line-height: 14px;
@@ -1040,9 +1071,9 @@ watch(documentId, (next, previous) => {
 .detail-card {
   min-height: 0;
   padding: 16px;
-  border: 1px solid #e6ebf5;
+  border: 1px solid var(--mg-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--mg-bg-surface);
   box-shadow: 0 4px 14px rgba(16, 38, 84, 0.04);
 }
 
@@ -1052,25 +1083,14 @@ watch(documentId, (next, previous) => {
   display: flex;
   flex-direction: column;
   padding: 14px;
-  border: 1px solid #e6ebf5;
+  border: 1px solid var(--mg-border);
   border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 4px 14px rgba(16, 38, 84, 0.04);
-}
-
-.permission-card {
-  min-height: 0;
-  height: 100%;
-  overflow-y: auto;
-  padding: 16px;
-  border: 1px solid #e6ebf5;
-  border-radius: 8px;
-  background: #fff;
+  background: var(--mg-bg-surface);
   box-shadow: 0 4px 14px rgba(16, 38, 84, 0.04);
 }
 
 .detail-card-title {
-  color: #17233d;
+  color: var(--mg-text-1);
   font-size: 15px;
   font-weight: 800;
 }
@@ -1084,17 +1104,17 @@ watch(documentId, (next, previous) => {
 
 .chunks-subtitle {
   margin-top: 4px;
-  color: #7a8797;
+  color: var(--mg-text-3);
   font-size: 12px;
 }
 
 .source-target-card {
   margin-top: 12px;
   padding: 12px;
-  border: 1px solid #cfe0ff;
+  border: 1px solid var(--mg-brand-soft-border);
   border-radius: 8px;
-  background: linear-gradient(180deg, #f7faff 0%, #ffffff 100%);
-  box-shadow: 0 8px 20px rgba(54, 106, 255, 0.08);
+  background: var(--mg-gradient-empty);
+  box-shadow: var(--mg-shadow-sm);
 }
 
 .source-target-head {
@@ -1110,8 +1130,8 @@ watch(documentId, (next, previous) => {
   align-items: center;
   justify-content: center;
   border-radius: 6px;
-  color: #366aff;
-  background: #eaf1ff;
+  color: var(--mg-brand);
+  background: var(--mg-brand-soft);
 }
 
 .source-target-icon svg {
@@ -1125,7 +1145,7 @@ watch(documentId, (next, previous) => {
 }
 
 .source-target-title {
-  color: #17233d;
+  color: var(--mg-text-1);
   font-size: 13px;
   font-weight: 800;
 }
@@ -1142,16 +1162,16 @@ watch(documentId, (next, previous) => {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
-  background: #eef4ff;
+  background: var(--mg-brand-soft);
   padding: 0 8px;
-  color: #3158bc;
+  color: var(--mg-brand-text);
   font-size: 12px;
   font-weight: 700;
 }
 
 .source-target-path {
   margin-top: 8px;
-  color: #687789;
+  color: var(--mg-text-2);
   font-size: 12px;
   line-height: 1.6;
 }
@@ -1162,7 +1182,7 @@ watch(documentId, (next, previous) => {
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
-  color: #24324a;
+  color: var(--mg-text-1);
   font-family: inherit;
   font-size: 13px;
   line-height: 1.7;
@@ -1170,7 +1190,7 @@ watch(documentId, (next, previous) => {
 
 .source-target-loading {
   margin-top: 8px;
-  color: #7a8797;
+  color: var(--mg-text-3);
   font-size: 12px;
 }
 
@@ -1182,7 +1202,7 @@ watch(documentId, (next, previous) => {
   display: inline-flex;
   width: 15px;
   height: 15px;
-  color: #8a96a8;
+  color: var(--mg-text-3);
 }
 
 .input-icon svg {
@@ -1216,14 +1236,14 @@ watch(documentId, (next, previous) => {
 
 .chunk-item {
   padding: 12px;
-  border: 1px solid #e8eef7;
+  border: 1px solid var(--mg-border);
   border-radius: 8px;
-  background: #fbfdff;
+  background: var(--mg-bg-surface);
 }
 
 .chunk-item.is-target {
-  border-color: #366aff;
-  background: #f5f8ff;
+  border-color: var(--mg-brand);
+  background: var(--mg-brand-soft);
   box-shadow: 0 10px 24px rgba(54, 106, 255, 0.14);
 }
 
@@ -1235,7 +1255,7 @@ watch(documentId, (next, previous) => {
 }
 
 .chunk-index {
-  color: #366aff;
+  color: var(--mg-brand);
   font-size: 12px;
   font-weight: 800;
 }
@@ -1256,8 +1276,8 @@ watch(documentId, (next, previous) => {
   align-items: center;
   padding: 0 7px;
   border-radius: 999px;
-  background: #eef4ff;
-  color: #456083;
+  background: var(--mg-brand-soft);
+  color: var(--mg-text-2);
   font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1265,8 +1285,8 @@ watch(documentId, (next, previous) => {
 }
 
 .chunk-badge-image {
-  background: #e9f8ef;
-  color: #18794e;
+  background: var(--mg-success-bg);
+  color: var(--mg-success-text);
 }
 
 .chunk-image-button {
@@ -1275,16 +1295,16 @@ watch(documentId, (next, previous) => {
   align-items: center;
   gap: 4px;
   padding: 0 8px;
-  border: 1px solid #b8caff;
+  border: 1px solid var(--mg-brand-soft-border);
   border-radius: 6px;
-  background: #fff;
-  color: #366aff;
+  background: var(--mg-bg-surface);
+  color: var(--mg-brand);
   font-size: 11px;
   cursor: pointer;
 }
 
 .chunk-image-button:hover {
-  background: #f1f5ff;
+  background: var(--mg-brand-soft);
 }
 
 .chunk-image-button svg {
@@ -1303,7 +1323,7 @@ watch(documentId, (next, previous) => {
   max-height: 90vh;
   padding: 12px;
   border-radius: 8px;
-  background: #fff;
+  background: var(--mg-bg-surface);
   box-shadow: 0 24px 64px rgba(15, 23, 42, 0.28);
 }
 
@@ -1332,7 +1352,7 @@ watch(documentId, (next, previous) => {
 
 .chunk-title-path {
   margin-top: 8px;
-  color: #516071;
+  color: var(--mg-text-2);
   font-size: 12px;
   font-weight: 650;
   line-height: 1.5;
@@ -1343,7 +1363,7 @@ watch(documentId, (next, previous) => {
   max-height: 220px;
   margin: 9px 0 0;
   overflow: auto;
-  color: #25324a;
+  color: var(--mg-text-2);
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 12px;
   line-height: 1.65;
@@ -1368,8 +1388,8 @@ watch(documentId, (next, previous) => {
   height: 44px;
   place-items: center;
   border-radius: 10px;
-  background: #eef4ff;
-  color: #366aff;
+  background: var(--mg-brand-soft);
+  color: var(--mg-brand);
 }
 
 .empty-icon svg {
@@ -1387,14 +1407,14 @@ watch(documentId, (next, previous) => {
 }
 
 .empty-title {
-  color: #17233d;
+  color: var(--mg-text-1);
   font-size: 14px;
   font-weight: 800;
 }
 
 .empty-copy {
   max-width: 260px;
-  color: #687789;
+  color: var(--mg-text-2);
   font-size: 12px;
   line-height: 1.6;
 }
@@ -1428,14 +1448,14 @@ watch(documentId, (next, previous) => {
 }
 
 .meta-row span {
-  color: #7a8797;
+  color: var(--mg-text-3);
   font-size: 12px;
 }
 
 .meta-row strong {
   min-width: 0;
   overflow: hidden;
-  color: #23324f;
+  color: var(--mg-text-1);
   font-size: 13px;
   font-weight: 650;
   text-overflow: ellipsis;
@@ -1449,7 +1469,7 @@ watch(documentId, (next, previous) => {
   display: grid;
   place-items: center;
   padding: 24px;
-  background: #f8fafc;
+  background: var(--mg-bg-subtle);
 }
 
 .image-preview img {
@@ -1464,8 +1484,8 @@ watch(documentId, (next, previous) => {
   margin: 0;
   overflow: auto;
   padding: 24px;
-  color: #17233d;
-  background: #fbfdff;
+  color: var(--mg-text-1);
+  background: var(--mg-bg-surface);
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 13px;
   line-height: 1.7;
@@ -1490,7 +1510,7 @@ watch(documentId, (next, previous) => {
   gap: 12px;
   padding: 32px;
   text-align: center;
-  background: #f8fafc;
+  background: var(--mg-bg-subtle);
 }
 
 .converting-icon {
@@ -1499,8 +1519,8 @@ watch(documentId, (next, previous) => {
   height: 56px;
   place-items: center;
   border-radius: 12px;
-  background: #eaf0ff;
-  color: #366aff;
+  background: var(--mg-brand-soft);
+  color: var(--mg-brand);
 }
 
 .converting-icon svg {
@@ -1527,14 +1547,14 @@ watch(documentId, (next, previous) => {
 }
 
 .converting-title {
-  color: #17233d;
+  color: var(--mg-text-1);
   font-size: 16px;
   font-weight: 800;
 }
 
 .converting-copy {
   max-width: 420px;
-  color: #687789;
+  color: var(--mg-text-2);
   font-size: 13px;
   line-height: 1.6;
 }
@@ -1543,7 +1563,7 @@ watch(documentId, (next, previous) => {
   height: 100%;
   display: grid;
   place-items: center;
-  background: #f8fafc;
+  background: var(--mg-bg-subtle);
 }
 
 .unsupported-icon {
@@ -1552,8 +1572,8 @@ watch(documentId, (next, previous) => {
   height: 56px;
   place-items: center;
   border-radius: 12px;
-  background: #eaf0ff;
-  color: #366aff;
+  background: var(--mg-brand-soft);
+  color: var(--mg-brand);
 }
 
 .unsupported-icon svg {
@@ -1567,14 +1587,14 @@ watch(documentId, (next, previous) => {
 }
 
 .unsupported-title {
-  color: #17233d;
+  color: var(--mg-text-1);
   font-size: 16px;
   font-weight: 800;
 }
 
 .unsupported-copy {
   max-width: 420px;
-  color: #687789;
+  color: var(--mg-text-2);
   font-size: 13px;
   line-height: 1.6;
 }
@@ -1590,30 +1610,21 @@ watch(documentId, (next, previous) => {
 .header-doc-title {
   font-size: 14px;
   font-weight: 700;
-  color: #1f2d3d;
+  color: var(--mg-text-1);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   line-height: 1.2;
 }
 
-html.dark .header-doc-title {
-  color: #e2e8f0;
-}
-
 .header-doc-meta {
   font-size: 11px;
-  color: #8892a0;
-  background: #f1f3f6;
+  color: var(--mg-text-3);
+  background: var(--mg-bg-subtle);
   padding: 2px 6px;
   border-radius: 4px;
   white-space: nowrap;
   line-height: 1;
-}
-
-html.dark .header-doc-meta {
-  background: #232a35;
-  color: #718096;
 }
 
 @media (max-width: 1440px) {

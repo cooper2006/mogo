@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field
@@ -23,8 +23,8 @@ class BrowserAuthSuspension(BaseModel):
     status: str = "waiting_human"
     ready_url: str = ""
     ready_source: str = ""
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
 
 
 class BrowserAuthSuspensionStore:

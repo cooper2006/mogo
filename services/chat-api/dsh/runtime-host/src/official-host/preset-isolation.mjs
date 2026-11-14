@@ -21,7 +21,13 @@ function containsPresetRoster(patch) {
 export function extractOfficialPresetIsolation(webAppPatches) {
   const rosterIndex = webAppPatches.findIndex(containsPresetRoster)
   if (rosterIndex < 0) {
-    throw new Error('DSH Web patch no longer contains the agent-presets roster')
+    // 0.1.7-rc.2 起 agent 平面隔离改由 dsh-web-app 的 agent-preset-registry roster +
+    // presets/*.patch.yml 承载，旧的 agent-presets roster 行已被移除，
+    // 官方 preset-isolation 块不再适用；返回空块，preset roots 由 overlay 直接生效。
+    return Object.freeze({
+      patches: Object.freeze([]),
+      disabledIds: Object.freeze([]),
+    })
   }
 
   const reversed = []

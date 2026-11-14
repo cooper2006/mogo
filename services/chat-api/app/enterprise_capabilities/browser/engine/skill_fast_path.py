@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
@@ -130,6 +131,7 @@ async def execute_skill_fast_path(
     except AgentNotConnected:
         return None
     except Exception as exc:
+        log_print(f"[enterprise_capabilities.browser.engine.skill_fast_path.execute_skill_fast_path] suppressed {type(exc).__name__}: {exc}", flush=True)
         return SkillFastPathResult(status="unknown", result={"reason": f"fast-path-dispatch: {exc}"})
     if not bool(envelope.get("ok")):
         return SkillFastPathResult(

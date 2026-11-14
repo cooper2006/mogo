@@ -7,6 +7,13 @@ from .schema import BrowserActionSpec, ContractResult
 
 
 def _validate(data: Dict[str, Any]) -> ContractResult:
+    """Synchronous schema check only.
+
+    The authoritative outbound-allowlist landing verdict for ``final_url`` is
+    ``verify_landing_url`` below, which is async because it must read the
+    allowlist and write the audit event; ``_validate`` intentionally stays a
+    cheap, side-effect-free shape check that the desktop agent runs inline.
+    """
     if not isinstance(data, dict):
         return ContractResult(ok=False, reason="browser_done.data must be an object", missing=["final_url"])
     final_url = str(data.get("final_url") or "").strip()
@@ -23,6 +30,33 @@ def _validate(data: Dict[str, Any]) -> ContractResult:
             missing=["final_url"],
         )
     return ContractResult(ok=True)
+
+
+async def verify_landing_url(
+    final_url: str,
+    *,
+    tenant_id: str,
+    user_id: str,
+    action_id: str,
+    tool_or_capability: str = "browser.navigate",
+):
+    """038: outbound-allowlist verdict on the URL navigation actually landed on.
+
+    A navigate may start on an allowlisted URL and be redirected anywhere; the
+    real risk is the *landing* URL, so it is re-judged here (fail-closed) and
+    the result is audited. A non-allowed landing is a redirect escape.
+    """
+    from ....tools.egress_guard import egress_guard
+
+    decision = await egress_guard.check(url=final_url, tenant_id=tenant_id)
+    await egress_guard.audit(
+        decision,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        action_id=action_id,
+        tool_or_capability=tool_or_capability,
+    )
+    return decision
 
 
 SPEC = BrowserActionSpec(

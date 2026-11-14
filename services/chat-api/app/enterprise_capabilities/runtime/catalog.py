@@ -5,9 +5,6 @@ import json
 from typing import Any
 
 from .contracts import CapabilityDefinition
-from app.knowledge_references.capability import browse_definition
-from app.execution_isolation.script_approval_policy import script_requires_approval
-from app.enterprise_capabilities.data.script_environment_help import SCRIPT_ENVIRONMENT_HELP
 from app.enterprise_capabilities.spreadsheets import workbook_input_schema
 from app.enterprise_capabilities.content import (
     content_production_input_schema,
@@ -135,7 +132,7 @@ class InternalCapabilityCatalog:
                     "for example @publisher/skill-name. Pass that exact coordinate; optionally pass "
                     "an exact version. If the request also contains skillhub.cn/install/skillhub.md, "
                     "treat it as installation guidance and call this tool directly instead of fetching "
-                    "that page or printing CLI commands. The tool downloads through MOVO, validates the package, and "
+                    "that page or printing CLI commands. The tool downloads through MOGO, validates the package, and "
                     "uses the same personal Skill persistence path as ZIP installation. Never use "
                     "this tool to create an organization Skill."
                 ),
@@ -155,31 +152,13 @@ class InternalCapabilityCatalog:
             ),
             _definition(
                 capability_ref="knowledge.search@v1", tool_name="knowledge_search", domain="knowledge",
-                display_name="企业知识检索",
-                description="Search the server-configured enterprise knowledge source for enterprise-specific facts, policies or documents. The source may be MOVO or an authorized external knowledge service. Use web_search for public information. Tenant and knowledge scope are injected by MOVO; never supply them as arguments.",
+                display_name="内部知识检索",
+                description="Search MOGO's server-authorized internal knowledge for enterprise-specific facts, policies, documents, or prior internal context. Use web_search for a bounded public lookup, progressive_research for multi-source public research, and combine internal and public evidence only when the user asks for a comparison. Tenant and knowledge-base scope are injected by MOGO; never ask for or supply them as arguments.",
                 input_schema=_object({
                     "query": {"type": "string", "minLength": 1},
                     "top_n": {"type": "integer", "minimum": 1, "maximum": 20},
                     "rerank": {"type": "boolean"},
                 }, ("query",)),
-            ),
-            browse_definition(_definition, _object),
-            _definition(
-                capability_ref="knowledge.read_document@v1", tool_name="knowledge_read_document", domain="knowledge",
-                display_name="读取指定知识文档",
-                description=(
-                    "Read an explicitly selected, authorized MOVO knowledge document in source order. "
-                    "Use the scope and source_id supplied in user materials, directory listings, or the active Skill. Read every page by passing "
-                    "next_cursor.offset and next_cursor.char_offset until has_more is false. "
-                    "This reads ordered text rather than similarity-search snippets. If parsing failed or text is unavailable, it parses the authorized original on demand; learning status does not prevent reading."
-                ),
-                input_schema=_object({
-                    "scope": {"type": "string", "enum": ["personal", "organization"]},
-                    "source_id": {"type": "string", "minLength": 1},
-                    "offset": {"type": "integer", "minimum": 0},
-                    "char_offset": {"type": "integer", "minimum": 0},
-                    "max_chars": {"type": "integer", "minimum": 1000, "maximum": 5000},
-                }, ("scope", "source_id")),
             ),
             _definition(
                 capability_ref="document.review_source@v1", tool_name="document_review_source", domain="document",
@@ -212,7 +191,7 @@ class InternalCapabilityCatalog:
             ),
             _definition(
                 capability_ref="document.parse@v1", tool_name="document_parse", domain="document",
-                display_name="读取材料", description="Parse referenced PDF, DOCX, XLSX, PPTX, CSV, Markdown or text documents through MOVO's document service.",
+                display_name="读取材料", description="Parse referenced PDF, DOCX, XLSX, PPTX, CSV, Markdown or text documents through MOGO's document service.",
                 input_schema=_object({"artifacts": {"type": "array", "items": artifact, "minItems": 1}, "purpose": {"type": "string"}}, ("artifacts",)),
                 timeout_ms=120_000,
             ),
@@ -242,19 +221,19 @@ class InternalCapabilityCatalog:
             ),
             _definition(
                 capability_ref="vision.extract_facts@v1", tool_name="image_extract_facts", domain="vision",
-                display_name="图片事实提取", description="Use MOVO's governed vision service to extract facts from referenced images.",
+                display_name="图片事实提取", description="Use MOGO's governed vision service to extract facts from referenced images.",
                 input_schema=_object({"images": {"type": "array", "items": artifact, "minItems": 1}, "question": {"type": "string"}}, ("images",)),
                 timeout_ms=120_000,
             ),
             _definition(
                 capability_ref="research.collect_url@v1", tool_name="web_collect", domain="research",
-                display_name="网页采集", description="Collect explicit HTTP(S) URLs with MOVO's bounded direct fetcher. It reads ordinary HTML/text, downloads remote documents and images as governed artifacts, and uses Firecrawl only as an optional fallback for blocked, JavaScript-only, or empty pages.",
+                display_name="网页采集", description="Collect explicit HTTP(S) URLs with MOGO's bounded direct fetcher. It reads ordinary HTML/text, downloads remote documents and images as governed artifacts, and uses Firecrawl only as an optional fallback for blocked, JavaScript-only, or empty pages.",
                 input_schema=_object({"urls": {"type": "array", "items": {"type": "string", "format": "uri"}, "minItems": 1, "maxItems": 10}}, ("urls",)),
                 timeout_ms=120_000,
             ),
             _definition(
                 capability_ref="research.search_web@v1", tool_name="external_search", domain="research",
-                display_name="外部搜索 Provider", description="Internal MOVO search-provider primitive used by DSH native web_search. It is not exposed as a second model-facing search tool.",
+                display_name="外部搜索 Provider", description="Internal MOGO search-provider primitive used by DSH native web_search. It is not exposed as a second model-facing search tool.",
                 input_schema=_object({
                     "queries": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1, "maxItems": 8},
                     "max_results_per_query": {"type": "integer", "minimum": 1, "maximum": 20},
@@ -283,7 +262,7 @@ class InternalCapabilityCatalog:
             ),
             _definition(
                 capability_ref="artifact.table_generate@v1", tool_name="table_generate", domain="artifact",
-                display_name="生成电子表格", description="Render a governed XLSX artifact from a structured workbook specification using MOVO's spreadsheet service. Set delivery_scope=final only when the user explicitly requests a spreadsheet/data attachment; set delivery_scope=intermediate when a downstream workflow needs XLSX but the user did not request it as a separate attachment. Tables or charts embedded inside a report, article, presentation, or ordinary answer do not authorize a separate spreadsheet artifact.",
+                display_name="生成电子表格", description="Render a governed XLSX artifact from a structured workbook specification using MOGO's spreadsheet service. Set delivery_scope=final only when the user explicitly requests a spreadsheet/data attachment; set delivery_scope=intermediate when a downstream workflow needs XLSX but the user did not request it as a separate attachment. Tables or charts embedded inside a report, article, presentation, or ordinary answer do not authorize a separate spreadsheet artifact.",
                 input_schema=_object({
                     "workbook": workbook_input_schema(), "filename": {"type": "string"},
                     "delivery_scope": {"type": "string", "enum": ["final", "intermediate"]},
@@ -292,7 +271,7 @@ class InternalCapabilityCatalog:
             _definition(
                 capability_ref="presentation.create@v1", tool_name="presentation_create", domain="presentation",
                 display_name="生成PPT",
-                description="Create one complete presentation through MOVO's governed PresentationPipeline. Each slide is a full-page generated image; text inside it is not an individually editable text box. Pass only the business brief, exact slide count when explicitly requested, audience and design intent; never construct, guess, export, or trial internal Blueprint JSON yourself. The Tool owns story planning, page composition, visuals, quality checks, HTML preview and slide-image Blueprint persistence. When accepted=true, use the single returned presentation artifact and do not call artifact_export to create another deck.",
+                description="Create one complete, editable presentation through MOGO's governed PresentationPipeline. Pass only the business brief, exact slide count when explicitly requested, audience and design intent; never construct, guess, export, or trial internal Blueprint JSON yourself. The Tool owns story planning, page composition, visuals, quality checks, HTML preview and editable Blueprint persistence. When accepted=true, use the single returned presentation artifact and do not call artifact_export to create another deck.",
                 input_schema=presentation_create_input_schema(),
                 output_schema=presentation_create_output_schema(),
                 timeout_ms=PRESENTATION_CREATION_TOTAL_TIMEOUT_MS,
@@ -302,7 +281,7 @@ class InternalCapabilityCatalog:
             ),
             _definition(
                 capability_ref="artifact.export@v1", tool_name="artifact_export", domain="artifact",
-                display_name="导出交付物", description="Export an already-authored deliverable: render final Markdown to DOCX, PDF or Markdown; render a structured workbook to XLSX; or compile an existing MOVO presentation Blueprint to PPTX. If an earlier tool already returned a user-facing downloadable artifact, deliver that artifact without exporting it again. A file written only to a DSH workspace is not a downloadable artifact; use its supported delivery flow instead of passing a workspace or temporary path as blueprint_object_path. For PPTX export, blueprint_object_path must come from an existing MOVO presentation Blueprint owned by the current user. Never use this Tool to create a presentation, invent a Blueprint, probe Blueprint schemas, or generate intermediate files; use presentation_create for every user request to create a deck.",
+                display_name="导出交付物", description="Export an already-authored deliverable: render final Markdown to DOCX, PDF or Markdown; render a structured workbook to XLSX; or compile an existing MOGO presentation Blueprint to PPTX. Never use this Tool to create a presentation, invent a Blueprint, probe Blueprint schemas, or generate intermediate files; use presentation_create for every user request to create a deck.",
                 input_schema=_object({
                     "format": {"type": "string", "enum": ["docx", "pdf", "md", "pptx", "xlsx"]},
                     "markdown": {"type": "string"}, "blueprint_object_path": {"type": "string"},
@@ -314,7 +293,7 @@ class InternalCapabilityCatalog:
             _definition(
                 capability_ref="content.produce@v1", tool_name="content_production", domain="content",
                 display_name="内容生产",
-                description="Use MOVO's governed long-form production pipeline only when the requested deliverable needs document-scale structure, writing-style governance, illustrations, validation/rewrite, or long-form assembly. Decide semantically from the complete delivery requirements, never from keywords such as email, report, article, or summary. Produce ordinary short content yourself without this tool. The pipeline supports only single-pass long-form and sectional ultra-long-form production, and automatically consumes research evidence produced earlier in the same execution. Return its Markdown faithfully; do not rewrite it. When accepted=true, the governed deliverable is final for this user message and must not be independently re-measured or regenerated. When accepted=false, use acceptance.reasons and retry only when retry_allowed=true.",
+                description="Use MOGO's governed long-form production pipeline only when the requested deliverable needs document-scale structure, writing-style governance, illustrations, validation/rewrite, or long-form assembly. Decide semantically from the complete delivery requirements, never from keywords such as email, report, article, or summary. Produce ordinary short content yourself without this tool. The pipeline supports only single-pass long-form and sectional ultra-long-form production, and automatically consumes research evidence produced earlier in the same execution. Return its Markdown faithfully; do not rewrite it. When accepted=true, the governed deliverable is final for this user message and must not be independently re-measured or regenerated. When accepted=false, use acceptance.reasons and retry only when retry_allowed=true.",
                 input_schema=content_production_input_schema(),
                 output_schema=content_production_output_schema(),
                 timeout_ms=CONTENT_PRODUCTION_TOTAL_TIMEOUT_MS,
@@ -326,7 +305,7 @@ class InternalCapabilityCatalog:
             _definition(
                 capability_ref="image.generate@v1", tool_name="generate_images", domain="image",
                 display_name="生成图片",
-                description="Generate and persist real image assets through MOVO's administrator-configured image model. This is one provider-neutral capability: never choose or name Qwen, OpenAI, Azure, or another provider. Use it whenever the user asks for actual images, illustrations, or article visuals; do not substitute image suggestions or prompts. Submit one distinct image specification per requested image, then embed each returned Markdown image reference at its intended placement. If the user asks only for image ideas or prompts, answer directly without this tool.",
+                description="Generate and persist real image assets through MOGO's administrator-configured image model. This is one provider-neutral capability: never choose or name Qwen, OpenAI, Azure, or another provider. Use it whenever the user asks for actual images, illustrations, or article visuals; do not substitute image suggestions or prompts. Submit one distinct image specification per requested image, then embed each returned Markdown image reference at its intended placement. If the user asks only for image ideas or prompts, answer directly without this tool.",
                 input_schema=image_generation_input_schema(),
                 output_schema=image_generation_output_schema(),
                 timeout_ms=IMAGE_GENERATION_TOTAL_TIMEOUT_MS,
@@ -335,7 +314,7 @@ class InternalCapabilityCatalog:
             ),
             _definition(
                 capability_ref="document.transform@v1", tool_name="document_transform", domain="document",
-                display_name="文档保真翻译", description="Translate an existing DOCX or XLSX artifact while preserving its structure and formatting through MOVO's tested in-place translation service.",
+                display_name="文档保真翻译", description="Translate an existing DOCX or XLSX artifact while preserving its structure and formatting through MOGO's tested in-place translation service.",
                 input_schema=_object({
                     "artifact": artifact, "source_language": {"type": "string"},
                     "target_language": {"type": "string"}, "filename": {"type": "string"},
@@ -343,15 +322,15 @@ class InternalCapabilityCatalog:
             ),
             _definition(
                 capability_ref="document.fill_form@v1", tool_name="table_fill", domain="document",
-                display_name="填写文档表单", description="Fill an existing DOCX or XLSX template with user-provided facts while preserving formatting through MOVO's tested form service.",
+                display_name="填写文档表单", description="Fill an existing DOCX or XLSX template with user-provided facts while preserving formatting through MOGO's tested form service.",
                 input_schema=_object({
                     "artifact": artifact, "facts": {"type": "string", "minLength": 1},
                     "overwrite": {"type": "boolean"}, "filename": {"type": "string"},
-                }, ("artifact", "facts")), risk_level="write", timeout_ms=300_000, idempotent=False,
+                }, ("artifact", "facts")), risk_level="write", approval_required=True, timeout_ms=300_000, idempotent=False,
             ),
             _definition(
                 capability_ref="browser.task@v1", tool_name="browser_task", domain="browser",
-                display_name="浏览器任务", description="Delegate one bounded public website mission to MOVO's native-CDP Browser Agent. For a new mission on a named website, supply its grounded absolute URL in target_url; omit target_url only when the task explicitly continues the browser's current live page. Never guess a URL from target_name. Use read when page content is needed, including when target_url is supplied; use navigate only when the requested outcome is opening a page. Internal MOVO artifact URLs are not browser targets: pass their object_path to the matching document or image tool. If the tool returns entry_url_required, repair the call by supplying target_url instead of asking the user to manipulate a blank page. The Browser Agent owns navigation, interaction, recovery, human assistance and effect verification.",
+                display_name="浏览器任务", description="Delegate one bounded public website mission to MOGO's native-CDP Browser Agent. For a new mission on a named website, supply its grounded absolute URL in target_url; omit target_url only when the task explicitly continues the browser's current live page. Never guess a URL from target_name. Use read when page content is needed, including when target_url is supplied; use navigate only when the requested outcome is opening a page. Internal MOGO artifact URLs are not browser targets: pass their object_path to the matching document or image tool. If the tool returns entry_url_required, repair the call by supplying target_url instead of asking the user to manipulate a blank page. The Browser Agent owns navigation, interaction, recovery, human assistance and effect verification.",
                 input_schema=_object({
                     "objective": {"type": "string", "minLength": 1},
                     "operation": {"type": "string", "enum": ["read", "navigate", "submit", "modify", "delete", "file_transfer", "publish"], "description": "Requested outcome. A target_url does not imply navigate: choose read whenever information must be returned."},
@@ -359,18 +338,18 @@ class InternalCapabilityCatalog:
                     "target_url": {"type": "string", "format": "uri", "description": "Grounded absolute entry URL. Required for a new named-site mission; omit only to continue the current live browser page."},
                     "inputs": {"type": "object"},
                 }, ("objective", "operation")), risk_level="dangerous", approval_required=False,
+                approval_argument="operation", approval_values=("submit", "modify", "delete", "file_transfer", "publish"),
                 timeout_ms=300_000, idempotent=False,
             ),
             _definition(
                 capability_ref="data.run_script@v1", tool_name="run_script", domain="data",
-                display_name="Code execution", description="Run ordinary Python or a run(inputs, context) plugin in MOVO's governed execution environment. When the task sandbox is enabled, all calls in the current turn share one writable work_dir; create intermediate files there and use output_dir for files to deliver. Current-turn attachments are available on every invocation. A manually selected packaged Skill is available in read-only skill_dir. In ordinary Python use input_files[0]['local_path'] (or input_dir) instead of searching the filesystem. UTF-8 stdout is supported directly; do not Base64-wrap text. Network access follows deployment policy; CPU, memory, files and artifact upload are governed. " + SCRIPT_ENVIRONMENT_HELP + " Set delivery_scope=final only when the user explicitly requested the generated file; use intermediate when the file only carries data into later workflow steps.",
+                display_name="受控脚本处理", description="Run ordinary Python or a run(inputs, context) plugin in MOGO's isolated subprocess sandbox. Current-turn attachments are mounted on every invocation. In ordinary Python use input_files[0]['local_path'] (or input_dir) instead of searching the filesystem. UTF-8 stdout is supported directly; do not Base64-wrap text. Network is disabled; CPU, memory, files and artifact upload are governed. Set delivery_scope=final only when the user explicitly requested the generated file; use intermediate when the file only carries data into later workflow steps.",
                 input_schema=_object({
-                    "code": {"type": "string", "minLength": 1, "description": "Ordinary Python is accepted directly. Use work_dir for downloads and intermediate files shared across calls; output_dir is per-call for deliverables. Use input_files for attachments, skill_dir for a selected packaged Skill, and inputs for supplied data. UTF-8 print output is returned directly."},
+                    "code": {"type": "string", "minLength": 1, "description": "Ordinary Python is accepted directly. Use input_files for mounted attachments, inputs for supplied data, and output_dir for generated files. UTF-8 print output is returned directly."},
                     "data": {"type": "object"},
                     "files": {"type": "array", "items": artifact},
                     "delivery_scope": {"type": "string", "enum": ["final", "intermediate"]},
-                }, ("code", "delivery_scope")), risk_level="dangerous",
-                approval_required=script_requires_approval(),
+                }, ("code", "delivery_scope")), risk_level="dangerous", approval_required=True,
                 timeout_ms=90_000, idempotent=False,
             ),
         )

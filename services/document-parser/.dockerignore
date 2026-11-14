@@ -17,3 +17,15 @@ runtime/
 tmp/
 temp/
 dist/
+
+# Local test/coverage output: never needed in the image, and .coverage +
+# coverage.json are large enough to slow every context upload.
+.coverage
+coverage.json
+tests/
+
+# Stray pip artefact (a shell redirect typo left behind by an install).
+=0.6.23
+
+# Derived by scripts/pip_wheels_bundle.sh at fetch time; regenerated on every run.
+.pip-wheels-staging/

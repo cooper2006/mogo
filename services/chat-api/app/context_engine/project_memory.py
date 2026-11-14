@@ -1,12 +1,13 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 from app.core.db import get_db
-from app.core.tenant import add_main_scope, resolve_main_id
+from app.core.tenant import add_tenant_scope, resolve_tenant_id
 
 
 def _tokens(text: str) -> List[str]:
@@ -48,21 +49,22 @@ class ProjectMemoryService:
         if not user_id:
             return []
         project_id = self._project_id(output_spec)
-        main_id = resolve_main_id(output_spec.get("main_id") or output_spec.get("mainId"))
+        tenant_id = resolve_tenant_id(output_spec.get("tenant_id") or output_spec.get("tenantId"))
         query_tokens = _tokens(query)
         try:
             db = get_db()
             project_filter = [project_id, "default"] if project_id != "default" else ["default"]
             raw = await db[self.collection_name].find(
-                add_main_scope({
+                add_tenant_scope({
                     "user_id": user_id,
                     "$or": [
                         {"project_id": {"$in": project_filter}},
                         {"scope": "global"},
                     ],
-                }, main_id)
+                }, tenant_id)
             ).sort("updated_at", -1).limit(80).to_list(length=80)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[context_engine.project_memory] silent exception caught: {exc}", flush=True)
             return []
         ranked: List[ProjectMemory] = []
         for row in raw:
@@ -96,14 +98,14 @@ class ProjectMemoryService:
         project_id: str,
         memories: List[Dict[str, Any]],
         source: str,
-        main_id: str = "default",
+        tenant_id: str = "default",
     ) -> None:
         uid = str(user_id or "").strip()
         if not uid:
             return
         pid = str(project_id or "default").strip() or "default"
-        mid = resolve_main_id(main_id)
-        now = datetime.utcnow()
+        mid = resolve_tenant_id(tenant_id)
+        now = datetime.now(timezone.utc)
         try:
             db = get_db()
             for item in list(memories or []):
@@ -115,11 +117,11 @@ class ProjectMemoryService:
                 memory_type = str(item.get("memory_type") or item.get("type") or "note").strip() or "note"
                 key = str(item.get("key") or self._make_key(memory_type, content)).strip()
                 await db[self.collection_name].update_one(
-                    {"user_id": uid, "main_id": mid, "project_id": pid, "key": key},
+                    {"user_id": uid, "tenant_id": mid, "project_id": pid, "key": key},
                     {
                         "$set": {
                             "user_id": uid,
-                            "main_id": mid,
+                            "tenant_id": mid,
                             "project_id": pid,
                             "scope": str(item.get("scope") or "project"),
                             "key": key,
@@ -132,7 +134,8 @@ class ProjectMemoryService:
                     },
                     upsert=True,
                 )
-        except Exception:
+        except Exception as exc:
+            log_print(f"[context_engine.project_memory] silent exception caught: {exc}", flush=True)
             return
 
     def format_memories(self, memories: List[ProjectMemory]) -> str:

@@ -1,7 +1,7 @@
 /** Shared Markdown projection for streaming and completed assistant content. */
 
+import DOMPurify from 'dompurify'
 import { projectSafeMarkdownLinks } from './safeMarkdownLinks'
-import { extractAssistantCodeBlocks } from './assistantCodeBlocks'
 
 function escapeHtml(value: string): string {
   return value
@@ -12,13 +12,79 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#039;')
 }
 
+// 统计正则匹配次数（无匹配时返回 0）。
+function countMatches(content: string, re: RegExp): number {
+  return content.match(re)?.length || 0
+}
+
+// Markdown 结构性信号：标题、列表、分隔线、hr 标签。
+function countMarkdownSignals(content: string): number {
+  return countMatches(content, /^#{1,6}\s+/gm)
+    + countMatches(content, /^\s*[-*]\s+/gm)
+    + countMatches(content, /^\s*[–—]\s+/gm)
+    + countMatches(content, /^\s*\d+\.\s+/gm)
+    + countMatches(content, /^\s*---+\s*$/gm)
+    + countMatches(content, /<hr\b[^>]*>/gi)
+}
+
+// 段落信号：句末标点与空行。
+function countParagraphSignals(content: string): number {
+  return countMatches(content, /[。！？.!?]\s*(?:\n|$)/g) + countMatches(content, /\n\s*\n/g)
+}
+
+// 代码信号：语言关键字、符号与 HTML 标签。
+function countCodeSignals(content: string): number {
+  return countMatches(content, /\b(function|class|const|let|var|def|import|return|if|else|for|while|try|catch)\b/g)
+    + countMatches(content, /[{};=]/g)
+    + countMatches(content, /<\s*(script|style|div|span|table|tr|td|th)\b/gi)
+}
+
+// 密集 Markdown 正文：结构信号足、段落信号存在、代码信号有限。
+function isDenseMarkdownProse(markdownSignals: number, paragraphSignals: number, codeSignals: number): boolean {
+  return markdownSignals >= 2 && paragraphSignals >= 1 && codeSignals <= 12
+}
+
+// 稀疏 Markdown 正文：结构信号多、代码信号有限。
+function isSparseMarkdownProse(markdownSignals: number, codeSignals: number): boolean {
+  return markdownSignals >= 3 && codeSignals <= 16
+}
+
+// 显式声明为纯文本语言时的正文判定。
+function isDeclaredTextProse(language: string, markdownSignals: number, codeSignals: number): boolean {
+  return ['', 'text', 'plaintext', 'markdown', 'md'].includes(language) && markdownSignals >= 1 && codeSignals <= 20
+}
+
+/** Detect if code block content is actually prose/markdown rather than code. */
+function isProseContent(content: string, language: string): boolean {
+  const markdownSignals = countMarkdownSignals(content)
+  const paragraphSignals = countParagraphSignals(content)
+  const codeSignals = countCodeSignals(content)
+  return isDenseMarkdownProse(markdownSignals, paragraphSignals, codeSignals)
+    || isSparseMarkdownProse(markdownSignals, codeSignals)
+    || isDeclaredTextProse(language, markdownSignals, codeSignals)
+}
+
+/** Render a fenced code block, detecting prose vs code. */
+function renderCodeBlock(content: string, language: string, stash: (html: string) => string): string {
+  const trimmed = content.trim()
+  const lang = language.trim().toLowerCase()
+  if (isProseContent(trimmed, lang)) return trimmed
+  const label = lang ? lang.toUpperCase() : 'TEXT'
+  return stash(`
+    <div class="assistant-code-block my-4 rounded-lg overflow-hidden group">
+      <div class="assistant-code-header flex items-center justify-between px-3 py-1.5"><span class="assistant-code-language text-xs font-medium select-none">${label}</span></div>
+      <div class="assistant-code-scroll p-3 overflow-x-auto"><pre class="assistant-code-content text-sm font-mono leading-relaxed whitespace-pre table min-w-full">${escapeHtml(trimmed)}</pre></div>
+    </div>
+  `)
+}
+
 export function normalizeAssistantContent(content: string): string {
   if (!content) return content
   const lines = content.replace(/<br\s*\/?>/gi, '\n').split('\n')
   const result: string[] = []
   let inCodeBlock = false
   for (const line of lines) {
-    if (/^\s{0,3}(?:`{3,}|~{3,})/.test(line)) {
+    if (line.trim().startsWith('```')) {
       inCodeBlock = !inCodeBlock
       result.push(line)
       continue
@@ -40,7 +106,7 @@ export function sanitizeMermaid(code: string): string {
     const value = String(title || '').trim()
     return !value || value.startsWith('"') ? match : `subgraph "${value}"`
   })
-  return text.replace(/(\[|\(|\{)([^\]\)\}\n]+)(\]|\)|\})/g, (match, open, content, close) => {
+  return text.replace(/(\[|\(|\{)([^\])\n]+)(\]|\)|})/g, (match, open, content, close) => {
     let value = String(content || '').trim()
     if (value.startsWith('"') && value.endsWith('"')) return match
     value = value.replace(/"/g, "'")
@@ -60,18 +126,39 @@ export function workspaceFileReference(value: string): string | null {
   return FILE_EXTENSION.test(name) || WELL_KNOWN_FILE.test(name) ? path : null
 }
 
-export function renderAssistantMarkdown(text: string, options: { workspaceFileReferences?: boolean; artifactPaths?: Record<string, string> } = {}): string {
-  const extracted = extractAssistantCodeBlocks(normalizeAssistantContent(text), sanitizeMermaid)
-  let html = extracted.text
-  const blocks: string[] = [...extracted.blocks]
+export function renderAssistantMarkdown(text: string, options: { workspaceFileReferences?: boolean } = {}): string {
+  let html = normalizeAssistantContent(text)
+  const blocks: string[] = []
   const stash = (value: string) => {
     const key = `__BLOCK_PLACEHOLDER_${blocks.length}__`
     blocks.push(value)
     return key
   }
 
-  html = html.replace(/!\[(.*?)\]\((.*?)\)/g, '<img alt="$1" src="$2" role="button" tabindex="0" style="max-width:100%; border-radius:12px;" />')
+  html = html.replace(/```\s*skill\s*([\s\S]*?)```/g, (_match, code) => stash(`
+    <div class="assistant-code-block assistant-code-block--skill my-4 rounded-lg overflow-hidden">
+      <div class="assistant-code-header flex items-center px-3 py-2">
+        <span class="assistant-code-language text-xs font-bold uppercase tracking-wider">Skill Definition</span>
+      </div>
+      <div class="assistant-code-scroll p-3 overflow-x-auto"><pre class="assistant-code-content text-xs font-mono leading-relaxed whitespace-pre">${escapeHtml(String(code || '').trim())}</pre></div>
+    </div>
+  `))
+
+  html = html.replace(/```\s*mermaid\s*([\s\S]*?)```/g, (_match, code) => {
+    const safe = sanitizeMermaid(String(code || '').trim())
+    return stash(`<div class="mermaid" data-raw="${encodeURIComponent(safe)}">${safe}</div>`)
+  })
+  html = html.replace(/(?:`{2,4})\s*chart\s*([\s\S]*?)(?:`{2,4})/g, (_match, code) => {
+    const json = String(code || '').trim()
+    return stash(`<div class="chart-container" style="height:360px"><canvas class="chart-block" data-chart="${encodeURIComponent(json)}"></canvas></div>`)
+  })
+  html = html.replace(/!\[(.*?)\]\((.*?)\)/g, '<img alt="$1" src="$2" style="max-width:100%; border-radius:12px;" />')
   html = html.replace(/^---+$/gm, '<hr class="my-4 border-gray-300"/>')
+  html = html.replace(/```\s*([\s\S]*?\|[\s\S]*?\n[\s\S]*?\|[\s\S]*?)```/g, (_match, table) => String(table || '').trim())
+
+  html = html.replace(/```([a-zA-Z0-9_-]*)\s*([\s\S]*?)```/g, (_match, lang, code) => {
+    return renderCodeBlock(String(code || ''), String(lang || ''), stash)
+  })
 
   html = html.replace(/`([^`]+)`/g, (_match, raw) => {
     const content = String(raw || '')
@@ -81,12 +168,9 @@ export function renderAssistantMarkdown(text: string, options: { workspaceFileRe
     }
     return `<code class="assistant-inline-code">${escapeHtml(content)}</code>`
   })
-  const artifactPaths = options.artifactPaths || {}
   html = projectSafeMarkdownLinks(html, (label, href) => stash(
     `<a href="${href}" target="_blank" rel="noopener noreferrer nofollow" class="text-blue-600 hover:text-blue-500 underline underline-offset-2">${label}</a>`,
-  ), (label, path) => Object.prototype.hasOwnProperty.call(artifactPaths, path) ? stash(
-    `<button type="button" data-artifact-path="${escapeHtml(artifactPaths[path])}" class="text-blue-600 hover:text-blue-500 underline underline-offset-2">${label}</button>`,
-  ) : undefined)
+  ))
   html = html.replace(/\|(.+)\|/g, (_match, content) => {
     const cells = String(content).split('|').map(cell => cell.trim()).filter(Boolean)
     return `<tr>${cells.map(cell => `<td class="border border-gray-300 px-3 py-2">${cell}</td>`).join('')}</tr>`
@@ -113,5 +197,9 @@ export function renderAssistantMarkdown(text: string, options: { workspaceFileRe
   html = html.replace(/(<hr[^>]*>)\s*\n+/g, '$1')
   html = html.replace(/\n\n/g, '<br/><br/>').replace(/\n/g, '<br/>')
   blocks.forEach((block, index) => { html = html.replace(`__BLOCK_PLACEHOLDER_${index}__`, block) })
-  return html
+  // QF-397/398/399/400/401: sanitize final HTML to prevent XSS.
+  return DOMPurify.sanitize(html, {
+    ADD_ATTR: ['target', 'data-workspace-file', 'data-raw', 'data-chart'],
+    ADD_TAGS: ['canvas'],
+  })
 }

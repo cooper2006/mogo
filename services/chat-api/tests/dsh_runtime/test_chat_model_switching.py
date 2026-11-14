@@ -3,21 +3,16 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from bson import ObjectId
-
-from app.dsh_runtime import chat_service as chat_service_module
 from app.dsh_runtime.chat_service import DshChatService
-from app.governance.topic_admission import TopicAdmissionService
 
 
-def test_completed_conversation_turn_uses_the_newly_selected_model_binding(monkeypatch) -> None:
+def test_completed_conversation_turn_uses_the_newly_selected_model_binding(allow_all_topic_admission) -> None:
     async def run() -> None:
-        conversation_id = str(ObjectId())
         current = {
             "binding_id": "binding-a",
             "tenant_id": "tenant-a",
             "user_id": "user-a",
-            "conversation_id": conversation_id,
+            "conversation_id": "conversation-a",
             "kernel_session_id": "session-a",
             "runtime_id": "runtime-a",
             "profile_version": "profile-a",
@@ -28,7 +23,7 @@ def test_completed_conversation_turn_uses_the_newly_selected_model_binding(monke
 
         class Conversations:
             async def owned(self, *_args, **_kwargs):
-                return {"_id": conversation_id}
+                return {"_id": "conversation-a"}
 
             async def append_message(self, **_kwargs):
                 return None
@@ -40,7 +35,7 @@ def test_completed_conversation_turn_uses_the_newly_selected_model_binding(monke
             async def current(self, *_args, **_kwargs):
                 return current
 
-            async def claim_turn_authorized(self, binding_id, **_kwargs):
+            async def claim_turn(self, binding_id, **_kwargs):
                 assert binding_id == "binding-b"
                 return {**current, "binding_id": binding_id, "model_instance_id": "model-b"}
 
@@ -64,7 +59,7 @@ def test_completed_conversation_turn_uses_the_newly_selected_model_binding(monke
 
             async def rotate_binding(self, binding, *, profile_version, model_instance_id):
                 self.rotated = True
-                assert binding["conversation_id"] == conversation_id
+                assert binding["conversation_id"] == "conversation-a"
                 assert (profile_version, model_instance_id) == ("profile-b", "model-b")
                 return {
                     **binding,
@@ -80,29 +75,7 @@ def test_completed_conversation_turn_uses_the_newly_selected_model_binding(monke
                 return True
 
         coordinator = Coordinator()
-
-        async def _session_doc(query, *_args, **_kwargs):
-            # The mandatory admission authorizer's tenant-scoped session read:
-            # the caller is the seeded owner of tenant-a's session.
-            if query.get("_id") != ObjectId(conversation_id) or query.get("main_id") != "tenant-a":
-                return None
-            return {"_id": ObjectId(conversation_id), "user_id": "user-a", "main_id": "tenant-a"}
-
-        async def _no_participant(*_args, **_kwargs):
-            return None
-
-        monkeypatch.setattr(
-            chat_service_module,
-            "get_db",
-            lambda: SimpleNamespace(
-                chat_sessions=SimpleNamespace(find_one=_session_doc),
-                session_participants=SimpleNamespace(find_one=_no_participant),
-            ),
-        )
         service = DshChatService(
-            topic_admission=TopicAdmissionService({
-                "topic_admission_policies": SimpleNamespace(find_one=_no_participant),
-            }),
             gateway=SimpleNamespace(),
             coordinator=coordinator,  # type: ignore[arg-type]
             conversations=Conversations(),  # type: ignore[arg-type]
@@ -110,6 +83,7 @@ def test_completed_conversation_turn_uses_the_newly_selected_model_binding(monke
             events=SimpleNamespace(),
             profiles=Profiles(),  # type: ignore[arg-type]
             kernel_version="test",
+            topic_admission=allow_all_topic_admission,
         )
 
         async def finish_immediately(**_kwargs):
@@ -119,14 +93,14 @@ def test_completed_conversation_turn_uses_the_newly_selected_model_binding(monke
         turn = await service.prepare_turn(
             tenant_id="tenant-a",
             user_id="user-a",
-            conversation_id=conversation_id,
+            conversation_id="conversation-a",
             text="continue with model B",
             model_instance_id="model-b",
             timezone_name="Asia/Shanghai",
             images=[],
             documents=[],
         )
-        assert turn.conversation_id == conversation_id
+        assert turn.conversation_id == "conversation-a"
         assert turn.binding_id == "binding-b"
         assert coordinator.rotated is True
         assert await service.wait_turn(turn.message_id) == "completed"

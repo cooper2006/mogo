@@ -10,14 +10,14 @@ from app.services.retrieval_access_policy import knowledge_retrieval_access_poli
 
 
 def exact_identifier_candidates(
-    query: str, *, main_id: str, user_id: str, knowledge_base_id: str, limit: int = 30,
+    query: str, *, tenant_id: str, user_id: str, knowledge_base_id: str, limit: int = 30,
 ) -> list[dict[str, Any]]:
     identifiers = extract_identifiers(query)[:3]
     if not identifiers:
         return []
     db = get_db()
     selector: dict[str, Any] = {
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "chunk_stage": "rag",
         "search_identifiers": {"$in": identifiers},
     }
@@ -33,14 +33,14 @@ def exact_identifier_candidates(
         if len(batch) < 50 and scanned < 1000:
             continue
         authorized.extend(knowledge_retrieval_access_policy.filter_candidates(
-            batch, main_id=main_id, user_id=user_id,
+            batch, tenant_id=tenant_id, user_id=user_id,
         ))
         batch = []
         if len(authorized) >= target:
             break
     if batch and len(authorized) < target:
         authorized.extend(knowledge_retrieval_access_policy.filter_candidates(
-            batch, main_id=main_id, user_id=user_id,
+            batch, tenant_id=tenant_id, user_id=user_id,
         ))
     return authorized[:target]
 

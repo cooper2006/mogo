@@ -1,121 +1,256 @@
 <script setup lang="ts">
-import { createDiscreteApi, darkTheme, NConfigProvider, NDialogProvider, NMessageProvider, NNotificationProvider } from 'naive-ui'
-import SkillCreationDialog from './components/SkillCreationDialog.vue'
-import DesktopSettingsDialog from './components/desktop/DesktopSettingsDialog.vue'
-import DeleteSessionDialog from './components/session/DeleteSessionDialog.vue'
-import PersonalizationDialog from './components/PersonalizationDialog.vue'
-import SessionSearchOverlay from './components/SessionSearchOverlay.vue'
-import AppSidebarContent from './components/AppSidebarContent.vue'
-import { useAppSidebarBindings } from './composables/useAppSidebarBindings'
-import AppMainRegion from './components/AppMainRegion.vue'
-import AppAccountDialogs from './components/AppAccountDialogs.vue'
-import productUiExtension from '@movo-product-extension'
-import AppDesktopNavigation from './components/desktop/AppDesktopNavigation.vue'
-import SessionSnapshotViewer from './components/session/SessionSnapshotViewer.vue'
+import { darkTheme, NButton, NConfigProvider, NDialogProvider, NInput, NMessageProvider, NNotificationProvider, NSelect, zhCN, enUS, dateZhCN, dateEnUS } from 'naive-ui'
+import { createNaiveThemeOverrides } from './theme/naive'
+import TokenInput from './components/TokenInput.vue'
+import SettingsPanel from './components/SettingsPanel.vue'
+import ShortcutPreferencesPanel from './components/settings/ShortcutPreferencesPanel.vue'
+import TokenUsagePage from './components/TokenUsagePage.vue'
+import ProfileModal from './components/ProfileModal.vue'
+import productUiExtension from '@mogo-product-extension'
+import DesktopWindowChrome from './components/desktop/DesktopWindowChrome.vue'
 import DesktopServerSetup from './components/desktop/DesktopServerSetup.vue'
+import type { DesktopToolLauncherKind } from './components/desktop/desktopToolTabs'
 import CreateProjectDialog from './components/code/CreateProjectDialog.vue'
-import { capabilities } from './platform'
-import { useSkillManagement } from './composables/useSkillManagement'
-import { useSessionSearch } from './composables/useSessionSearch'
-import { useSessionDirectory } from './composables/useSessionDirectory'
-import { useSessionShareLanding } from './composables/useSessionShareLanding'
-import { computed, ref, watch } from 'vue'
-import AppChatPanes from './components/AppChatPanes.vue'
-import type { AppChatPaneActions } from './components/chat/appChatPaneActions'
-import { registerProductMessages, t, useLocale } from './composables/i18n'
-import { themeOverridesForPlatform } from './composables/naiveThemeOverrides'
-import { useAppPreferences } from './composables/useAppPreferences'
-import { useAppFeatureActions } from './composables/useAppFeatureActions'
-import { useAppAccountActions } from './composables/useAppAccountActions'
-import { useAdminConsoleLaunch } from './composables/useAdminConsoleLaunch'
-import { useAppStartup } from './composables/useAppStartup'
-import { useAppViewState } from './composables/useAppViewState'
-import { useAppAuthState } from './composables/useAppAuthState'
-import { useAppSessionState } from './composables/useAppSessionState'
-import { useAppNavigation } from './composables/useAppNavigation'
-import { useAccountIdentity } from './composables/useAccountIdentity'
-import { useAuthProfileRefresh } from './composables/useAuthProfileRefresh'
-import { useAuthLogin } from './composables/useAuthLogin'
-import { useAuthSessionLifecycle } from './composables/useAuthSessionLifecycle'
-import { useTenantSwitch } from './composables/useTenantSwitch'
-import { useBillingSummary } from './composables/useBillingSummary'
-import { useChatRuntimeStore } from './composables/useChatRuntimeStore'
-import { usePaneTurnActions } from './composables/usePaneTurnActions'
-import { useAppSessionController } from './composables/useAppSessionController'
+import MemberPicker from './components/project/MemberPicker.vue'
+import { exchangePortalTicket, fetchOrgBilling, fetchUserProfile, getAdminSSOToken, logoutWithToken, switchTenant, type TenantCandidate, type UserProfile } from './api/auth'
+import { AUTH_EXPIRED_EVENT } from './api/authExpiry'
+import { activateEmbeddedBrowserSession, capabilities, deleteDshWorkspace, getDshWorkspaceSummary, getSettings, updateSettings, startAgent, stopAgent, getAgentStatus, openResource, selectEmbeddedBrowserSession, selectDshWorkspace, isFileSystemAccessSupported, renameDshWorkspace } from './platform'
+import type { DshTaskChangeSet, DshWorkspace, DshWorkspaceSummary } from './platform/types'
+import {
+  archiveSession,
+  createDesktopProject,
+  deleteSession,
+  forkSession,
+  listSessionsPaged,
+  pinSession,
+  searchSessions,
+  updateDesktopProjectStatus,
+  updateDesktopProjectTitle,
+  updateSessionTitle,
+  type DesktopProject,
+  type SessionSearchResult,
+  type SessionSummary,
+} from './api/sessions'
+import { deleteSkill, enrichSkillDraft, generateSkill, listSkills, updateSkill, uploadSkillSource } from './api/skills'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { registerProductMessages, setLocale as setAppLocale, t, useLocale, type Locale } from './composables/i18n'
+import { getBrowserTimezone, setAppTimezone } from './composables/appTimezone'
+import { buildAdminSsoUrl, ssoWindowState } from './utils/adminUrl'
+import { sortSessionsByRecentActivity } from './utils/sessionOrdering'
+import { copyTextToClipboard } from './utils/copyTextToClipboard'
+import { formatExactTokenAmount, formatQuotaUsagePercent, formatTokenAmount, quotaUsagePercent } from './utils/tokenNumberFormat'
+import { useChatRuntimeStore, type PendingRuntimeDocument } from './composables/useChatRuntimeStore'
+import type { SessionLiveAccessRevokedReason } from './composables/useSessionLiveStream'
 import { useDshCodeRuntime } from './composables/code/useDshCodeRuntime'
 import { useUserBoundProjects } from './composables/code/userBoundProjects'
-import { useProjectCreation } from './composables/code/useProjectCreation'
-import { useAppProjectBoundary } from './composables/code/useAppProjectBoundary'
-import { useSidebarHistory } from './composables/useSidebarHistory'
+import { boundProjectWorktree } from './composables/code/projectAuthorization'
 import { useEnterpriseAccessPolicy } from './composables/useEnterpriseAccessPolicy'
+import { useProfileRefreshOnResume } from './composables/useProfileRefreshOnResume'
 import { useSkillShareInboxBadge } from './composables/useSkillShareInboxBadge'
 import { usePersonalKnowledgeBadge } from './composables/usePersonalKnowledgeBadge'
-import { useAppDesktopTools } from './composables/desktop/useAppDesktopTools'
-import { syncDesktopAgentIdentity } from './composables/desktop/syncDesktopAgentIdentity'
+import { useDesktopToolTabs } from './composables/desktop/useDesktopToolTabs'
+import { clearDesktopAuthSession, restoreDesktopAuthToken } from './composables/desktop/desktopAuthSession'
+import { useNetworkStatus } from './composables/useNetworkStatus'
+import { AppsOutline, SettingsOutline } from '@vicons/ionicons5'
+import ChatViewTabs from './components/chat/ChatViewTabs.vue'
+import SessionShareDialog from './components/session/SessionShareDialog.vue'
+import AppMessageBridge from './components/AppMessageBridge.vue'
+import { useAppMessage } from './composables/appMessage'
+import { useSessionShareLanding } from './composables/useSessionShareLanding'
 
+const ChatWindow = defineAsyncComponent(() => import('./components/ChatWindow.vue'))
+// Session-level trajectory view (028): lazily loaded, only needed when the user
+// switches a pane to the trajectory tab.
+const SessionTrajectoryView = defineAsyncComponent(() => import('./features/execution-v3/components/SessionTrajectoryView.vue'))
+const SkillsPage = defineAsyncComponent(() => import('./components/MySkillsPage.vue'))
+const ToolsPage = defineAsyncComponent(() => import('./components/MyToolsPage.vue'))
+const PluginsPage = defineAsyncComponent(() => import('./components/MyPluginsPage.vue'))
+const KnowledgePage = defineAsyncComponent(() => import('./components/MyKnowledgePage.vue'))
+// 017 T029：我的记忆（三范围使用端；项目成员编辑仍归 049 MemberPicker，此处零改动）。
+const MyMemoriesPage = defineAsyncComponent(() => import('./components/MyMemoriesPage.vue'))
+// 030: 终端用户侧本体授权自查（admin-web 本体页的 user-web 迁移；只读展示）。
+const MyOntologyPage = defineAsyncComponent(() => import('./components/MyOntologyPage.vue'))
+// 039: 可视化编排画布 —— 节点-连线图编辑 DAG 工作流（画布为投影、文档为权威）。
+const OrchestrationCanvasPage = defineAsyncComponent(() => import('./components/orchestration/OrchestrationCanvasPage.vue'))
+// 050: 编排审批待办 —— 站内待办入口（R-4），批准/驳回挂起中的 human_approval 节点。
+const ApprovalTodosPage = defineAsyncComponent(() => import('./components/orchestration/ApprovalTodosPage.vue'))
+// 037: 统一门户 —— 目录浏览 + 自助申领（管理侧上架 / 审批在 admin-web）。
+const PortalCatalogPage = defineAsyncComponent(() => import('./components/portal/PortalCatalog.vue'))
+const SkillConfigPage = defineAsyncComponent(() => import('./components/MySkillConfigPage.vue'))
+const CompositeSkillEditor = defineAsyncComponent(() => import('./components/CompositeSkillEditor.vue'))
+const ScheduledTaskPage = defineAsyncComponent(() => import('./components/scheduled-tasks/ScheduledTaskPage.vue'))
 const ProductLoginModal = productUiExtension.loginModal
 const ProductBillingModal = productUiExtension.billingModal
 const ProductCreateOrganizationModal = productUiExtension.createOrganizationModal
 registerProductMessages(productUiExtension.messages)
 
-const {
-  storageKeys, loginOpen, billingOpen, profileOpen, createOrganizationOpen,
-  authToken, currentAccount, userProfile, savedUsers, loadSavedUsers,
-  persistSavedUsers, loadUserProfile, userMenuOpen, adminSsoStarting,
-  billingSummary, billingSummaryLoading, billingSummaryLoaded,
-  settingsPanelOpen, desktopServerState, personalizationOpen,
-  isLoggedIn, availableTenants, getUserId, getMainId, isEnterpriseTenant,
-} = useAppAuthState()
-watch([authToken, () => userProfile.value?.mainId, () => userProfile.value?.userId], () => productUiExtension.refreshEntryVisibility?.(), { flush: 'sync' })
-const {
-  token: authTokenKey, account: authAccountKey,
-  users: authUsersKey, profile: authUserProfileKey,
-} = storageKeys
-const { locale } = useLocale()
-const {
-  themeMode, isDarkTheme, themeOptions, languageSaving,
-  timezoneSaving, timezoneValue, timezoneOptions,
-  selectThemeMode, selectLanguage, selectTimezone,
-  startThemeListener, stopThemeListener,
-} = useAppPreferences(locale)
-document.documentElement.classList.toggle('platform-desktop', capabilities.isDesktop)
-const isWindowsDesktop = capabilities.isDesktop && document.documentElement.classList.contains('platform-windows')
-const desktopSidebarCollapsed = ref(false)
-const platformThemeOverrides = computed(() => themeOverridesForPlatform(
-  isDarkTheme.value && capabilities.isDesktop,
-))
-const {
-  sessions, sessionsLoading, sessionsLoadingMore, sessionsHasMore,
-  sharedSessions, sharedSessionsLoading, sharedSessionsLoadingMore,
-  sharedSessionsHasMore, deletingSessionId, pendingDeleteSession,
-  editingSessionId, editingSessionTitle, renamingSessionId, currentView,
-  scheduledTaskInitialPrompt, scheduledTaskInitialSessionId, scheduledTaskCreateRequestKey,
-} = useAppSessionState()
-const shareToastConfigProviderProps = computed(() => ({
-  theme: isDarkTheme.value ? darkTheme : null,
-  themeOverrides: platformThemeOverrides.value,
-}))
-const { message: shareToast } = createDiscreteApi(['message'], { configProviderProps: shareToastConfigProviderProps })
-const {
-  sessionSearchOpen, sessionSearchQuery, sessionSearchResults,
-  sessionSearchLoading, sessionSearchHasMore, sessionSearchDidRun,
-  trimmedSessionSearchQuery, closeSessionSearch, runSessionSearch,
-} = useSessionSearch({ getUserId, getMainId, authToken })
-const { navigateTo, handlePopState } = useAppNavigation(currentView, closeSessionSearch, text => shareToast.info(text))
-const {
-  skillFormOpen, skillName, skillSummary,
-  skillType, skillScenario, skillChannels, skillForms, skillAudience, skillStyle,
-  skillRequired, skillForbidden,
-  skillCreating, skillEnriching, selectedSkill, loadSkills, closeSkillForm,
-  enrichDraftFromForm, createSkill, removeSkill,
-} = useSkillManagement({
-  getUserId,
-  getMainId,
-  onCreated: () => { currentView.value = 'skill-config' },
-  onSelectedRemoved: () => { currentView.value = 'skills' },
-})
-const sessionPageSize = 30
+const currentModel = ref('openAI GPT5.2')
 
+const authTokenKey = 'auth_token'
+const authAccountKey = 'auth_account'
+const authUsersKey = 'auth_users'
+const authUserProfileKey = 'auth_user_profile'
+
+const loginOpen = ref(false)
+// 029：门户 SSO 多租户——外部经 history.state 传入的选租户挑战，透传给登录弹窗。
+const portalChallengeToken = ref('')
+const portalTenantCandidates = ref<TenantCandidate[]>([])
+const billingOpen = ref(false)
+const profileOpen = ref(false)
+const createOrganizationOpen = ref(false)
+const authToken = ref('')
+const currentAccount = ref('')
+const savedUsers = ref<string[]>([])
+const userProfile = ref<UserProfile | null>(null)
+const userMenuOpen = ref(false)
+const switchingTenant = ref(false)
+const adminSsoStarting = ref(false)
+const billingSummary = ref<any>(null)
+const billingSummaryLoading = ref(false)
+const billingSummaryLoaded = ref(false)
+const settingsPanelOpen = ref(false)
+const desktopServerState = ref<'checking' | 'required' | 'ready'>(capabilities.isDesktop ? 'checking' : 'ready')
+const personalizationOpen = ref(false)
+const personalizationSection = ref<'general' | 'shortcuts'>('general')
+type ThemeMode = 'light' | 'dark' | 'system'
+const themeModeKey = 'askai.theme-mode'
+const storedThemeMode = localStorage.getItem(themeModeKey)
+const themeMode = ref<ThemeMode>(
+  storedThemeMode === 'light' || storedThemeMode === 'dark' || storedThemeMode === 'system'
+    ? storedThemeMode
+    : 'system',
+)
+const isDarkTheme = ref(false)
+let systemThemeMedia: MediaQueryList | null = null
+const themeOptions = [
+  { value: 'light' as const, langKey: 'ui.theme.light', icon: 'sun' },
+  { value: 'dark' as const, langKey: 'ui.theme.dark', icon: 'moon' },
+  { value: 'system' as const, langKey: 'ui.theme.system', icon: 'system' },
+]
+const languageOptions = [
+  { value: 'zh' as const, label: '中文' },
+  { value: 'en' as const, label: 'English' },
+]
+const languageSaving = ref(false)
+const timezoneSaving = ref(false)
+const timezoneValue = ref(getBrowserTimezone())
+const sessions = ref<SessionSummary[]>([])
+const sessionsLoading = ref(false)
+const sessionsLoadingMore = ref(false)
+const sessionsHasMore = ref(false)
+// P3 三期-a：分享给我（参与）的会话，独立于 owner 会话列表加载。
+const sharedSessions = ref<SessionSummary[]>([])
+const sharedSessionsLoading = ref(false)
+const sharedSessionsLoadingMore = ref(false)
+const sharedSessionsHasMore = ref(false)
+const sessionSearchOpen = ref(false)
+const sessionSearchQuery = ref('')
+const sessionSearchResults = ref<SessionSearchResult[]>([])
+const sessionSearchLoading = ref(false)
+const sessionSearchHasMore = ref(false)
+const sessionSearchDidRun = ref(false)
+const deletingSessionId = ref<string | null>(null)
+const pendingDeleteSession = ref<SessionSummary | SessionSearchResult | null>(null)
+const editingSessionId = ref<string | null>(null)
+const editingSessionTitle = ref('')
+const renamingSessionId = ref<string | null>(null)
+// 侧边栏扩展项：会话 / 项目行「…」上下文菜单当前打开的会话/项目 id。
+const sessionMenuOpenFor = ref<string | null>(null)
+const projectMenuOpenFor = ref<string | null>(null)
+// 项目行内联重命名状态。
+const editingProjectId = ref<string | null>(null)
+const editingProjectTitle = ref('')
+const renamingProjectId = ref<string | null>(null)
+const currentView = ref<'chat' | 'skills' | 'tools' | 'plugins' | 'knowledge' | 'skill-config' | 'composite-editor' | 'token-usage' | 'scheduled-tasks' | 'ontology-grants' | 'orchestration' | 'approval-todos' | 'portal' | 'memories'>('chat')
+const scheduledTaskInitialPrompt = ref('')
+const scheduledTaskInitialSessionId = ref<string | null>(null)
+const scheduledTaskCreateRequestKey = ref(0)
+const skills = ref<any[]>([])
+const skillsLoading = ref(false)
+const skillFormOpen = ref(false)
+const skillName = ref('')
+const skillSummary = ref('')
+const skillCategory = ref('Analysis & Reports')
+const skillType = ref('style')
+const skillScenario = ref('')
+const skillChannels = ref<string[]>(['generic'])
+const skillForms = ref<string[]>(['article'])
+const skillAudience = ref<string[]>(['general_public'])
+const skillStyle = ref<string[]>(['professional'])
+const skillRequired = ref<string[]>([])
+const skillForbidden = ref<string[]>([])
+const skillKnowledge = ref<any[]>([])
+const skillTemplates = ref<any[]>([])
+const skillTools = ref<any[]>([])
+const skillCreating = ref(false)
+const skillEnriching = ref(false)
+const selectedSkill = ref<any | null>(null)
+const sessionPageSize = 30
+const sessionSearchPageSize = 20
+let sessionSearchTimer: ReturnType<typeof setTimeout> | null = null
+let sessionRefreshTimer: ReturnType<typeof setInterval> | null = null
+
+const { locale } = useLocale()
+const { offline: isOffline } = useNetworkStatus()
+const timezoneOptions = computed(() => [
+  {
+    label: locale.value === 'en'
+      ? 'China Standard Time (GMT+8) - Asia/Shanghai'
+      : '中国标准时间 (GMT+8) - Asia/Shanghai',
+    value: 'Asia/Shanghai',
+  },
+  {
+    label: locale.value === 'en'
+      ? 'Japan Standard Time (GMT+9) - Asia/Tokyo'
+      : '日本标准时间 (GMT+9) - Asia/Tokyo',
+    value: 'Asia/Tokyo',
+  },
+  {
+    label: locale.value === 'en'
+      ? 'Coordinated Universal Time (UTC) - UTC'
+      : '协调世界时 (UTC) - UTC',
+    value: 'UTC',
+  },
+  {
+    label: locale.value === 'en'
+      ? 'Central European Time - Europe/Berlin'
+      : '欧洲中部时间 - Europe/Berlin',
+    value: 'Europe/Berlin',
+  },
+  {
+    label: locale.value === 'en'
+      ? 'United Kingdom Time - Europe/London'
+      : '英国时间 - Europe/London',
+    value: 'Europe/London',
+  },
+  {
+    label: locale.value === 'en'
+      ? 'US Eastern Time - America/New_York'
+      : '美国东部时间 - America/New_York',
+    value: 'America/New_York',
+  },
+  {
+    label: locale.value === 'en'
+      ? 'US Central Time - America/Chicago'
+      : '美国中部时间 - America/Chicago',
+    value: 'America/Chicago',
+  },
+  {
+    label: locale.value === 'en'
+      ? 'US Pacific Time - America/Los_Angeles'
+      : '美国太平洋时间 - America/Los_Angeles',
+    value: 'America/Los_Angeles',
+  },
+  {
+    label: locale.value === 'en'
+      ? 'Australian Eastern Time - Australia/Sydney'
+      : '澳大利亚东部时间 - Australia/Sydney',
+    value: 'Australia/Sydney',
+  },
+])
+
+const isLoggedIn = computed(() => Boolean(authToken.value))
+const availableTenants = computed<TenantCandidate[]>(() => userProfile.value?.availableTenants || [])
 const {
   canUseCode,
   canUseBrowser,
@@ -129,7 +264,7 @@ const {
 } = useEnterpriseAccessPolicy(userProfile)
 const skillShareInboxScope = computed(() => ({
   token: authToken.value,
-  mainId: String(userProfile.value?.mainId || ''),
+  tenantId: String(userProfile.value?.tenantId || ''),
   userId: String(userProfile.value?.userId || ''),
   enabled: canUseSkills.value,
 }))
@@ -141,7 +276,7 @@ const {
 } = useSkillShareInboxBadge({ scope: skillShareInboxScope })
 const knowledgeBadgeScope = computed(() => ({
   token: authToken.value,
-  mainId: String(userProfile.value?.mainId || ''),
+  tenantId: String(userProfile.value?.tenantId || ''),
   userId: String(userProfile.value?.userId || ''),
   enabled: canUseTools.value,
 }))
@@ -151,32 +286,177 @@ const {
   refresh: refreshPersonalKnowledgeCount,
 } = usePersonalKnowledgeBadge(knowledgeBadgeScope)
 const supportsLocalCodeProjects = capabilities.localDshRuntime && capabilities.localWorkspacePicker
+const canSmartFillSkill = computed(() => Boolean(skillName.value.trim() && (skillSummary.value.trim() || skillScenario.value.trim())))
+const trimmedSessionSearchQuery = computed(() => sessionSearchQuery.value.trim())
 const userBoundProjects = useUserBoundProjects({
   authToken,
   canUseCode,
   localWorkspacePicker: capabilities.localWorkspacePicker,
+  localDshRuntime: capabilities.localDshRuntime,
   identity: () => {
     const userId = userProfile.value?.userId
     return userId === undefined || userId === null
       ? ''
-      : `${String(userProfile.value?.mainId || 'default')}:${String(userId)}`
+      : `${String(userProfile.value?.tenantId || 'default')}:${String(userId)}`
   },
   sessions,
-  fallbackTitle: workspaceId => `${t('app.project')} · ${workspaceId.slice(0, 8)}`,
+  fallbackTitle: workspaceId => `${locale.value === 'en' ? 'Project' : '项目'} · ${workspaceId.slice(0, 8)}`,
 })
 const workspaceTitles = userBoundProjects.titles
 const projectWorkspaces = userBoundProjects.workspaces
 const projectWorkspacesLoading = userBoundProjects.loading
-const {
-  normalHistoryExpanded, sharedHistoryExpanded, pinnedHistoryExpanded,
-  pinnedSessionIds, pinnedSessions, collapsedProjectHistory,
-  isSessionPinned, toggleSessionPin, projectHistoryExpanded, toggleProjectHistory,
-  historyItems, projectHistoryGroups, isUnavailableProjectHistory,
-} = useSidebarHistory({
-  profile: userProfile, sessions, sharedSessions,
-  workspaces: projectWorkspaces, workspaceTitles, canUseCode,
-  supportsLocalCodeProjects,
+const sidebarHistoryStateKey = 'askai.sidebar-history-state'
+const savedSidebarHistoryState = (() => {
+  try { return JSON.parse(localStorage.getItem(sidebarHistoryStateKey) || '{}') as Record<string, any> } catch { return {} }
+})()
+const normalHistoryExpanded = ref(savedSidebarHistoryState.normal !== false)
+const sharedHistoryExpanded = ref(savedSidebarHistoryState.shared !== false)
+const collapsedProjectHistory = ref<Record<string, boolean>>(savedSidebarHistoryState.projects || {})
+function projectHistoryExpanded(workspaceId: string): boolean { return !collapsedProjectHistory.value[workspaceId] }
+function toggleProjectHistory(workspaceId: string): void { collapsedProjectHistory.value = { ...collapsedProjectHistory.value, [workspaceId]: projectHistoryExpanded(workspaceId) } }
+/** 项目文件夹图标颜色：真实项目为蓝色（对应 DSH 参考），默认项目为灰色。 */
+function projectFolderIconClass(workspaceId: string): string {
+  return workspaceId === DEFAULT_PROJECT_ID
+    ? 'h-4 w-4 shrink-0 text-gray-400'
+    : 'h-4 w-4 shrink-0 text-blue-600'
+}
+const historyItems = computed(() => sortSessionsByRecentActivity(
+  // 046 FR-011: 分组键改 project_id；web 会话（无 code_project）落 "default" 组，不再按 workspace_id 排除。
+  sessions.value.filter((session) => !supportsLocalCodeProjects || (session.project_id || 'default') === 'default'),
+))
+const projectHistoryGroups = computed(() => {
+  if (!canUseCode.value || !supportsLocalCodeProjects) return []
+  const sessionsByWorkspace = new Map<string, SessionSummary[]>()
+  sessions.value.filter((session) => (session.project_id || 'default') !== 'default').forEach((session) => {
+    // 046 FR-011: 分组键 project_id（后端迁移期兼容 workspace_id）。
+    const projectId = session.project_id || 'default'
+    sessionsByWorkspace.set(projectId, [...(sessionsByWorkspace.get(projectId) || []), session])
+  })
+  const knownWorkspaces = new Map(projectWorkspaces.value.map((workspace) => [workspace.workspace_id, workspace]))
+  for (const workspaceId of sessionsByWorkspace.keys()) {
+    if (!knownWorkspaces.has(workspaceId)) {
+      knownWorkspaces.set(workspaceId, {
+        workspace_id: workspaceId,
+        title: workspaceTitles.value[workspaceId] || `${locale.value === 'en' ? 'Project' : '项目'} · ${workspaceId.slice(0, 8)}`,
+        path: '', status: 'missing-dir', session_ids: [], created_at: '', updated_at: '',
+      })
+    }
+  }
+  return [...knownWorkspaces.values()]
+    .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
+    .map((workspace) => {
+      const items = sortSessionsByRecentActivity(sessionsByWorkspace.get(workspace.workspace_id) || [])
+      return {
+        workspaceId: workspace.workspace_id,
+        title: workspaceTitles.value[workspace.workspace_id] || workspace.title,
+        items,
+      }
+    })
 })
+const DEFAULT_PROJECT_ID = 'default'
+// 项目展示偏好：分组方式 / 排序方式 / 筛选会话（对应顶部「筛选」按钮菜单）。
+type ProjectGroupMode = 'workspace' | 'tree' | 'list'
+type ProjectSortMode = 'manual' | 'recent'
+type ProjectFilterMode = 'hide_archived' | 'all' | 'archived_only'
+const projectGroupMode = ref<ProjectGroupMode>('tree')
+const projectSortMode = ref<ProjectSortMode>('recent')
+const projectFilterMode = ref<ProjectFilterMode>('hide_archived')
+const projectDisplayMenuOpen = ref(false)
+
+/** 项目是否已归档：归档项目的会话归属「已归档」分区。 */
+function isArchivedGroupStatus(status: string): boolean {
+  return status === 'archived'
+}
+
+/** 按「筛选会话」偏好过滤，并按「排序方式」排序一组会话。 */
+function shapeGroupSessions(sessions: SessionSummary[], groupStatus: string): SessionSummary[] {
+  let list = sessions
+  if (projectFilterMode.value === 'hide_archived') {
+    list = list.filter(() => !isArchivedGroupStatus(groupStatus))
+  } else if (projectFilterMode.value === 'archived_only') {
+    list = list.filter(() => isArchivedGroupStatus(groupStatus))
+  }
+  // 侧边栏扩展项：归档会话从列表隐藏（取消归档需经后端恢复，后续可加「已归档」视图）。
+  list = list.filter((session) => !Boolean(session.archived))
+  // 侧边栏扩展项：置顶会话排到组内最前，其次按最近活动。
+  const pinned = list.filter((session) => Boolean(session.pinned_at))
+  const rest = list.filter((session) => !Boolean(session.pinned_at))
+  if (projectSortMode.value === 'recent') {
+    return [...sortSessionsByRecentActivity(pinned), ...sortSessionsByRecentActivity(rest)]
+  }
+  return [...pinned, ...rest]
+}
+
+// 统一侧边栏：把服务端项目（userBoundProjects.workspaces）与本地会话按
+// project_id 合并为「项目 → 其下会话」的两层结构；未归属项目的会话
+//（project_id 为 'default'）归集到一个虚拟「默认项目」节点，对应 DSH
+// 桌面端的默认项目概念。
+const unifiedProjectGroups = computed(() => {
+  if (!canUseCode.value) return []
+  const groups = new Map<string, { id: string; title: string; status: string; updatedAt: string; sessions: SessionSummary[] }>()
+  for (const ws of projectWorkspaces.value) {
+    groups.set(ws.workspace_id, {
+      id: ws.workspace_id,
+      title: ws.workspace_id === DEFAULT_PROJECT_ID
+        ? (locale.value === 'en' ? 'Default Project' : '默认项目')
+        : (workspaceTitles.value[ws.workspace_id] || ws.title),
+      status: ws.status,
+      updatedAt: ws.updated_at || '',
+      sessions: [],
+    })
+  }
+  for (const session of sessions.value) {
+    const pid = session.project_id || DEFAULT_PROJECT_ID
+    let group = groups.get(pid)
+    if (!group) {
+      const title = pid === DEFAULT_PROJECT_ID
+        ? (locale.value === 'en' ? 'Default Project' : '默认项目')
+        : (workspaceTitles.value[pid] || `${locale.value === 'en' ? 'Project' : '项目'} · ${pid.slice(0, 8)}`)
+      group = { id: pid, title, status: 'ok', updatedAt: session.updated_at || '', sessions: [] }
+      groups.set(pid, group)
+    }
+    group.sessions.push(session)
+    if ((session.updated_at || '') > group.updatedAt) group.updatedAt = session.updated_at || ''
+  }
+  if (!groups.has(DEFAULT_PROJECT_ID)) {
+    groups.set(DEFAULT_PROJECT_ID, {
+      id: DEFAULT_PROJECT_ID,
+      title: locale.value === 'en' ? 'Default Project' : '默认项目',
+      status: 'ok', updatedAt: '', sessions: [],
+    })
+  }
+  return [...groups.values()]
+    .map((group) => ({ ...group, sessions: shapeGroupSessions(group.sessions, group.status) }))
+    // 「按项目」仅保留有会话的分组（默认项目始终保留）；「按项目树」保留全部节点。
+    .filter((group) => projectGroupMode.value !== 'workspace' || group.id === DEFAULT_PROJECT_ID || group.sessions.length > 0)
+    .sort((left, right) => {
+      if (left.id === DEFAULT_PROJECT_ID) return 1
+      if (right.id === DEFAULT_PROJECT_ID) return -1
+      return right.updatedAt.localeCompare(left.updatedAt)
+    })
+})
+
+/** 单列表模式：全部会话平铺（不按项目分组，仅按筛选/排序偏好）。 */
+const flatProjectSessions = computed(() => {
+  if (!canUseCode.value) return []
+  const grouped = sessions.value.reduce<Map<string, SessionSummary[]>>((map, session) => {
+    const pid = session.project_id || DEFAULT_PROJECT_ID
+    map.set(pid, [...(map.get(pid) || []), session])
+    return map
+  }, new Map())
+  const statusOf = (pid: string) => projectWorkspaces.value.find((w) => w.workspace_id === pid)?.status || 'ok'
+  const all = [...grouped.entries()].flatMap(([pid, list]) => shapeGroupSessions(list, statusOf(pid)))
+  return all
+})
+
+/** 模板渲染用的分组：单列表模式折叠为单个虚拟分组（不渲染项目头）。 */
+const renderedProjectGroups = computed(() => {
+  if (projectGroupMode.value === 'list') {
+    return [{ id: '__flat__', title: '', status: 'ok', updatedAt: '', sessions: flatProjectSessions.value }]
+  }
+  return unifiedProjectGroups.value
+})
+
 const chatRuntime = useChatRuntimeStore({
   onSessionResolved: (sessionId) => {
     if (!sessions.value.some((item) => item.id === sessionId)) {
@@ -192,302 +472,2150 @@ const chatRuntime = useChatRuntimeStore({
   },
   onQuotaRefresh: () => loadBillingSummary(),
   onLoginRequired: () => openLogin(),
-  onSessionBusy: () => shareToast.info(t('app.sidebar.session_running')),
+  onSharedAccessLost: (sessionId, reason) => handleSharedAccessLost(sessionId, reason),
 })
 const visibleChatPanes = chatRuntime.panes
-const serverRunningSessionIds = computed(() => new Set(
-  [...sessions.value, ...sharedSessions.value]
-    .filter((session) => session.active_run?.status === 'running')
-    .map((session) => session.id),
-))
 const codeRuntime = useDshCodeRuntime(chatRuntime)
-const {
-  selectBoundProject, clearUserBoundProjectState, prepareProjectBoundary,
-} = useAppProjectBoundary({ projects: userBoundProjects, codeRuntime, canUseCode })
 const refreshWorkspaceTitles = userBoundProjects.refresh
 const activeChatKey = chatRuntime.activeChatKey
 const currentSessionId = chatRuntime.currentSessionId
-const {
-  sessionIsRunning, sessionScheduledIsRunning, sessionNeedsHumanAssistance,
-  sessionIsUnread, displaySessionTitle, compactSessionTitle,
-  startEditSessionTitle, cancelSessionTitleEdit, commitSessionTitleEdit,
-  handleDeleteSession, cancelDeleteSession, confirmDeleteSession,
-  loadSessions, refreshSessionSummaries, loadSharedSessions,
-  refreshSharedSummaries,
-} = useSessionDirectory({
-  sessions, sessionsLoading, sessionsLoadingMore, sessionsHasMore,
-  sharedSessions, sharedSessionsLoading, sharedSessionsLoadingMore, sharedSessionsHasMore,
-  sessionSearchResults, deletingSessionId, pendingDeleteSession,
-  editingSessionId, editingSessionTitle, renamingSessionId,
-  authToken, canUseCode, pageSize: sessionPageSize, getUserId, getMainId,
-  refreshWorkspaceTitles,
-  sessionIsRunningLocally: chatRuntime.sessionIsRunning,
-  sessionIsUnreadLocally: chatRuntime.sessionIsUnread,
-  needsAssistanceLocally: codeRuntime.needsAssistance,
-  hasActiveIntervention: sessionId => visibleChatPanes.value.some(
-    pane => pane.sessionId === sessionId && Boolean(pane.activeIntervention),
-  ),
-  removeSession: chatRuntime.removeSession,
-  syncActiveRuns: chatRuntime.syncActiveRuns,
-})
-const {
-  desktopPrimarySection, desktopSecondaryNavigationVisible, desktopNavigationWidth,
-  desktopWindowTitle, chatHeaderTitle, sessionSearchDisplayItems, sidebarItems,
-} = useAppViewState({
-  currentView, desktopSidebarCollapsed, currentSessionId, sessions, sharedSessions,
-  selectedSkill, trimmedSessionSearchQuery, sessionSearchResults, displaySessionTitle,
-})
-const {
-  createProjectOpen, createProjectBusy, createProjectSelecting,
-  createProjectSelectionPhase, createProjectSelectionError,
-  createProjectWorkspace, createProjectWorktree,
-  addProjectToActiveConversation, createProject, openProjectCreate,
-  closeProjectCreate, chooseProjectFolder, commitProjectCreate,
-} = useProjectCreation({
-  canUseCode, localWorkspacePicker: capabilities.localWorkspacePicker,
-  currentView, activeChatKey, token: authToken, profile: userProfile,
-  syncIdentity: syncDesktopAgentIdentity, onAuthExpired: () => handleAuthExpired(),
-  getPane: key => visibleChatPanes.value.find(item => item.key === key),
-  startLocalSession: () => chatRuntime.startLocalSession(),
-  setDraftProject: (key, workspace, worktree) => codeRuntime.setDraftProject(key, workspace, worktree),
-  addBinding: (binding, workspace) => userBoundProjects.add(binding, workspace),
-  navigateToChat: () => navigateTo('chat'),
-})
-const { logout, handleAuthExpired } = useAuthSessionLifecycle({
-  token: authToken, account: currentAccount, profile: userProfile,
-  billingSummary, billingSummaryLoaded, userMenuOpen, loginOpen,
-  sessions, sharedSessions, sessionsHasMore, sharedSessionsHasMore,
-  sessionsLoading, sessionsLoadingMore, sharedSessionsLoading, sharedSessionsLoadingMore,
-  createProjectOpen, createProjectSelectionError,
-  tokenStorageKey: authTokenKey, accountStorageKey: authAccountKey,
-  profileStorageKey: authUserProfileKey,
-  clearProjectState: () => clearUserBoundProjectState(true),
-  resetChat: () => chatRuntime.reset(),
-  closeSessionSearch,
-})
-const {
-  desktopBrowserRequest, activeCodeState,
-  desktopCodeReviewPath, desktopCodeReviewChanges, desktopCodeFilePath,
-  desktopWorkspaceSummary, refreshDesktopWorkspaceSummary,
-  desktopAvailableTools, desktopToolTabs, desktopActiveTool,
-  desktopActiveToolKind, desktopToolTabsFor, desktopActiveToolFor,
-  openDesktopTool, revealDesktopTool, openDesktopFileTab, openDesktopDiffTab, openDesktopPreviewTab,
-  selectDesktopTool, closeDesktopTool, hideDesktopTools,
-  toggleDesktopCodePanel, reviewCodeChanges, openCodeFile, requestDesktopBrowser,
-} = useAppDesktopTools({
-  codeRuntime, activeChatKey, currentView, currentSessionId, locale, canUseBrowser,
-})
+const desktopBrowserRequest = ref(0)
+const desktopCodeReviewPath = ref('')
+const desktopCodeReviewChanges = ref<DshTaskChangeSet | null>(null)
+const desktopCodeFilePath = ref('')
+const desktopWorkspaceSummary = ref<DshWorkspaceSummary | null>(null)
+const createProjectOpen = ref(false)
+const createProjectBusy = ref(false)
+const createProjectWorkspace = ref<DshWorkspace | null>(null)
+const createProjectWorktree = ref(false)
+const createProjectTargetKey = ref<string | null>(null)
+const manualPathOpen = ref(false)
+const manualPath = ref('')
+const manualPathError = ref('')
+const activeCodeState = computed(() => codeRuntime.stateFor(activeChatKey.value))
 const activeChatHasMessages = computed(() => (
   visibleChatPanes.value.find((pane) => pane.key === activeChatKey.value)?.messages.length || 0
 ) > 0)
-const { maskedPhone, displayName, displayAvatar, displayAvatarText, handleAvatarError } = useAccountIdentity({
-  profile: userProfile, account: currentAccount, token: authToken, profileStorageKey: authUserProfileKey,
+/** 固定文案的视图标题（无会话/技能/语言等动态参数）。 */
+const desktopWindowStaticTitles: Record<string, () => string> = {
+  tools: () => t('app.sidebar.tools'),
+  knowledge: () => t('knowledge.sidebar'),
+  'ontology-grants': () => t('ontology_grant.title'),
+  orchestration: () => t('orchestration.title'),
+  'approval-todos': () => t('orchestration.todos.title'),
+  'token-usage': () => t('app.account.usage'),
+}
+
+/** 动态标题的视图：会话名 / 技能名 / 按语言切换的本地化文案。 */
+function desktopWindowTitleForView(view: string): string {
+  if (view === 'chat') {
+    const current = sessions.value.find((session) => session.id === currentSessionId.value)
+    return current ? displaySessionTitle(current) : t('app.sidebar.new_chat')
+  }
+  if (view === 'portal') return locale.value === 'zh' ? '资产门户' : 'Asset portal'
+  if (view === 'scheduled-tasks') return locale.value === 'zh' ? '定时任务' : 'Scheduled tasks'
+  if (view === 'skill-config' || view === 'composite-editor') return selectedSkill.value?.name || t('app.sidebar.marketplace')
+  return t('app.sidebar.marketplace')
+}
+
+const desktopWindowTitle = computed(() => {
+  const staticTitle = desktopWindowStaticTitles[currentView.value]
+  if (staticTitle) return staticTitle()
+  return desktopWindowTitleForView(currentView.value)
 })
-const { accountTierLabel, quotaTotal, quotaRemaining, quotaUsedPercent, quotaUsedPercentLabel, quotaTotalLabel, loadBillingSummary } = useBillingSummary({
-  profile: userProfile, token: authToken, summary: billingSummary, loading: billingSummaryLoading,
-  loaded: billingSummaryLoaded, enterpriseSpace: isEnterpriseSpace,
+function addProjectToActiveConversation(): void {
+  if (canUseCode.value && currentView.value === 'chat') openProjectCreate(activeChatKey.value)
+}
+
+function createProject(): void {
+  openProjectCreate(null)
+}
+
+function openProjectCreate(targetKey: string | null): void {
+  if (!canUseCode.value || !capabilities.localWorkspacePicker) return
+  createProjectTargetKey.value = targetKey
+  createProjectWorkspace.value = null
+  createProjectWorktree.value = false
+  createProjectOpen.value = true
+}
+
+
+function closeProjectCreate(): void {
+  createProjectOpen.value = false
+  createProjectTargetKey.value = null
+}
+
+function selectBoundProject(key: string, workspace: DshWorkspace): void {
+  if (workspace.status !== 'ok') return
+  codeRuntime.setDraftProject(key, workspace, boundProjectWorktree(userBoundProjects.bindings.value, workspace.workspace_id))
+}
+
+async function chooseProjectFolder(): Promise<void> {
+  if (!capabilities.localWorkspacePicker) return
+  // On the desktop app, the Electron bridge opens the OS-native directory
+  // dialog directly — no browser API and no manual fallback needed.
+  if (capabilities.isDesktop) {
+    createProjectBusy.value = true
+    try {
+      const workspace = await selectDshWorkspace()
+      if (workspace) createProjectWorkspace.value = workspace
+    } catch (err: unknown) {
+      if ((err as { name?: string })?.name !== 'AbortError') {
+        window.alert((err as { message?: string })?.message || '无法选择本地目录')
+      }
+    } finally {
+      createProjectBusy.value = false
+    }
+    return
+  }
+  // On web, prefer the browser-native File System Access API so the user picks
+  // a REAL local directory (matching the desktop "添加项目" experience) instead
+  // of a server-side container path. Requires a Chromium browser + a user
+  // gesture, both of which hold here (the button click).
+  if (isFileSystemAccessSupported()) {
+    createProjectBusy.value = true
+    try {
+      const workspace = await selectDshWorkspace()
+      if (workspace) createProjectWorkspace.value = workspace
+      return
+    } catch (err: unknown) {
+      // AbortError = user dismissed the OS dialog; otherwise fall back to the
+      // manual path input (e.g. the page was opened from an insecure context).
+      if ((err as { name?: string })?.name === 'AbortError') return
+    } finally {
+      createProjectBusy.value = false
+    }
+  }
+  openManualPathPicker()
+}
+
+function buildWorkspaceFromPath(rawPath: string): DshWorkspace {
+  const normalized = rawPath.trim().replace(/[\\/]+$/, '')
+  const name = normalized.split(/[\\/]/).pop() || 'project'
+  const workspaceId = `web-project-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  const now = new Date().toISOString()
+  return {
+    workspace_id: workspaceId,
+    title: name,
+    path: normalized || name,
+    status: 'ok',
+    session_ids: [],
+    created_at: now,
+    updated_at: now,
+  }
+}
+
+function openManualPathPicker(): void {
+  manualPath.value = ''
+  manualPathError.value = ''
+  manualPathOpen.value = true
+}
+
+function confirmManualPath(): void {
+  const path = manualPath.value.trim()
+  if (!path) {
+    manualPathError.value = locale.value === 'en' ? 'Please enter a directory path' : '请输入目录路径'
+    return
+  }
+  createProjectWorkspace.value = buildWorkspaceFromPath(path)
+  manualPathOpen.value = false
+}
+
+function closeManualPath(): void {
+  manualPathOpen.value = false
+}
+
+function workspaceFolderName(workspace: DshWorkspace): string {
+  const normalizedPath = workspace.path.replace(/[\\/]+$/, '')
+  return normalizedPath.split(/[\\/]/).pop() || workspace.title
+}
+
+async function commitProjectCreate(): Promise<void> {
+  const workspace = createProjectWorkspace.value
+  const title = workspace ? workspaceFolderName(workspace) : ''
+  if (!workspace || !title || createProjectBusy.value) return
+  createProjectBusy.value = true
+  try {
+    // On web there is no desktop workspace to rename; the title is derived
+    // from the selected directory path and the workspace_id is already set.
+    const renamed = workspace
+    const binding = await createDesktopProject({
+      workspace_id: renamed.workspace_id,
+      title: renamed.title,
+      worktree: createProjectWorktree.value,
+    }, authToken.value || null)
+    const targetKey = createProjectTargetKey.value
+    const pane = targetKey ? visibleChatPanes.value.find(item => item.key === targetKey) : chatRuntime.startLocalSession()
+    if (!pane) throw new Error('the target conversation is no longer available')
+    codeRuntime.setDraftProject(pane.key, renamed, createProjectWorktree.value)
+    userBoundProjects.add(binding, renamed)
+    closeProjectCreate()
+    navigateTo('chat')
+  } finally { createProjectBusy.value = false }
+}
+
+/** 删除项目：归档 + 本地移除。默认项目不可删除。 */
+async function handleDeleteProject(workspaceId: string): Promise<void> {
+  if (!workspaceId || workspaceId === DEFAULT_PROJECT_ID) return
+  const msg = useAppMessage()
+  try {
+    // 桌面端走 dsh workspace 删除，Web 端软删除（归档）
+    if (capabilities.isDesktop) {
+      await deleteDshWorkspace(workspaceId)
+    } else {
+      await updateDesktopProjectStatus(workspaceId, 'archived', authToken.value || null)
+    }
+    // 本地即时移除
+    userBoundProjects.remove(workspaceId)
+    if (msg) msg.success(locale.value === 'en' ? 'Project deleted' : '项目已删除')
+  } catch (err) {
+    console.warn('[handleDeleteProject] failed:', err)
+    if (msg) msg.error(locale.value === 'en' ? 'Failed to delete project' : '删除项目失败')
+  }
+}
+
+// ── 侧边栏扩展项：项目行「…」上下文菜单 ───────────────────────────────────────
+function toggleProjectMenu(workspaceId: string): void {
+  projectMenuOpenFor.value = projectMenuOpenFor.value === workspaceId ? null : workspaceId
+  sessionMenuOpenFor.value = null
+}
+
+// 049 US1：项目「…」菜单 →「成员」弹窗（仅创建者可改；默认项目不出菜单）。
+const memberPickerOpen = ref(false)
+const memberPickerProject = ref<DesktopProject | null>(null)
+
+function openProjectMembers(workspaceId: string): void {
+  projectMenuOpenFor.value = null
+  const binding = userBoundProjects.bindings.value.find(
+    item => item.workspace_id === workspaceId || item._id === workspaceId,
+  )
+  if (!binding) return
+  memberPickerProject.value = binding
+  memberPickerOpen.value = true
+}
+
+function handleProjectMembersSaved(members: string[]): void {
+  const current = memberPickerProject.value
+  if (!current) return
+  userBoundProjects.setMembers(current.workspace_id || current._id || '', members)
+  memberPickerProject.value = { ...current, member_user_ids: [...members] }
+}
+
+function startEditProjectTitle(workspaceId: string, title: string): void {
+  if (!workspaceId || workspaceId === DEFAULT_PROJECT_ID) return
+  editingProjectId.value = workspaceId
+  editingProjectTitle.value = title
+  projectMenuOpenFor.value = null
+  nextTick(() => {
+    const root = document.querySelector(`[data-project-title-input="${CSS.escape(workspaceId)}"]`) as HTMLElement | null
+    const input = root?.querySelector('input') as HTMLInputElement | null
+    input?.focus()
+    input?.select()
+  })
+}
+
+function cancelProjectTitleEdit(): void {
+  editingProjectId.value = null
+  editingProjectTitle.value = ''
+}
+
+async function commitProjectTitleEdit(workspaceId: string): Promise<void> {
+  if (!workspaceId || workspaceId === DEFAULT_PROJECT_ID || renamingProjectId.value === workspaceId) return
+  const title = editingProjectTitle.value.trim()
+  const current = userBoundProjects.titles.value[workspaceId] || ''
+  if (!title || title === current) {
+    cancelProjectTitleEdit()
+    return
+  }
+  renamingProjectId.value = workspaceId
+  try {
+    if (capabilities.isDesktop) {
+      await renameDshWorkspace(workspaceId, title)
+    } else {
+      await updateDesktopProjectTitle(workspaceId, title, authToken.value || null)
+    }
+    userBoundProjects.rename(workspaceId, title)
+    cancelProjectTitleEdit()
+  } catch (err) {
+    console.warn('[projects] rename failed:', err)
+    const msg = useAppMessage()
+    if (msg) msg.error(locale.value === 'en' ? 'Failed to rename project' : '重命名项目失败')
+  } finally {
+    renamingProjectId.value = null
+  }
+}
+
+/** 为项目新增会话并绑定该项目。 */
+function handleAddSessionToProject(workspaceId: string): void {
+  if (!workspaceId) return
+  // 找到目标 workspace
+  const workspace = projectWorkspaces.value.find(w => w.workspace_id === workspaceId)
+  if (!workspace) return
+  // 创建新会话
+  const pane = chatRuntime.startLocalSession()
+  // 绑定项目
+  codeRuntime.setDraftProject(pane.key, workspace, boundProjectWorktree(userBoundProjects.bindings.value, workspaceId))
+  navigateTo('chat')
+}
+
+/** 会话最近活动时间：优先最后消息时间，回退更新时间。 */
+function sessionLastActiveAt(session: SessionSummary): string {
+  return session.last_message_at || session.updated_at || session.created_at || ''
+}
+
+/** 相对时间显示（对应 DSH 参考「21小时」样式）：刚刚 / N 分钟前 / N 小时前 / N 天前 / 月日。
+ * 后端（mongo 存 naive UTC）可能返回无时区后缀的 ISO 字符串；若直接 new Date(str) 会被
+ * 浏览器按本地时区解析，造成 8 小时偏差（UTC+8 用户看到"8 小时前"而非"几分钟前"）。
+ * 这里检测 naive ISO 并显式补 Z，确保按 UTC 解析后再转本地。 */
+function formatRelativeTime(iso?: string | null): string {
+  if (!iso) return ''
+  // naive ISO（无 Z 且末尾无 ±HH:MM 偏移）补 Z，按 UTC 解析
+  const normalized = /Z$|[+-]\d{2}:?\d{2}$/.test(iso) ? iso : iso + 'Z'
+  const then = new Date(normalized).getTime()
+  if (Number.isNaN(then)) return ''
+  const diffMinutes = Math.floor((Date.now() - then) / 60000)
+  if (diffMinutes < 1) return '刚刚'
+  if (diffMinutes < 60) return `${diffMinutes} 分钟前`
+  const hours = Math.floor(diffMinutes / 60)
+  if (hours < 24) return `${hours} 小时前`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days} 天前`
+  return new Date(normalized).toLocaleDateString(locale.value === 'en' ? 'en-US' : 'zh-CN', { month: 'numeric', day: 'numeric' })
+}
+
+function currentProjectIdentity(): string {
+  return userBoundProjects.identity()
+}
+
+function clearUserBoundProjectState(resetCodeRuntime = false): void {
+  userBoundProjects.clear()
+  if (resetCodeRuntime) codeRuntime.reset()
+}
+
+function prepareProjectBoundary(nextProfile: UserProfile): boolean {
+  const previousIdentity = currentProjectIdentity()
+  const previousCodeAllowed = canUseCode.value
+  const nextCodeAllowed = nextProfile.agentPolicy?.capabilities.code_generation !== false
+  const nextIdentity = nextProfile.userId === undefined || nextProfile.userId === null
+    ? ''
+    : `${String(nextProfile.tenantId || 'default')}:${String(nextProfile.userId)}`
+  if (previousIdentity !== nextIdentity || previousCodeAllowed !== nextCodeAllowed) {
+    clearUserBoundProjectState(previousIdentity !== nextIdentity || !nextCodeAllowed)
+  }
+  return nextCodeAllowed
+}
+
+function requestDesktopBrowser(): void {
+  if (canUseBrowser.value && currentView.value === 'chat') {
+    openDesktopTool('browser')
+  }
+}
+
+const desktopAvailableTools = computed<DesktopToolLauncherKind[]>(() => {
+  const tools: DesktopToolLauncherKind[] = []
+  if (canUseBrowser.value && activeChatKey.value) tools.push('browser')
+  if (activeCodeState.value.session && capabilities.codeInspector) {
+    if (desktopWorkspaceSummary.value?.git_available === true) tools.push('changes')
+    if (capabilities.workspaceFiles) tools.push('files')
+    if (capabilities.projectTerminal) tools.push('terminal')
+  }
+  return tools
 })
 
 const {
-  openLogin, closeUserMenu, openProfileEditor, openCreateOrganization,
-  openBilling, openPersonalization, closePersonalization,
-  handleProfileUpdated, toggleUserMenu, openSettingsPanel,
-  closeSettingsPanel, handleDocumentClick,
-} = useAppAccountActions({
-  isLoggedIn, canCreateOrganization, canUpgradePlan, loginOpen,
-  profileOpen, createOrganizationOpen, billingOpen, personalizationOpen,
-  userMenuOpen, settingsPanelOpen, userProfile, currentAccount,
-  profileStorageKey: authUserProfileKey, accountStorageKey: authAccountKey,
-  prepareProjectBoundary, loadBillingSummary,
+  tabs: desktopToolTabs,
+  active: desktopActiveTool,
+  activeKind: desktopActiveToolKind,
+  tabsFor: desktopToolTabsFor,
+  activeFor: desktopActiveToolFor,
+  open: openDesktopTool,
+  reveal: revealDesktopTool,
+  openFile: openDesktopFileTab,
+  openDiff: openDesktopDiffTab,
+  select: selectDesktopTool,
+  close: closeDesktopTool,
+  hide: hideDesktopTools,
+} = useDesktopToolTabs({
+  getScopeKey: () => activeChatKey.value,
+  getLocale: () => locale.value === 'en' ? 'en' : 'zh',
+  isAvailable: kind => currentView.value === 'chat' && desktopAvailableTools.value.includes(kind),
+  onActivate: tab => {
+    if (tab.kind === 'browser') {
+      desktopBrowserRequest.value += 1
+      const sessionId = currentSessionId.value || activeChatKey.value
+      if (sessionId && capabilities.embeddedBrowser) {
+        void selectEmbeddedBrowserSession(sessionId)
+          .then(() => activateEmbeddedBrowserSession(sessionId))
+          .catch(() => { /* Browser surface reports unavailable state in its own UI. */ })
+      }
+    }
+  },
 })
 
-const {
-  startLocalSession, selectSession, refreshOpenSession, handleSessionLeft,
-} = useAppSessionController({
-  chatRuntime, codeRuntime, sharedSessions,
-  canUseCode: () => canUseCode.value,
-  authToken: () => authToken.value,
-  userId: getUserId, mainId: getMainId,
-  syncDesktopIdentity: syncDesktopAgentIdentity,
-  navigateToChat: () => navigateTo('chat'),
-  closeSessionSearch,
-  refreshSessionSummaries, refreshSharedSummaries,
-  loadSessions: () => loadSessions(true),
-  loadSharedSessions: () => loadSharedSessions(true),
-  showRefreshError: message => shareToast.error(message),
-  showAccessLostNotice: message => shareToast.warning(message),
+function toggleDesktopCodePanel(mode: 'changes' | 'files' | 'terminal'): void {
+  if (desktopActiveToolKind.value === mode) {
+    hideDesktopTools()
+    return
+  }
+  desktopCodeReviewPath.value = ''
+  desktopCodeReviewChanges.value = null
+  desktopCodeFilePath.value = ''
+  revealDesktopTool(mode)
+}
+
+function reviewCodeChanges(changes: DshTaskChangeSet, path?: string): void {
+  if (!activeCodeState.value.session) return
+  desktopCodeReviewChanges.value = changes
+  desktopCodeReviewPath.value = path || ''
+  desktopCodeFilePath.value = ''
+  if (path) openDesktopDiffTab(path, changes)
+  else revealDesktopTool('changes')
+}
+function openCodeFile(path: string): void {
+  if (!activeCodeState.value.session) return
+  desktopCodeReviewChanges.value = null
+  desktopCodeReviewPath.value = ''
+  desktopCodeFilePath.value = path
+  openDesktopFileTab(path)
+}
+async function refreshDesktopWorkspaceSummary(): Promise<void> {
+  const sessionId = activeCodeState.value.session?.kernel_session_id
+  if (!sessionId || !capabilities.codeInspector) return
+  try { desktopWorkspaceSummary.value = await getDshWorkspaceSummary(sessionId) } catch { /* keep last known summary */ }
+}
+let workspaceSummaryRequest = 0
+watch(() => activeCodeState.value.session?.kernel_session_id, async sessionId => {
+  const request = ++workspaceSummaryRequest
+  desktopCodeReviewPath.value = ''
+  desktopCodeReviewChanges.value = null
+  desktopCodeFilePath.value = ''
+  desktopWorkspaceSummary.value = null
+  if (!sessionId || !capabilities.codeInspector) return
+  try {
+    const summary = await getDshWorkspaceSummary(sessionId)
+    if (request === workspaceSummaryRequest) desktopWorkspaceSummary.value = summary
+  } catch { /* The unavailable capability stays hidden. */ }
+}, { immediate: true })
+watch(() => activeCodeState.value.events.length, async (length, previous) => {
+  const sessionId = activeCodeState.value.session?.kernel_session_id
+  if (!sessionId || length <= previous) return
+  const latest = activeCodeState.value.events.at(-1)
+  if (latest?.item_kind !== 'tool' || !['item.completed', 'item.failed'].includes(latest.type)) return
+  try { desktopWorkspaceSummary.value = await getDshWorkspaceSummary(sessionId) } catch { /* keep last known summary */ }
+})
+watch(currentSessionId, (sessionId) => {
+  if (capabilities.embeddedBrowser && sessionId) void selectEmbeddedBrowserSession(sessionId)
+}, { immediate: true })
+const sessionSearchDisplayItems = computed(() =>
+  trimmedSessionSearchQuery.value ? sessionSearchResults.value : sessions.value
+)
+const publishChannelSuggestions = [
+  'wechat_official',
+  'xiaohongshu',
+  'zhihu',
+  'website',
+  'email',
+  'knowledge_base',
+  'docs',
+  'social_post',
+  'community_post',
+  'generic',
+]
+const contentFormSuggestions = [
+  'article',
+  'report',
+  'brief',
+  'guide',
+  'memo',
+  'review',
+  'faq',
+  'presentation_outline',
+]
+const targetAudienceSuggestions = [
+  'general_public',
+  'beginners',
+  'professionals',
+  'developers',
+  'entrepreneurs',
+  'business_owners',
+  'marketers',
+  'students',
+  'decision_makers',
+  'product_users',
+]
+const preferredStyleSuggestions = [
+  'formal',
+  'professional',
+  'casual',
+  'conversational',
+  'friendly',
+  'authoritative',
+  'analytical',
+  'objective',
+  'persuasive',
+  'inspirational',
+  'humorous',
+  'storytelling',
+  'concise',
+  'detailed',
+  'technical',
+  'educational',
+  'practical',
+  'neutral',
+  'critical',
+  'optimistic',
+]
+const skillTypeOptions = computed(() => [
+  { label: locale.value === 'zh' ? '风格' : 'Style', value: 'style' },
+  { label: locale.value === 'zh' ? '执行' : 'Execution', value: 'execution' },
+  { label: locale.value === 'zh' ? '渲染' : 'Renderer', value: 'renderer' },
+])
+// naive-ui 主题外观统一由 src/theme/naive.ts 提供（引用 CSS 变量，深浅主题自动跟随）
+
+function loadSavedUsers() {
+  const raw = localStorage.getItem(authUsersKey)
+  if (!raw) return
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) {
+      savedUsers.value = parsed.filter((item) => typeof item === 'string')
+    }
+  } catch {
+    savedUsers.value = []
+  }
+}
+
+function persistSavedUsers(username: string) {
+  const next = [username, ...savedUsers.value.filter((item) => item !== username)]
+  savedUsers.value = next.slice(0, 5)
+  localStorage.setItem(authUsersKey, JSON.stringify(savedUsers.value))
+}
+
+// Push the authenticated identity into desktop-persisted settings and
+// restart the local agent sidecar so it reconnects with fresh credentials.
+// The sidecar reads these values from env at spawn time — without this,
+// an agent started before login has an empty user_id and never shows up in
+// the backend registry, so browser tasks cannot start.
+async function syncDesktopAgentIdentity(token: string, userId: string | number | null | undefined) {
+  if (!capabilities.isDesktop) return
+  const uid = userId !== undefined && userId !== null ? String(userId) : ''
+  if (!uid || !token) return
+  try {
+    const [current, status] = await Promise.all([getSettings(), getAgentStatus()])
+    const settingsMatch = current.user_id === uid && current.auth_token === token
+    if (settingsMatch && status.running) return
+    if (!settingsMatch) {
+      await updateSettings({ ...current, user_id: uid, auth_token: token })
+      if (!status.running) await startAgent()
+      return
+    }
+    if (!status.running) await startAgent()
+  } catch (err) {
+    console.warn('[desktop] failed to sync agent identity', err)
+  }
+}
+
+function handleLoginSuccess(payload: { token: string; username: string; profile?: UserProfile }) {
+  // 029：登录成功后清掉门户选租户挑战，避免污染下次普通登录。
+  portalChallengeToken.value = ''
+  portalTenantCandidates.value = []
+  clearUserBoundProjectState(true)
+  if (typeof window !== 'undefined') {
+    const url = new URL(window.location.href)
+    if (url.searchParams.has('invite_code') || url.searchParams.has('inviteCode') || url.searchParams.has('register')) {
+      url.searchParams.delete('invite_code')
+      url.searchParams.delete('inviteCode')
+      url.searchParams.delete('register')
+      url.searchParams.delete('invite')
+      url.searchParams.delete('username')
+      url.searchParams.delete('loginName')
+      window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`)
+    }
+  }
+  localStorage.setItem(authTokenKey, payload.token)
+  localStorage.setItem(authAccountKey, payload.username)
+  authToken.value = payload.token
+  currentAccount.value = payload.username
+  billingSummary.value = null
+  billingSummaryLoaded.value = false
+  persistSavedUsers(payload.username)
+  // Prefer profile that came back inline with the login response. Falling
+  // back to the (sometimes-broken) SSO clientAuth call only when the login
+  // didn't give us a userId.
+  if (payload.profile && payload.profile.userId !== undefined && payload.profile.userId !== null) {
+    userProfile.value = payload.profile
+    localStorage.setItem(authUserProfileKey, JSON.stringify(payload.profile))
+    loginOpen.value = false
+    startLocalSession()
+    loadSessions(true).catch(() => {})
+    void syncDesktopAgentIdentity(payload.token, payload.profile.userId).then(() => {
+      if (canUseCode.value) void refreshWorkspaceTitles()
+    })
+  } else {
+    refreshUserProfile(payload.token, true)
+  }
+}
+
+function handleBillingSuccess(payload: { token: string; username: string; profile: any }) {
+  handleLoginSuccess(payload)
+}
+
+function handleOrganizationCreated(payload: { token: string; username: string; profile: UserProfile }) {
+  handleLoginSuccess(payload)
+}
+
+function openLogin() {
+  // 029：普通登录入口不带门户挑战，防御性清空。
+  portalChallengeToken.value = ''
+  portalTenantCandidates.value = []
+  loginOpen.value = true
+}
+
+function closeLogin() {
+  portalChallengeToken.value = ''
+  portalTenantCandidates.value = []
+  loginOpen.value = false
+}
+
+// 029：门户 SSO——消费 history.state.portalToken 换票建会话。
+// 单租户成功：写 localStorage，交由下方常规启动流程建会话（不重复拉起）。
+// 多租户：打开登录弹窗并透传选租户挑战（免二次输密码，只选组织）。
+// 失败（签名/过期/复药/跨租户/未知用户）：不写 token，下方 !authToken 分支回退登录弹窗。
+async function handlePortalEntry(portalToken: string): Promise<void> {
+  const result = await exchangePortalTicket(portalToken)
+  if (result.ok && result.token) {
+    localStorage.setItem(authTokenKey, result.token)
+    localStorage.setItem(authAccountKey, result.profile?.username || '')
+    if (result.profile) {
+      localStorage.setItem(authUserProfileKey, JSON.stringify(result.profile))
+    }
+    return
+  }
+  if (
+    result.requiresTenantSelection &&
+    result.challengeToken &&
+    (result.tenantCandidates?.length ?? 0) > 0
+  ) {
+    portalChallengeToken.value = result.challengeToken
+    portalTenantCandidates.value = result.tenantCandidates || []
+    loginOpen.value = true
+  }
+}
+
+function openProfileEditor() {
+  profileOpen.value = true
+  closeUserMenu()
+}
+
+function openCreateOrganization() {
+  if (!canCreateOrganization.value) return
+  createOrganizationOpen.value = true
+  closeUserMenu()
+}
+
+function openBilling() {
+  if (!canUpgradePlan.value) return
+  billingOpen.value = true
+  closeUserMenu()
+}
+
+function openPersonalization() {
+  personalizationSection.value = 'general'
+  personalizationOpen.value = true
+  closeUserMenu()
+}
+
+function closePersonalization() {
+  personalizationOpen.value = false
+}
+
+/**
+ * naive-ui 的 themeOverrides 必须是实际色值（seemly 无法解析 CSS 变量），
+ * 所以在主题 class 切换后重建一次；令牌仍是唯一颜色来源。
+ */
+const naiveThemeOverrides = ref(createNaiveThemeOverrides())
+
+/**
+ * naive-ui 内置文案（输入框占位符、确认框、日期选择器等）跟随应用语言：
+ * 默认中文（zhCN），用户切到 English 时同步切到 enUS。此前未配置 locale，
+ * naive-ui 会回退到英文默认（如输入框占位符 "Please Input"）。
+ */
+const naiveLocale = computed(() => (locale.value === 'en' ? enUS : zhCN))
+const naiveDateLocale = computed(() => (locale.value === 'en' ? dateEnUS : dateZhCN))
+
+function applyThemeMode() {
+  const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+  isDarkTheme.value = themeMode.value === 'dark' || (themeMode.value === 'system' && systemDark)
+  document.documentElement.classList.toggle('theme-dark', isDarkTheme.value)
+  document.documentElement.style.colorScheme = isDarkTheme.value ? 'dark' : 'light'
+  // 必须在 class 切换之后读令牌，否则拿到的是旧主题的值
+  naiveThemeOverrides.value = createNaiveThemeOverrides()
+}
+
+function selectThemeMode(mode: ThemeMode) {
+  themeMode.value = mode
+}
+
+async function selectLanguage(language: Locale) {
+  if (languageSaving.value || locale.value === language) return
+  const previous = locale.value
+  setAppLocale(language)
+  languageSaving.value = true
+  try {
+    const settings = await getSettings()
+    await updateSettings({ ...settings, language })
+  } catch (error) {
+    setAppLocale(previous)
+    console.warn('[settings] failed to persist language', error)
+  } finally {
+    languageSaving.value = false
+  }
+}
+
+async function selectTimezone(timezone: string) {
+  if (timezoneSaving.value || timezoneValue.value === timezone) return
+  const previous = timezoneValue.value
+  timezoneValue.value = setAppTimezone(timezone)
+  timezoneSaving.value = true
+  try {
+    const settings = await getSettings()
+    await updateSettings({ ...settings, timezone })
+  } catch (error) {
+    timezoneValue.value = setAppTimezone(previous)
+    console.warn('[settings] failed to persist timezone', error)
+  } finally {
+    timezoneSaving.value = false
+  }
+}
+
+function handleSystemThemeChange() {
+  if (themeMode.value === 'system') applyThemeMode()
+}
+
+function handleProfileUpdated(profile: UserProfile) {
+  prepareProjectBoundary(profile)
+  userProfile.value = profile
+  localStorage.setItem(authUserProfileKey, JSON.stringify(profile))
+  if (profile.username) {
+    currentAccount.value = profile.username
+    localStorage.setItem(authAccountKey, profile.username)
+  }
+}
+
+function clearAuthenticatedState() {
+  clearUserBoundProjectState(true)
+  localStorage.removeItem(authTokenKey)
+  localStorage.removeItem(authAccountKey)
+  localStorage.removeItem(authUserProfileKey)
+  authToken.value = ''
+  currentAccount.value = ''
+  userProfile.value = null
+  billingSummary.value = null
+  billingSummaryLoaded.value = false
+  userMenuOpen.value = false
+  sessions.value = []
+  sessionsHasMore.value = false
+  sessionsLoading.value = false
+  sessionsLoadingMore.value = false
+  chatRuntime.reset()
+  sessionSearchOpen.value = false
+  sessionSearchQuery.value = ''
+  sessionSearchResults.value = []
+  sessionSearchHasMore.value = false
+  sessionSearchLoading.value = false
+  sessionSearchDidRun.value = false
+  if (capabilities.isDesktop) {
+    void clearDesktopAuthSession({ getSettings, updateSettings, getAgentStatus, stopAgent }).catch((error) => {
+      console.warn('[desktop] failed to clear persisted authentication', error)
+    })
+  }
+}
+
+function logout() {
+  if (authToken.value) {
+    void logoutWithToken(authToken.value)
+  }
+  clearAuthenticatedState()
+}
+
+function handleAuthExpired() {
+  if (!authToken.value && !localStorage.getItem(authTokenKey)) return
+  console.warn('[auth] session expired; clearing cached session and opening login dialog')
+  clearAuthenticatedState()
+  loginOpen.value = true
+}
+
+function toggleUserMenu() {
+  if (!isLoggedIn.value) {
+    openLogin()
+    return
+  }
+  userMenuOpen.value = !userMenuOpen.value
+  if (userMenuOpen.value) {
+    void loadBillingSummary()
+  }
+}
+
+function closeUserMenu() {
+  userMenuOpen.value = false
+}
+
+function openSettingsPanel() {
+  if (!capabilities.isDesktop) return
+  settingsPanelOpen.value = true
+  closeUserMenu()
+}
+
+function resolveViewFromPath(pathname: string) {
+  const path = String(pathname || '/').replace(/\/+$/, '') || '/'
+  if (path === '/usage' || path === '/token-usage') return 'token-usage'
+  if (path === '/skills') return 'skills'
+  if (path === '/tools') return 'tools'
+  if (path === '/plugins') return 'plugins'
+  if (path === '/knowledge') return 'knowledge'
+  if (path === '/scheduled-tasks') return 'scheduled-tasks'
+  if (path === '/ontology-grants') return 'ontology-grants'
+  if (path === '/orchestration') return 'orchestration'
+  if (path === '/approval-todos') return 'approval-todos'
+  if (path === '/portal') return 'portal'
+  if (path === '/memories') return 'memories'
+  return 'chat'
+}
+
+function routePathForView(view: typeof currentView.value) {
+  if (view === 'token-usage') return '/usage'
+  if (view === 'tools') return '/tools'
+  if (view === 'plugins') return '/plugins'
+  if (view === 'knowledge') return '/knowledge'
+  if (view === 'scheduled-tasks') return '/scheduled-tasks'
+  if (view === 'ontology-grants') return '/ontology-grants'
+  if (view === 'orchestration') return '/orchestration'
+  if (view === 'approval-todos') return '/approval-todos'
+  if (view === 'portal') return '/portal'
+  if (view === 'memories') return '/memories'
+  if (view === 'skills' || view === 'skill-config' || view === 'composite-editor') return '/skills'
+  return '/'
+}
+
+function navigateTo(view: typeof currentView.value, replace = false) {
+  currentView.value = view
+  if (typeof window === 'undefined') return
+  const nextPath = routePathForView(view)
+  const currentPath = window.location.pathname || '/'
+  if (currentPath === nextPath) return
+  window.history[replace ? 'replaceState' : 'pushState']({}, '', nextPath)
+}
+
+function handlePopState() {
+  currentView.value = resolveViewFromPath(window.location.pathname)
+  if (currentView.value !== 'chat') {
+    closeSessionSearch()
+  }
+}
+
+function openTokenUsagePage() {
+  navigateTo('token-usage')
+  closeUserMenu()
+}
+
+function openScheduledTasks(options: { prompt?: string; sessionId?: string | null; create?: boolean } = {}) {
+  if (!isLoggedIn.value) {
+    openLogin()
+    return
+  }
+  scheduledTaskInitialPrompt.value = options.prompt || ''
+  scheduledTaskInitialSessionId.value = options.sessionId ?? currentSessionId.value
+  if (options.create) scheduledTaskCreateRequestKey.value += 1
+  navigateTo('scheduled-tasks')
+  closeSessionSearch()
+}
+
+async function handleSwitchTenant(tenantId: string) {
+  await switchToTenant(tenantId)
+}
+
+async function switchToTenant(tenantId: string): Promise<string | null> {
+  const target = String(tenantId || '').trim()
+  if (!target || !authToken.value || switchingTenant.value) return null
+  if (target === getTenantId()) return authToken.value
+  switchingTenant.value = true
+  try {
+    const result = await switchTenant(authToken.value, target)
+    if (!result.ok || !result.token) return null
+    clearUserBoundProjectState(true)
+    localStorage.setItem(authTokenKey, result.token)
+    authToken.value = result.token
+    if (result.profile) {
+      userProfile.value = result.profile
+      localStorage.setItem(authUserProfileKey, JSON.stringify(result.profile))
+      if (result.profile.username) {
+        currentAccount.value = result.profile.username
+        localStorage.setItem(authAccountKey, result.profile.username)
+      }
+    }
+    billingSummary.value = null
+    billingSummaryLoaded.value = false
+    void loadBillingSummary()
+    startLocalSession()
+    await loadSessions(true)
+    return result.token
+  } finally {
+    switchingTenant.value = false
+  }
+}
+
+function closeTokenUsagePage() {
+  navigateTo('chat')
+}
+
+function closeSettingsPanel() {
+  settingsPanelOpen.value = false
+}
+
+function applyLanguage(language?: string | null) {
+  setAppLocale((language === 'en' ? 'en' : 'zh') as Locale)
+}
+
+function handleDocumentClick(event: MouseEvent) {
+  const target = event.target as HTMLElement | null
+  if (!target?.closest('[data-user-menu]')) {
+    closeUserMenu()
+  }
+  if (!target?.closest('[data-project-display-menu]')) {
+    projectDisplayMenuOpen.value = false
+  }
+  // 侧边栏扩展项：点击会话/项目「…」菜单以外区域时收起。
+  if (!target?.closest('[data-session-menu]') && !target?.closest('[data-project-menu]')) {
+    closeContextMenus()
+  }
+}
+
+async function loadSkills() {
+  if (!getUserId()) return
+  skillsLoading.value = true
+  try {
+    const uid = getUserId()
+    if (uid === null) return
+    skills.value = await listSkills(uid, getTenantId())
+  } catch {
+    skills.value = []
+  } finally {
+    skillsLoading.value = false
+  }
+}
+
+function openSkillsPage() {
+  navigateTo('skills')
+  loadSkills()
+  void refreshSkillShareCount()
+}
+
+function closeSkillsPage() {
+  navigateTo('chat')
+}
+
+function openToolsPage() {
+  navigateTo('tools')
+}
+
+function openPluginsPage() {
+  navigateTo('plugins')
+}
+
+function openKnowledgePage() {
+  navigateTo('knowledge')
+  void refreshPersonalKnowledgeCount()
+}
+
+function openOntologyGrantsPage() {
+  navigateTo('ontology-grants')
+}
+
+function closeOntologyGrantsPage() {
+  navigateTo('chat')
+}
+
+function openOrchestrationPage() {
+  navigateTo('orchestration')
+}
+
+function closeOrchestrationPage() {
+  navigateTo('chat')
+}
+
+function openApprovalTodosPage() {
+  navigateTo('approval-todos')
+}
+
+function closeApprovalTodosPage() {
+  navigateTo('chat')
+}
+
+function openPortalPage() {
+  navigateTo('portal')
+}
+
+function closePortalPage() {
+  navigateTo('chat')
+}
+
+function openSkillConfig(skill: any) {
+  selectedSkill.value = skill
+  // Composite-task skills have their own editor: step list + site picker,
+  // completely different shape from the style / execution / renderer editor.
+  const kind = String(skill?.skill_type || skill?.role || '').toLowerCase()
+  if (kind === 'composite_task') {
+    navigateTo('composite-editor')
+  } else {
+    navigateTo('skill-config')
+  }
+}
+
+function openNewCompositeSkill() {
+  selectedSkill.value = null
+  navigateTo('composite-editor')
+}
+
+function closeSkillConfig() {
+  navigateTo('skills')
+}
+
+function handleCompositeSaved(savedSkill: any) {
+  selectedSkill.value = savedSkill || selectedSkill.value
+  loadSkills().catch(() => {})
+  navigateTo('skills')
+}
+
+function handleSkillConfigSaved(savedSkill: any) {
+  selectedSkill.value = savedSkill || selectedSkill.value
+  loadSkills().catch(() => {})
+}
+
+function closeSkillForm() {
+  skillFormOpen.value = false
+}
+
+function openSkillForm() {
+  skillFormOpen.value = true
+}
+
+async function handleSkillFileUpload(event: Event, kind: 'knowledge' | 'templates' | 'tools') {
+  if (!getUserId()) return
+  const input = event.target as HTMLInputElement
+  if (!input.files || input.files.length === 0) return
+  const uid = getUserId()
+  if (uid === null) return
+  const files = Array.from(input.files)
+  for (const file of files) {
+    const uploaded = await uploadSkillSource(uid, file)
+    if (uploaded?.object_path) {
+      if (kind === 'knowledge') skillKnowledge.value.push(uploaded)
+      if (kind === 'templates') skillTemplates.value.push(uploaded)
+      if (kind === 'tools') skillTools.value.push(uploaded)
+    }
+  }
+  input.value = ''
+}
+
+async function handleSkillResourceUpload(event: Event, kind: 'knowledge' | 'templates' | 'tools') {
+  if (!getUserId() || !selectedSkill.value) return
+  const input = event.target as HTMLInputElement
+  if (!input.files || input.files.length === 0) return
+  const uid = getUserId()
+  if (uid === null) return
+  const files = Array.from(input.files)
+  for (const file of files) {
+    const uploaded = await uploadSkillSource(uid, file)
+    if (uploaded?.object_path) {
+      const updated = { ...selectedSkill.value }
+      const resources = { ...(updated.resources || {}) }
+      const list = [...(resources[kind] || []), uploaded]
+      resources[kind] = list
+      updated.resources = resources
+      selectedSkill.value = updated
+    }
+  }
+  input.value = ''
+}
+
+async function enrichDraftFromForm() {
+  if (!getUserId() || !skillName.value.trim()) return
+  skillEnriching.value = true
+  try {
+    const inputProfile = {
+      skill_type: skillType.value,
+      name: skillName.value.trim(),
+      summary: skillSummary.value.trim(),
+      applicable_scenarios: skillScenario.value.trim(),
+      publish_channel: skillChannels.value,
+      content_form: skillForms.value,
+      target_audience: skillAudience.value,
+      preferred_style: skillStyle.value,
+      required_elements: skillRequired.value,
+      forbidden_elements: skillForbidden.value,
+      reference_materials: [
+        ...skillKnowledge.value.map((item: any) => item.filename || item.object_path),
+        ...skillTemplates.value.map((item: any) => item.filename || item.object_path),
+      ],
+    }
+    const enriched = await enrichSkillDraft({
+      user_id: getUserId(),
+      name: skillName.value.trim(),
+      description: skillSummary.value.trim(),
+      skill_type: skillType.value,
+      input_profile: inputProfile,
+    })
+    const contract = enriched?.contract_json || {}
+    skillSummary.value = contract.summary || skillSummary.value
+    skillScenario.value = contract.applicable_scenarios || skillScenario.value
+    skillChannels.value = contract.publish_channel || skillChannels.value
+    skillForms.value = contract.content_form || skillForms.value
+    skillAudience.value = contract.target_audience || skillAudience.value
+    skillStyle.value = contract.preferred_style || skillStyle.value
+    skillRequired.value = contract.required_elements || skillRequired.value
+    skillForbidden.value = contract.forbidden_elements || skillForbidden.value
+  } finally {
+    skillEnriching.value = false
+  }
+}
+
+async function createSkill() {
+  if (!getUserId()) return
+  if (!skillName.value.trim()) return
+  skillCreating.value = true
+  try {
+    const contractJson = {
+      skill_type: skillType.value,
+      name: skillName.value.trim(),
+      summary: skillSummary.value.trim(),
+      applicable_scenarios: skillScenario.value.trim(),
+      publish_channel: skillChannels.value,
+      content_form: skillForms.value,
+      target_audience: skillAudience.value,
+      preferred_style: skillStyle.value,
+      required_elements: skillRequired.value,
+      forbidden_elements: skillForbidden.value,
+      reference_materials: [
+        ...skillKnowledge.value.map((item: any) => item.filename || item.object_path),
+        ...skillTemplates.value.map((item: any) => item.filename || item.object_path),
+      ],
+    }
+    const created = await generateSkill({
+      user_id: getUserId(),
+      name: skillName.value.trim(),
+      description: skillSummary.value.trim(),
+      summary: skillSummary.value.trim(),
+      category: skillCategory.value,
+      role: skillType.value,
+      skill_type: skillType.value,
+      tags: [],
+      visibility: 'private',
+      formats: ['markdown'],
+      sources: [],
+      resources: {
+        knowledge: skillKnowledge.value,
+        templates: skillTemplates.value,
+        tools: skillTools.value,
+      },
+      input_profile: contractJson,
+      contract_json: contractJson,
+      skill_markdown: '',
+      advanced: {},
+      is_active: false,
+    })
+    if (created) {
+      handleSkillCreate(created)
+      currentView.value = 'skill-config'
+      skillName.value = ''
+      skillSummary.value = ''
+      skillCategory.value = 'Analysis & Reports'
+      skillType.value = 'style'
+      skillScenario.value = ''
+      skillChannels.value = ['generic']
+      skillForms.value = ['article']
+      skillAudience.value = ['general_public']
+      skillStyle.value = ['professional']
+      skillRequired.value = []
+      skillForbidden.value = []
+      skillKnowledge.value = []
+      skillTemplates.value = []
+      skillTools.value = []
+      skillFormOpen.value = false
+    }
+  } finally {
+    skillCreating.value = false
+  }
+}
+
+function handleSkillCreate(skillOrEvent: any) {
+  // If it's a DOM event or empty, open the form
+  if (!skillOrEvent || skillOrEvent instanceof Event || !skillOrEvent.id) {
+    openSkillForm()
+    return
+  }
+  
+  // If it's a skill object, add to list and select
+  skills.value = [skillOrEvent, ...skills.value]
+  selectedSkill.value = skillOrEvent
+  // Note: View switching is handled by separate 'configure' event or createSkill flow
+}
+
+async function saveSkillConfig(payload: any) {
+  if (!getUserId() || !payload?.id) return
+  const updated = await updateSkill(payload.id, {
+    user_id: getUserId(),
+    name: payload.name,
+    description: payload.description,
+    category: payload.category,
+    skill_type: payload.skill_type,
+    is_active: payload.is_active,
+    input_profile: payload.input_profile,
+    contract_json: payload.contract_json,
+    skill_markdown: payload.skill_markdown,
+    resources: payload.resources,
+    advanced: payload.advanced,
+  })
+  if (updated) {
+    skills.value = skills.value.map((s) => (s.id === updated.id ? updated : s))
+    selectedSkill.value = updated
+  }
+}
+
+async function toggleSkillActive(skill: any, isActive: boolean) {
+  if (!getUserId() || !skill?.id) return
+  const updated = await updateSkill(skill.id, {
+    user_id: getUserId(),
+    name: skill.name,
+    description: skill.description,
+    category: skill.category,
+    skill_type: skill.skill_type || 'style',
+    is_active: isActive,
+    input_profile: skill.input_profile || skill.contract_json || {},
+    contract_json: skill.contract_json || skill.input_profile || {},
+    skill_markdown: skill.skill_markdown || '',
+    resources: skill.resources || {},
+    advanced: skill.advanced || {},
+  })
+  if (updated) {
+    skills.value = skills.value.map((item) => (item.id === updated.id ? updated : item))
+    if (selectedSkill.value?.id === updated.id) {
+      selectedSkill.value = updated
+    }
+  }
+}
+
+async function removeSkill(skill: any) {
+  const uid = getUserId()
+  if (!uid || !skill?.id) return
+  await deleteSkill(skill.id, uid)
+  skills.value = skills.value.filter((s) => s.id !== skill.id)
+  if (selectedSkill.value?.id === skill.id) {
+    selectedSkill.value = null
+    currentView.value = 'skills'
+  }
+}
+
+async function refreshUserProfile(token: string, createDefaultSession = false, preserveSessionOnFailure = false) {
+  if (createDefaultSession) {
+    startLocalSession()
+  }
+  const result = await fetchUserProfile(token)
+  if (result.ok && result.data) {
+    prepareProjectBoundary(result.data)
+    userProfile.value = result.data
+    localStorage.setItem(authUserProfileKey, JSON.stringify(result.data))
+    await loadSessions(true).catch(() => {})
+    loginOpen.value = false
+    void syncDesktopAgentIdentity(token, result.data.userId)
+    return
+  }
+  if (preserveSessionOnFailure) {
+    sessionsLoading.value = false
+    if (result.status === 401) {
+      // 401 已由 installAuthExpiryInterceptor 处理：缓存会话被清、登录框已弹。
+      // 这里若继续「保留缓存会话」并 loadSessions，只会拿空 token 再打一串 401
+      // （skill-share-inbox/count、personal-knowledge-counts 就是这么刷出来的）。
+      console.warn('[auth] fetchUserProfile unauthorized; session already cleared, skip retry')
+      return
+    }
+    console.warn('[auth] fetchUserProfile failed; keeping cached session and retrying later')
+    await loadSessions(true).catch(() => {})
+    return
+  }
+  // SSO failed (e.g. token already consumed, or running inside an embedded WebView
+  // where the SSO endpoint refuses requests). Stop showing a stale state and
+  // ask the user to log in fresh — the new login flow extracts profile from
+  // the login response itself, so it won't hit this code path again.
+  sessionsLoading.value = false
+  console.warn('[auth] fetchUserProfile failed; opening login dialog for fresh sign-in')
+  localStorage.removeItem(authTokenKey)
+  localStorage.removeItem(authUserProfileKey)
+  authToken.value = ''
+  userProfile.value = null
+  loginOpen.value = true
+}
+
+async function refreshEnterprisePolicy(token: string): Promise<void> {
+  const result = await fetchUserProfile(token)
+  if (!result.ok || !result.data || authToken.value !== token) return
+  const nextCodeAllowed = prepareProjectBoundary(result.data)
+  userProfile.value = result.data
+  localStorage.setItem(authUserProfileKey, JSON.stringify(result.data))
+  if (nextCodeAllowed) await refreshWorkspaceTitles()
+  if (currentView.value === 'skills') await loadSkills().catch(() => {})
+}
+
+useProfileRefreshOnResume({ token: authToken, refresh: refreshEnterprisePolicy })
+
+function loadUserProfile() {
+  const raw = localStorage.getItem(authUserProfileKey)
+  if (!raw) return
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object') {
+      userProfile.value = parsed
+    }
+  } catch (err) {
+    console.warn('[auth] loadUserProfile parse failed:', err)
+    userProfile.value = null
+  }
+}
+
+function normalizedPhone() {
+  const value = String(userProfile.value?.phone || userProfile.value?.username || currentAccount.value || '').replace(/\D/g, '')
+  return /^1[3-9]\d{9}$/.test(value) ? value : ''
+}
+
+function maskedPhone() {
+  const phone = normalizedPhone()
+  return phone ? `${phone.slice(0, 3)}****${phone.slice(-4)}` : ''
+}
+
+function displayName() {
+  const profileName = String(userProfile.value?.name || '').trim()
+  const phone = normalizedPhone()
+  if (profileName && profileName !== phone && !/^1[3-9]\d{9}$/.test(profileName)) {
+    return profileName
+  }
+  if (phone) {
+    return locale.value === 'zh' ? `用户 ${phone.slice(-4)}` : `User ${phone.slice(-4)}`
+  }
+  return currentAccount.value || t('app.sidebar.login_register')
+}
+
+function displayAvatar() {
+  const avatar = userProfile.value?.avatar || ''
+  if (avatar && avatar !== 'null') return avatar
+  return ''
+}
+
+function handleAvatarError(event: Event) {
+  const image = event.currentTarget as HTMLImageElement
+  const retryCount = Number(image.dataset.retryCount || 0)
+  if (retryCount >= 5 || !authToken.value) {
+    image.style.display = 'none'
+    return
+  }
+  image.dataset.retryCount = String(retryCount + 1)
+  const retryDelay = [1000, 2000, 4000, 8000, 15000][retryCount] || 15000
+  window.setTimeout(async () => {
+    const result = await fetchUserProfile(authToken.value)
+    if (!result.ok || !result.data?.avatar) return
+    userProfile.value = result.data
+    localStorage.setItem(authUserProfileKey, JSON.stringify(result.data))
+    const avatar = result.data.avatar
+    image.src = avatar.startsWith('/')
+      ? `${avatar}${avatar.includes('?') ? '&' : '?'}retry=${Date.now()}`
+      : avatar
+  }, retryDelay)
+}
+
+function displayAvatarText() {
+  return normalizedPhone() ? (locale.value === 'zh' ? '用' : 'U') : displayName().slice(0, 1)
+}
+
+/** 语言感知的二选一文案。 */
+function localizedLabel(zh: string, en: string): string {
+  return locale.value === 'zh' ? zh : en
+}
+
+/** 付费档位 → 本地化标题。 */
+const accountTierLabels: Record<string, () => string> = {
+  plus: () => localizedLabel('Plus 个人版', 'Plus Personal'),
+  pro: () => localizedLabel('专业团队版', 'Pro Team'),
+  enterprise: () => localizedLabel('企业定制版', 'Enterprise Custom'),
+}
+
+/** 社区版判断：用户档案或账单任一标记为 community 即为社区版。 */
+function isCommunityEdition(): boolean {
+  return userProfile.value?.edition === 'community' || billingSummary.value?.edition === 'community'
+}
+
+/** 企业空间账号标题：按是否具备管理权限区分管理员/成员。 */
+function enterpriseTierLabel(): string {
+  return userProfile.value?.canAccessAdmin
+    ? t('ui.enterprise_admin')
+    : t('ui.enterprise_member')
+}
+
+/** 账单档位优先，缺失时回退到用户档案档位。 */
+function accountTier(): string | undefined {
+  return billingSummary.value?.tier || userProfile.value?.tier
+}
+
+const accountTierLabel = computed(() => {
+  // The community edition intentionally carries no tier label: it is the default
+  // self-hosted deployment, and rendering "Community Edition" here showed up as
+  // noise in both the profile card and the account switcher. Real entitlements
+  // (enterprise, plus, pro) still render below.
+  if (isCommunityEdition()) return ''
+  if (isEnterpriseSpace.value) return enterpriseTierLabel()
+  const tier = accountTier()
+  const tierLabel = tier ? accountTierLabels[tier] : undefined
+  if (tierLabel) return tierLabel()
+  return localizedLabel('免费版', 'Free')
 })
 
-const {
-  openTokenUsagePage, closeTokenUsagePage, openScheduledTasks, handleSidebarAction,
-  openSkillsPage, closeSkillsPage, openToolsPage, openKnowledgePage,
-  openDesktopPrimarySection, openSkillConfig,
-  closeSkillConfig, handleCompositeSaved, handleSkillConfigSaved,
-} = useAppFeatureActions({
-  isLoggedIn, currentSessionId, scheduledTaskInitialPrompt,
-  scheduledTaskInitialSessionId, scheduledTaskCreateRequestKey, selectedSkill,
-  sessionSearchOpen, navigateTo, openLogin, closeUserMenu, closeSessionSearch,
-  startLocalSession, loadSkills, refreshSkillShareCount, refreshPersonalKnowledgeCount,
+const quotaTotal = computed(() => Number(billingSummary.value?.totalPoints || 0))
+const quotaUsed = computed(() => Number(billingSummary.value?.usedPoints || 0))
+const quotaRemaining = computed(() => {
+  if (billingSummary.value?.unlimited === true) return -1
+  return Math.max(0, Number(billingSummary.value?.remainingPoints ?? quotaTotal.value - quotaUsed.value))
 })
-
-const { switchingTenant, switchToTenant, handleSwitchTenant } = useTenantSwitch({
-  token: authToken, profile: userProfile, account: currentAccount,
-  billingSummary, billingSummaryLoaded,
-  tokenStorageKey: authTokenKey, profileStorageKey: authUserProfileKey,
-  accountStorageKey: authAccountKey, getMainId,
-  clearProjectState: () => clearUserBoundProjectState(true),
-  loadBillingSummary,
-  startLocalSession,
-  loadSessions: () => loadSessions(true),
-  loadSharedSessions: () => loadSharedSessions(true),
+const quotaUsedPercent = computed(() => {
+  return quotaUsagePercent(quotaUsed.value, quotaTotal.value)
 })
+const quotaUsedPercentLabel = computed(() => formatQuotaUsagePercent(quotaUsed.value, quotaTotal.value))
+const quotaTotalLabel = computed(() => billingSummary.value?.quotaSource === 'enterprise_allocation' ? '企业分派' : t('ui.quota_gift'))
+function formatTokenCount(value: number) {
+  return formatTokenAmount(value, locale.value)
+}
 
-const { openAdminConsole } = useAdminConsoleLaunch({
-  authToken, adminSsoStarting, availableTenants, userProfile,
-  isEnterpriseSpace, canAccessAdmin, isEnterpriseTenant, getMainId,
-  switchToTenant, activeChatKey, currentSessionId,
-  navigateToChat: () => navigateTo('chat'),
-  startLocalSession,
-  revealDesktopBrowser: () => revealDesktopTool('browser'),
-  closeUserMenu,
-})
+async function loadBillingSummary() {
+  if (!authToken.value || billingSummaryLoading.value) return
+  billingSummaryLoading.value = true
+  try {
+    const result = await fetchOrgBilling(authToken.value)
+    if (result.ok) billingSummary.value = result.data
+  } finally {
+    billingSummaryLoading.value = false
+    billingSummaryLoaded.value = true
+  }
+}
 
-const {
-  pendingSnapshotToken, captureSessionShareToken, captureSnapshotToken,
-  joinPendingSharedSession,
-} = useSessionShareLanding({
+function getUserId() {
+  const id = userProfile.value?.userId
+  if (id === undefined || id === null) return null
+  return String(id)
+}
+
+function getTenantId() {
+  return String(userProfile.value?.tenantId || 'default')
+}
+
+// P3 三期-a：landing——从 URL 捕获 session-share token，登录后自动加入共享会话。
+// loadSharedSessions / selectSession 均为提升的 function 声明，此处延迟引用安全。
+const sessionShareLanding = useSessionShareLanding({
   getUserId,
   loadSharedSessions: () => loadSharedSessions(true),
-  selectSession,
-  showError: message => shareToast.error(message),
+  selectSession: (sessionId) => selectSession(sessionId),
+  showError: (message) => {
+    const messageApi = useAppMessage()
+    if (messageApi) messageApi.error(message)
+  },
 })
 
-const { refreshUserProfile } = useAuthProfileRefresh({
-  token: authToken, profile: userProfile, loginOpen, sessionsLoading, currentView,
-  tokenStorageKey: authTokenKey, profileStorageKey: authUserProfileKey,
-  startLocalSession,
-  loadSessions: () => loadSessions(true),
-  loadSharedSessions: () => loadSharedSessions(true),
-  joinPendingSharedSession,
-  prepareProjectBoundary,
-  onAuthExpired: handleAuthExpired,
-  refreshWorkspaceTitles,
-  loadSkills,
+// P3 三期-a：会话分享弹窗状态（server 共享闭环的「发起分享」入口）。
+const sessionShareOpen = ref(false)
+const sessionShareMode = ref<'owner' | 'participant'>('owner')
+const sessionShareMembersRevision = ref(0)
+
+/** 当前会话是否可分享：需登录、有当前会话、且执行位置为 server（本地不提供 desktop/远端 sandbox 分享）。 */
+const canShareSession = computed(() => {
+  if (!isLoggedIn.value || !currentSessionId.value) return false
+  const session = sessions.value.find((item) => item.id === currentSessionId.value)
+  const location = session?.execution_location
+  // 无执行位置信息视为 server；desktop/remote_sandbox 不提供分享。
+  return !location || location === 'server'
 })
 
-const { handleLoginSuccess } = useAuthLogin({
-  sessions, sharedSessions, sessionsHasMore, sharedSessionsHasMore,
-  token: authToken, account: currentAccount, profile: userProfile, loginOpen,
-  billingSummary, billingSummaryLoaded,
-  tokenStorageKey: authTokenKey, accountStorageKey: authAccountKey,
-  profileStorageKey: authUserProfileKey,
-  resetChat: () => chatRuntime.reset(),
-  clearProjectState: () => clearUserBoundProjectState(true),
-  persistSavedUser: persistSavedUsers,
-  startLocalSession,
-  loadSessions: () => loadSessions(true),
-  loadSharedSessions: () => loadSharedSessions(true),
-  joinPendingSharedSession,
-  refreshUserProfile,
-  canUseCode, refreshWorkspaceTitles,
+function openSessionShare(): void {
+  const session = sessions.value.find((item) => item.id === currentSessionId.value)
+  sessionShareMode.value = session?.access === 'shared' ? 'participant' : 'owner'
+  sessionShareOpen.value = true
+}
+
+/** 成员被移除 / 链接被撤销 / 退出共享后：刷新共享列表与成员版本。 */
+function handleSessionShareMutated(): void {
+  sessionShareMembersRevision.value += 1
+  void loadSharedSessions(true)
+}
+
+function handleSessionShareLeft(): void {
+  sessionShareOpen.value = false
+  handleSessionShareMutated()
+  if (currentSessionId.value) void chatRuntime.removeSession(currentSessionId.value)
+}
+
+/**
+ * P3 SSE：共享会话实时流检测到访问被撤销（被移除 / 自己退出）。提示、关闭
+ * 当前共享会话并刷新共享列表。
+ */
+function handleSharedAccessLost(sessionId: string, reason: SessionLiveAccessRevokedReason): void {
+  const messageApi = useAppMessage()
+  if (messageApi) {
+    messageApi.error(
+      reason === 'participant_removed'
+        ? t('session.share.access_revoked')
+        : t('session.share.access_left'),
+    )
+  }
+  if (currentSessionId.value === sessionId) {
+    void chatRuntime.removeSession(sessionId)
+  }
+  handleSessionShareMutated()
+}
+
+function isEnterpriseTenant(tenant: Pick<TenantCandidate, 'spaceType' | 'orgName'>) {
+  if (tenant.spaceType) return tenant.spaceType === 'enterprise'
+  return String(tenant.orgName || '').trim() !== '个人空间'
+}
+
+/** 是否允许为该租户打开管理台：需在租户列表内、具备管理权限且属于企业空间。 */
+function canOpenAdmin(target: TenantCandidate | undefined): boolean {
+  if (target && !canAccessAdmin(target)) return false
+  if (target && !isEnterpriseTenant(target)) return false
+  if (!target && userProfile.value?.canAccessAdmin !== true) return false
+  return Boolean(target) || isEnterpriseSpace.value
+}
+
+/** 管理台鉴权失败时的统一提示。 */
+function reportAdminAuthFailure(message?: string): void {
+  window.alert(message || t('api.auth.auth_failed'))
+}
+
+/** 嵌入式浏览器模式：切回会话、激活内置浏览器标签后再打开管理台地址。 */
+async function openAdminInEmbeddedBrowser(adminUrl: string): Promise<void> {
+  if (activeChatKey.value) navigateTo('chat')
+  else startLocalSession()
+  revealDesktopTool('browser')
+  const browserSessionId = currentSessionId.value || activeChatKey.value
+  if (browserSessionId) {
+    await selectEmbeddedBrowserSession(browserSessionId)
+    await activateEmbeddedBrowserSession(browserSessionId)
+  }
+  await nextTick()
+  await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+  await openResource(adminUrl, 'internal')
+}
+
+/** window.open 返回的窗口句柄类型（避免直接引用 DOM 全局 Window，eslint 未声明该类型）。 */
+type AdminWindowHandle = NonNullable<ReturnType<typeof window.open>> | null
+
+/** 新窗口模式：同源窗口把 SSO 令牌写进 history.state，不经过 URL。 */
+function deliverAdminSsoToken(adminUrl: string, ssoToken: string, adminWindow: AdminWindowHandle): void {
+  if (adminWindow) {
+    adminWindow.history.replaceState({ ssoToken }, '')
+    adminWindow.location.href = adminUrl
+    return
+  }
+  window.open(adminUrl, '_blank', ssoWindowState(ssoToken))
+}
+
+async function openAdminConsole(tenantId = getTenantId()) {
+  if (!authToken.value || adminSsoStarting.value) return
+  const target = availableTenants.value.find((tenant) => tenant.tenantId === tenantId)
+  if (!canOpenAdmin(target)) return
+
+  const adminWindow = capabilities.embeddedBrowser ? null : window.open('', '_blank')
+  adminSsoStarting.value = true
+  try {
+    const token = await switchToTenant(tenantId)
+    if (!token) {
+      adminWindow?.close()
+      return
+    }
+    const result = await getAdminSSOToken(token)
+    if (!result.ok || !result.ssoToken) {
+      adminWindow?.close()
+      reportAdminAuthFailure(result.message)
+      return
+    }
+    // 022 FR-14（T030）：令牌不进 URL；改由 window.open 的 state 参数传递。
+    const adminUrl = buildAdminSsoUrl()
+    if (capabilities.embeddedBrowser) {
+      await openAdminInEmbeddedBrowser(adminUrl)
+    } else {
+      deliverAdminSsoToken(adminUrl, result.ssoToken, adminWindow)
+    }
+    closeUserMenu()
+  } catch (error: any) {
+    adminWindow?.close()
+    reportAdminAuthFailure(error?.message)
+  } finally {
+    adminSsoStarting.value = false
+  }
+}
+
+function mergeSessionPages(existing: SessionSummary[], incoming: SessionSummary[]) {
+  const merged = [...existing]
+  const seen = new Set(existing.map((item) => item.id))
+  for (const item of incoming) {
+    if (seen.has(item.id)) continue
+    merged.push(item)
+    seen.add(item.id)
+  }
+  return merged
+}
+
+function sessionIsRunning(sessionId: string) {
+  const serverRunning = sessions.value.some((item) => item.id === sessionId && item.active_run?.status === 'running')
+  return serverRunning || chatRuntime.sessionIsRunning(sessionId)
+}
+
+function sessionScheduledIsRunning(sessionId: string) {
+  return sessions.value.some(
+    (item) => item.id === sessionId && item.active_run?.source === 'scheduled' && item.active_run?.status === 'running',
+  )
+}
+
+function sessionNeedsHumanAssistance(sessionId: string) {
+  const serverNeedsHelp = sessions.value.some(
+    (item) => item.id === sessionId
+      && (item.active_run?.status === 'suspended' || Number(item.pending_approval_count || 0) > 0),
+  )
+  return serverNeedsHelp || codeRuntime.needsAssistance(sessionId) || visibleChatPanes.value.some(
+    (pane) => pane.sessionId === sessionId && Boolean(pane.activeIntervention),
+  )
+}
+
+function sessionIsUnread(sessionId: string) {
+  return sessions.value.some((item) => item.id === sessionId && item.scheduled_unread) || chatRuntime.sessionIsUnread(sessionId)
+}
+
+function displaySessionTitle(session: Pick<SessionSummary, 'title'>) {
+  return session.title || t('app.sidebar.new_chat')
+}
+
+/** Keep navigation labels compact without mutating the user-visible saved title. */
+function compactSessionTitle(session: Pick<SessionSummary, 'title'>, limit = 28) {
+  const title = displaySessionTitle(session).trim()
+  return title.length > limit ? `${title.slice(0, limit).trimEnd()}…` : title
+}
+
+function updateSessionTitleInLists(updated: SessionSummary) {
+  sessions.value = sessions.value.map((item) => (item.id === updated.id ? { ...item, ...updated } : item))
+  sessionSearchResults.value = sessionSearchResults.value.map((item) => (
+    item.id === updated.id ? { ...item, ...updated } : item
+  ))
+}
+
+function focusSessionTitleInput(sessionId: string) {
+  nextTick(() => {
+    const root = document.querySelector(`[data-session-title-input="${sessionId}"]`)
+    const input = root?.querySelector('input') as HTMLInputElement | null
+    input?.focus()
+    input?.select()
+  })
+}
+
+function startEditSessionTitle(session: SessionSummary | SessionSearchResult) {
+  if (renamingSessionId.value) return
+  editingSessionId.value = session.id
+  editingSessionTitle.value = displaySessionTitle(session)
+  focusSessionTitleInput(session.id)
+}
+
+function cancelSessionTitleEdit() {
+  editingSessionId.value = null
+  editingSessionTitle.value = ''
+}
+
+async function commitSessionTitleEdit(session: SessionSummary | SessionSearchResult) {
+  const userId = getUserId()
+  if (!userId || renamingSessionId.value === session.id) return
+  const title = editingSessionTitle.value.trim()
+  const previousTitle = displaySessionTitle(session)
+  if (!title || title === previousTitle) {
+    cancelSessionTitleEdit()
+    return
+  }
+  renamingSessionId.value = session.id
+  try {
+    const updated = await updateSessionTitle(session.id, userId, getTenantId(), title, authToken.value || null)
+    updateSessionTitleInLists(updated)
+    cancelSessionTitleEdit()
+  } catch (error) {
+    console.warn('[sessions] update title failed:', error)
+    focusSessionTitleInput(session.id)
+  } finally {
+    renamingSessionId.value = null
+  }
+}
+
+// ── 侧边栏扩展项：会话行「…」上下文菜单 ───────────────────────────────────────
+function toggleSessionMenu(sessionId: string): void {
+  sessionMenuOpenFor.value = sessionMenuOpenFor.value === sessionId ? null : sessionId
+  projectMenuOpenFor.value = null
+}
+
+function closeContextMenus(): void {
+  sessionMenuOpenFor.value = null
+  projectMenuOpenFor.value = null
+}
+
+function findSessionById(sessionId: string): SessionSummary | SessionSearchResult | null {
+  return (
+    sessions.value.find((item) => item.id === sessionId) ||
+    sessionSearchResults.value.find((item) => item.id === sessionId) ||
+    sharedSessions.value.find((item) => item.id === sessionId) ||
+    null
+  )
+}
+
+/** 用后端返回的最新摘要就地更新所有列表（避免整列表刷新闪烁）。 */
+function applySessionSummary(updated: SessionSummary): void {
+  const replace = (list: SessionSummary[]) =>
+    list.map((item) => (item.id === updated.id ? { ...item, ...updated } : item))
+  sessions.value = replace(sessions.value)
+  sessionSearchResults.value = sessionSearchResults.value.map((item) =>
+    item.id === updated.id ? { ...item, ...updated } : item,
+  )
+  sharedSessions.value = replace(sharedSessions.value)
+}
+
+async function handlePinSession(session: SessionSummary | SessionSearchResult): Promise<void> {
+  const userId = getUserId()
+  const id = session.id
+  if (!userId) return
+  const willPin = !Boolean((session as SessionSummary).pinned_at)
+  closeContextMenus()
+  try {
+    const updated = await pinSession(id, userId, getTenantId(), willPin, authToken.value || null)
+    applySessionSummary(updated)
+  } catch (error) {
+    console.warn('[sessions] pin failed:', error)
+  }
+}
+
+async function handleForkSession(session: SessionSummary | SessionSearchResult): Promise<void> {
+  const userId = getUserId()
+  if (!userId) return
+  closeContextMenus()
+  try {
+    const fork = await forkSession(session.id, userId, getTenantId(), undefined, authToken.value || null)
+    // 新会话插入列表顶部并切换过去，用户可直接继续。
+    sessions.value = [fork, ...sessions.value.filter((item) => item.id !== fork.id)]
+    void refreshWorkspaceTitles()
+    navigateTo('chat')
+    selectSession(fork.id)
+  } catch (error) {
+    console.warn('[sessions] fork failed:', error)
+  }
+}
+
+async function handleArchiveSession(session: SessionSummary | SessionSearchResult): Promise<void> {
+  const userId = getUserId()
+  const id = session.id
+  if (!userId) return
+  const willArchive = !Boolean((session as SessionSummary).archived)
+  closeContextMenus()
+  try {
+    const updated = await archiveSession(id, userId, getTenantId(), willArchive, authToken.value || null)
+    applySessionSummary(updated)
+  } catch (error) {
+    console.warn('[sessions] archive failed:', error)
+  }
+}
+
+async function handleCopySessionId(session: SessionSummary | SessionSearchResult): Promise<void> {
+  closeContextMenus()
+  try {
+    await copyTextToClipboard(session.id)
+  } catch (error) {
+    console.warn('[sessions] copy session id failed:', error)
+  }
+}
+
+async function handleDeleteSession(sessionId: string) {
+  const userId = getUserId()
+  if (!userId || deletingSessionId.value === sessionId) return
+  if (editingSessionId.value === sessionId) {
+    cancelSessionTitleEdit()
+  }
+  const target =
+    sessions.value.find((item) => item.id === sessionId) ||
+    sessionSearchResults.value.find((item) => item.id === sessionId) ||
+    null
+  pendingDeleteSession.value = target
+}
+
+function cancelDeleteSession() {
+  pendingDeleteSession.value = null
+}
+
+async function confirmDeleteSession() {
+  const userId = getUserId()
+  const sessionId = pendingDeleteSession.value?.id
+  if (!userId || !sessionId || deletingSessionId.value === sessionId) return
+  deletingSessionId.value = sessionId
+  try {
+    await deleteSession(sessionId, userId, getTenantId(), authToken.value || null)
+    sessions.value = sessions.value.filter((item) => item.id !== sessionId)
+    sessionSearchResults.value = sessionSearchResults.value.filter((item) => item.id !== sessionId)
+    chatRuntime.removeSession(sessionId)
+  } catch (error) {
+    console.warn('[sessions] delete failed:', error)
+    const messageApi = useAppMessage()
+    if (messageApi) {
+      messageApi.error(t('app.delete_chat.failed'))
+    }
+  } finally {
+    pendingDeleteSession.value = null
+    deletingSessionId.value = null
+  }
+}
+
+async function loadSessions(reset = true) {
+  const userId = getUserId()
+  if (!userId) return
+  if (reset) {
+    sessionsLoading.value = true
+    sessionsHasMore.value = false
+  } else {
+    sessionsLoadingMore.value = true
+  }
+  try {
+    const page = await listSessionsPaged(userId, getTenantId(), {
+      limit: sessionPageSize,
+      offset: reset ? 0 : sessions.value.length,
+    }, authToken.value || null)
+    sessions.value = reset ? page.items : mergeSessionPages(sessions.value, page.items)
+    sessionsHasMore.value = page.has_more
+    if (canUseCode.value) void refreshWorkspaceTitles()
+  } finally {
+    if (reset) {
+      sessionsLoading.value = false
+    } else {
+      sessionsLoadingMore.value = false
+    }
+  }
+}
+
+// P3 三期-a：加载分享给我（参与）的会话列表；scope=shared 走后端 shared 视图。
+async function loadSharedSessions(reset = true) {
+  const userId = getUserId()
+  if (!userId) return
+  if (reset) {
+    sharedSessionsLoading.value = true
+    sharedSessionsHasMore.value = false
+  } else {
+    sharedSessionsLoadingMore.value = true
+  }
+  try {
+    const page = await listSessionsPaged(userId, getTenantId(), {
+      limit: sessionPageSize,
+      offset: reset ? 0 : sharedSessions.value.length,
+      scope: 'shared',
+    }, authToken.value || null)
+    sharedSessions.value = reset ? page.items : mergeSessionPages(sharedSessions.value, page.items)
+    sharedSessionsHasMore.value = page.has_more
+  } finally {
+    if (reset) {
+      sharedSessionsLoading.value = false
+    } else {
+      sharedSessionsLoadingMore.value = false
+    }
+  }
+}
+
+async function refreshSessionSummaries() {
+  const userId = getUserId()
+  if (!userId || document.visibilityState === 'hidden') return
+  try {
+    const page = await listSessionsPaged(userId, getTenantId(), { limit: sessionPageSize, offset: 0 }, authToken.value || null)
+    sessions.value = mergeSessionPages(sessions.value, page.items).slice(0, Math.max(sessionPageSize, sessions.value.length))
+    sessionsHasMore.value = page.has_more
+  } catch {
+    // Best-effort visibility refresh; explicit navigation still retries.
+  }
+}
+
+function openSessionSearch() {
+  if (!isLoggedIn.value) {
+    openLogin()
+    return
+  }
+  navigateTo('chat')
+  sessionSearchOpen.value = true
+}
+
+function closeSessionSearch() {
+  sessionSearchOpen.value = false
+  sessionSearchQuery.value = ''
+  sessionSearchResults.value = []
+  sessionSearchHasMore.value = false
+  sessionSearchLoading.value = false
+  sessionSearchDidRun.value = false
+}
+
+async function runSessionSearch(reset = true) {
+  const userId = getUserId()
+  const queryText = trimmedSessionSearchQuery.value
+  if (!userId || !queryText) {
+    sessionSearchResults.value = []
+    sessionSearchHasMore.value = false
+    sessionSearchDidRun.value = false
+    sessionSearchLoading.value = false
+    return
+  }
+  sessionSearchLoading.value = true
+  try {
+    const page = await searchSessions(userId, getTenantId(), queryText, {
+      limit: sessionSearchPageSize,
+      offset: reset ? 0 : sessionSearchResults.value.length,
+    }, authToken.value || null)
+    sessionSearchResults.value = reset ? page.items : [...sessionSearchResults.value, ...page.items]
+    sessionSearchHasMore.value = page.has_more
+    sessionSearchDidRun.value = true
+  } finally {
+    sessionSearchLoading.value = false
+  }
+}
+
+function scheduleSessionSearch() {
+  if (sessionSearchTimer) {
+    clearTimeout(sessionSearchTimer)
+    sessionSearchTimer = null
+  }
+  const queryText = trimmedSessionSearchQuery.value
+  if (!queryText) {
+    sessionSearchResults.value = []
+    sessionSearchHasMore.value = false
+    sessionSearchDidRun.value = false
+    sessionSearchLoading.value = false
+    return
+  }
+  sessionSearchTimer = setTimeout(() => {
+    runSessionSearch(true).catch(() => {
+      sessionSearchLoading.value = false
+    })
+  }, 250)
+}
+
+function startLocalSession(options: { shouldNavigate?: boolean; inheritCurrentProject?: boolean } = {}) {
+  const sourceKey = options.inheritCurrentProject ? activeChatKey.value : ''
+  const pane = chatRuntime.startLocalSession()
+  if (canUseCode.value && sourceKey) codeRuntime.inheritDraftProject(sourceKey, pane.key)
+  if (options.shouldNavigate !== false) {
+    navigateTo('chat')
+  }
+  closeSessionSearch()
+}
+
+async function selectSession(sessionId: string) {
+  const userId = getUserId()
+  if (!userId) return
+  navigateTo('chat')
+  if (currentSessionId.value === sessionId) return
+  const pane = await chatRuntime.selectSession(sessionId, userId, getTenantId(), authToken.value || null)
+  if (canUseCode.value) await codeRuntime.attach(pane.key, sessionId)
+  closeSessionSearch()
+}
+
+async function handlePaneSend(
+  key: string,
+  payload: {
+    text: string
+    images: File[]
+    documents: PendingRuntimeDocument[]
+    knowledgeQaEnabled: boolean
+    selectedSkillId?: string
+    modelId?: string
+    employeeId?: string
+  },
+) {
+  const codeState = codeRuntime.stateFor(key)
+  // Web 端（codeExecution=false）不支持本地 Code 执行：绑定到项目的会话
+  // 走普通聊天，并把项目作为会话归属（project_id），避免静默吞错导致空白。
+  const canRunCode = canUseCode.value && capabilities.codeExecution
+  if (canRunCode && (codeState.workspace || codeState.session)) {
+    if (payload.images.length || payload.documents.length) {
+      codeState.error = locale.value === 'en'
+        ? 'Attach project files inside the selected Workspace before sending a Code task.'
+        : 'Code 项目任务请先把附件放入所选 Workspace，再发送任务。'
+      return
+    }
+    const existingPane = visibleChatPanes.value.find((pane) => pane.key === key)
+    let targetKey = key
+    if (existingPane?.sessionId && !codeState.session) {
+      const derived = chatRuntime.startLocalSession()
+      codeRuntime.transferDraft(key, derived.key)
+      targetKey = derived.key
+    }
+    try { await codeRuntime.send(targetKey, payload.text, payload.modelId) } catch { /* visible in Code context */ }
+    return
+  }
+  chatRuntime.sendMessage(key, {
+    ...payload,
+    projectId: codeState.workspace?.workspace_id,
+    authToken: authToken.value || null,
+    userId: getUserId(),
+    tenantId: getTenantId(),
+    locale: locale.value === 'en' ? 'en' : 'zh',
+    timezone: timezoneValue.value,
+  })
+}
+
+function handlePaneStop(key: string) {
+  const codeState = codeRuntime.stateFor(key)
+  if (codeState.session) void codeRuntime.stop(key).catch(() => undefined)
+  else chatRuntime.stopGeneration(key)
+}
+
+watch(sessionSearchQuery, () => {
+  scheduleSessionSearch()
 })
 
-const { send: handlePaneSend, stop: handlePaneStop } = usePaneTurnActions({
-  chatRuntime, codeRuntime,
-  canUseCode: () => canUseCode.value,
-  authToken: () => authToken.value,
-  userId: getUserId, mainId: getMainId,
-  profile: () => userProfile.value,
-  locale: () => locale.value === 'en' ? 'en' : 'zh',
-  timezone: () => timezoneValue.value,
+watch(locale, (value) => {
+  document.documentElement.lang = value === 'en' ? 'en' : 'zh-CN'
+}, { immediate: true })
+
+watch([normalHistoryExpanded, collapsedProjectHistory], ([normal, projects]) => {
+  localStorage.setItem(sidebarHistoryStateKey, JSON.stringify({ normal, projects }))
+}, { deep: true })
+
+watch(themeMode, (value) => {
+  localStorage.setItem(themeModeKey, value)
+  applyThemeMode()
 })
 
-const { handleDesktopServerConnected } = useAppStartup({
-  storageKeys: { token: authTokenKey, account: authAccountKey, users: authUsersKey, profile: authUserProfileKey },
-  locale, currentView, desktopServerState, timezoneValue, currentAccount, authToken,
-  userProfile, loginOpen, sessionsLoading,
-  captureSessionShareToken, captureSnapshotToken, handleAuthExpired,
-  startThemeListener, stopThemeListener, loadSavedUsers, loadUserProfile,
-  startLocalSession, refreshUserProfile,
-  loadSessions: () => loadSessions(true),
-  handleDocumentClick, handlePopState,
-  refreshSessionSummaries, refreshSharedSummaries,
+function handleDesktopServerConnected() {
+  for (const key of [authTokenKey, authAccountKey, authUsersKey, authUserProfileKey]) {
+    localStorage.removeItem(key)
+  }
+  window.location.reload()
+}
+
+/** 消费门户 SSO 票据：票据经 history.state 传入，立即清除避免残留/刷新复用。 */
+async function consumePortalSsoTicket(): Promise<void> {
+  if (typeof window === 'undefined') return
+  const portalToken = (window.history.state && (window.history.state as { portalToken?: string }).portalToken) || ''
+  if (!portalToken) return
+  window.history.replaceState({}, '')
+  await handlePortalEntry(portalToken)
+}
+
+/** 读取服务端设置；失败时回退到中文与浏览器时区。 */
+async function loadServerSettings(): Promise<{ serverConfigured: boolean; settings: Awaited<ReturnType<typeof getSettings>> | null }> {
+  let serverConfigured = !capabilities.isDesktop
+  let settings = null
+  try {
+    settings = await getSettings()
+    serverConfigured = settings.server_configured
+    applyLanguage(settings.language)
+    timezoneValue.value = setAppTimezone(settings.timezone || getBrowserTimezone())
+  } catch {
+    applyLanguage('zh')
+    timezoneValue.value = setAppTimezone(getBrowserTimezone())
+  }
+  return { serverConfigured, settings }
+}
+
+/** 按当前登录态决定启动动作：无令牌开登录框，有令牌则拉起本地会话并刷新用户档案。 */
+function bootstrapAuth(): void {
+  if (!authToken.value) {
+    loginOpen.value = true
+    startLocalSession({ shouldNavigate: currentView.value === 'chat' })
+    return
+  }
+  if (!userProfile.value) {
+    startLocalSession({ shouldNavigate: currentView.value === 'chat' })
+    sessionsLoading.value = true
+    refreshUserProfile(authToken.value).catch(() => { sessionsLoading.value = false })
+    return
+  }
+  startLocalSession({ shouldNavigate: currentView.value === 'chat' })
+  refreshUserProfile(authToken.value, false, true).catch(() => { loadSessions(true).catch(() => {}) })
+}
+
+/** 桌面端启动自愈：本地已有会话时同步 Electron 设置与 sidecar（Web 端为空操作）。 */
+function syncDesktopAgentOnBoot(): void {
+  if (authToken.value && userProfile.value?.userId !== undefined) {
+    void syncDesktopAgentIdentity(authToken.value, userProfile.value.userId)
+  }
+}
+
+onMounted(async () => {
+  window.addEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired)
+  applyThemeMode()
+  systemThemeMedia = window.matchMedia('(prefers-color-scheme: dark)')
+  systemThemeMedia.addEventListener('change', handleSystemThemeChange)
+  // 029：门户 SSO 票据优先消费（免二次登录）。
+  await consumePortalSsoTicket()
+  currentView.value = resolveViewFromPath(window.location.pathname)
+  const { serverConfigured, settings: storedSettings } = await loadServerSettings()
+  if (capabilities.isDesktop && !serverConfigured) {
+    desktopServerState.value = 'required'
+    return
+  }
+  desktopServerState.value = 'ready'
+  currentAccount.value = localStorage.getItem(authAccountKey) || ''
+  authToken.value = capabilities.isDesktop && storedSettings
+    ? restoreDesktopAuthToken(storedSettings, localStorage, authTokenKey)
+    : localStorage.getItem(authTokenKey) || ''
+  loadSavedUsers()
+  loadUserProfile()
+  bootstrapAuth()
+  syncDesktopAgentOnBoot()
+  document.addEventListener('click', handleDocumentClick)
+  window.addEventListener('popstate', handlePopState)
+  sessionRefreshTimer = setInterval(() => { void refreshSessionSummaries() }, 5000)
+  // P3 三期-a：捕获 URL 中的分享 token；已登录则立即加入共享会话（登录后由 watch 再触发）。
+  sessionShareLanding.captureSessionShareToken()
+  sessionShareLanding.captureSnapshotToken()
+  if (isLoggedIn.value) void sessionShareLanding.joinPendingSharedSession()
 })
 
-const chatPaneActions = {
-  send: handlePaneSend,
-  stop: handlePaneStop,
-  refreshSession: refreshOpenSession,
-  openSkills: openSkillsPage,
-  openTools: openToolsPage,
-  openKnowledge: openKnowledgePage,
-  scheduleMessage: ({ prompt, sessionId }) => openScheduledTasks({ prompt, sessionId, create: true }),
-  clearIntervention: chatRuntime.clearPaneIntervention,
-  approvalDecided: refreshSessionSummaries,
-  chooseCodeWorkspace: openProjectCreate,
-  selectCodeWorkspace: selectBoundProject,
-  clearCodeWorkspace: codeRuntime.clear,
-  codeWorktree: codeRuntime.setWorktree,
-  startLocalCodeTask: createProject,
-  codeSourceRef: codeRuntime.setSourceRef,
-  codePermissionMode: codeRuntime.setPermissionMode,
-  codeBranchUpdated: codeRuntime.setWorkspaceBranch,
-  codeApproval: codeRuntime.decide,
-  closeCodePanel: hideDesktopTools,
-  selectDesktopTool,
-  closeDesktopTool,
-  openDesktopTool,
-  openDesktopFileTab,
-  openDesktopDiffTab,
-  openDesktopPreviewTab,
-  codeWorkspaceChange: refreshDesktopWorkspaceSummary,
-  reviewCodeChanges,
-  openCodeFile,
-} satisfies AppChatPaneActions
-
-const sidebarBindings = useAppSidebarBindings({
-  desktopSecondaryNavigationVisible, sidebarItems, sessionSearchOpen, isLoggedIn,
-  displayAvatar, displayAvatarText, displayName, accountTierLabel,
-  handleSidebarAction, toggleUserMenu, openLogin, handleAvatarError,
-  pinnedHistoryExpanded, normalHistoryExpanded, sharedHistoryExpanded,
-  editingSessionTitle, pinnedSessions, historyItems, sharedSessions,
-  projectHistoryGroups, currentSessionId, currentView, sessionsLoading,
-  sessionsLoadingMore, sessionsHasMore, sharedSessionsLoading,
-  sharedSessionsLoadingMore, sharedSessionsHasMore, sessionPageSize,
-  trimmedSessionSearchQuery, editingSessionId, renamingSessionId,
-  deletingSessionId, canUseCode, supportsLocalCodeProjects,
-  isSessionPinned, isUnavailableProjectHistory, sessionNeedsHumanAssistance,
-  sessionScheduledIsRunning, sessionIsRunning, sessionIsUnread,
-  displaySessionTitle, compactSessionTitle, selectSession, toggleSessionPin,
-  startEditSessionTitle, commitSessionTitleEdit, cancelSessionTitleEdit,
-  handleDeleteSession, loadSessions, loadSharedSessions,
-  projectHistoryExpanded, toggleProjectHistory, createProject,
-  canUseSkills, canUseTools, pendingSkillShareCount, personalKnowledgeUnreadCount,
-  openSkillsPage, navigateTo, openToolsPage, openKnowledgePage,
-  userMenuOpen, maskedPhone, billingSummary, billingSummaryLoading,
-  billingSummaryLoaded, quotaRemaining, quotaTotal, quotaTotalLabel,
-  quotaUsedPercent, quotaUsedPercentLabel, availableTenants, getMainId, getUserId,
-  switchingTenant, adminSsoStarting, canCreateOrganization, canUpgradePlan,
-  userProfile, locale, canAccessAdmin, isEnterpriseTenant,
-  openProfileEditor, openTokenUsagePage, handleSwitchTenant,
-  openAdminConsole, openCreateOrganization, openBilling,
-  openPersonalization, openSettingsPanel, logout,
+// P3 三期-a：onMounted 时未登录、稍后登录成功后再加入共享会话。
+watch(isLoggedIn, (loggedIn) => {
+  if (loggedIn) void sessionShareLanding.joinPendingSharedSession()
 })
 
+onBeforeUnmount(() => {
+  if (sessionSearchTimer) {
+    clearTimeout(sessionSearchTimer)
+    sessionSearchTimer = null
+  }
+  if (sessionRefreshTimer) {
+    clearInterval(sessionRefreshTimer)
+    sessionRefreshTimer = null
+  }
+  document.removeEventListener('click', handleDocumentClick)
+  window.removeEventListener('popstate', handlePopState)
+  window.removeEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired)
+  systemThemeMedia?.removeEventListener('change', handleSystemThemeChange)
+})
 </script>
 
 <template>
-  <n-config-provider :theme="isDarkTheme ? darkTheme : null" :theme-overrides="platformThemeOverrides">
+  <a href="#main-content" class="skip-link">跳转到主内容</a>
+  <div v-if="isOffline" class="offline-banner fixed top-0 left-0 right-0 z-[9999] flex items-center justify-center gap-2 bg-amber-500 px-4 py-2 text-sm font-medium text-white" role="alert">
+    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+    网络已断开，部分功能可能不可用
+  </div>
+  <n-config-provider :theme="isDarkTheme ? darkTheme : null" :theme-overrides="naiveThemeOverrides" :locale="naiveLocale" :date-locale="naiveDateLocale">
   <n-message-provider>
+  <AppMessageBridge />
   <n-notification-provider>
   <n-dialog-provider>
   <div
     v-if="capabilities.isDesktop && desktopServerState === 'checking'"
     class="flex h-screen items-center justify-center bg-slate-50"
-    aria-label="Loading MOVO"
+    aria-label="Loading MOGO"
   >
     <div class="flex h-14 w-16 items-center justify-center rounded-2xl bg-white shadow-lg" aria-hidden="true">
-      <img src="/movo-logo.png" alt="" class="h-10 w-12 object-contain" />
+      <img src="/mogo-logo.png" alt="" class="h-10 w-12 object-contain" />
     </div>
   </div>
   <DesktopServerSetup
@@ -497,7 +2625,7 @@ const sidebarBindings = useAppSidebarBindings({
   <div
     v-else
     class="app-shell relative flex h-screen bg-white text-gray-800 font-sans"
-    :class="{ 'app-shell--desktop': capabilities.isDesktop, 'app-shell--windows-desktop': isWindowsDesktop, 'app-shell--windows-sidebar-collapsed': isWindowsDesktop && desktopSidebarCollapsed }"
+    :class="{ 'app-shell--desktop': capabilities.isDesktop }"
   >
     <CreateProjectDialog
       v-if="canUseCode"
@@ -505,50 +2633,70 @@ const sidebarBindings = useAppSidebarBindings({
       :workspace="createProjectWorkspace"
       :worktree="createProjectWorktree"
       :busy="createProjectBusy"
-      :selecting="createProjectSelecting"
-      :selection-phase="createProjectSelectionPhase"
-      :selection-error="createProjectSelectionError"
+      :locale="locale === 'en' ? 'en' : 'zh'"
       @update:worktree="(value) => createProjectWorktree = value"
       @choose-folder="chooseProjectFolder"
       @create="commitProjectCreate"
       @close="closeProjectCreate"
     />
-    <AppDesktopNavigation
-      v-if="capabilities.isDesktop"
-      :windows="isWindowsDesktop"
-      :collapsed="desktopSidebarCollapsed"
-      :dark="isDarkTheme"
-      :locale="locale === 'en' ? 'en' : 'zh'"
-      :navigation-width="desktopNavigationWidth"
-      :section="desktopPrimarySection"
-      :title="desktopWindowTitle"
-      :view="currentView"
-      :session-id="currentSessionId"
-      :user-id="getUserId()"
-      :main-id="getMainId()"
+    <MemberPicker
+      v-if="canUseCode"
+      v-model:show="memberPickerOpen"
       :auth-token="authToken"
-      :members-revision="currentSessionId ? chatRuntime.membersRevisionFor(currentSessionId) : undefined"
-      :code-state="activeCodeState"
-      :workspace-summary="desktopWorkspaceSummary"
-      :has-messages="activeChatHasMessages"
+      :project-id="memberPickerProject?.workspace_id || memberPickerProject?._id || ''"
+      :project-title="memberPickerProject?.title || ''"
+      :current-user-id="getUserId() || ''"
+      :creator-user-id="memberPickerProject?.user_id || ''"
+      :initial-members="memberPickerProject?.member_user_ids || []"
+      @saved="handleProjectMembersSaved"
+    />
+    <div
+      v-if="manualPathOpen"
+      class="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/30 px-4 backdrop-blur-[2px]"
+      @click.self="closeManualPath"
+    >
+      <div class="w-[480px] max-w-[92vw] rounded-3xl bg-white shadow-xl border border-gray-200 p-6">
+        <div class="mb-4">
+          <div class="text-base font-semibold text-gray-900">{{ locale === 'en' ? 'Enter local directory path' : '手动输入本地目录路径' }}</div>
+          <div class="text-xs text-gray-500 mt-1">{{ locale === 'en' ? 'Your browser does not support the native folder picker. Enter the full path to the project directory.' : '当前浏览器不支持原生文件夹选择器，请手动输入项目目录的完整路径。' }}</div>
+        </div>
+        <n-input
+          v-model:value="manualPath"
+          :placeholder="locale === 'en' ? '/Users/you/projects/my-app' : '/Users/你/projects/我的项目'"
+          @keyup.enter="confirmManualPath"
+        />
+        <p v-if="manualPathError" class="mt-2 text-xs text-red-500">{{ manualPathError }}</p>
+        <div class="mt-5 flex justify-end gap-2">
+          <n-button size="small" @click="closeManualPath">{{ locale === 'en' ? 'Cancel' : '取消' }}</n-button>
+          <n-button size="small" type="primary" :disabled="!manualPath.trim()" @click="confirmManualPath">{{ locale === 'en' ? 'Confirm' : '确定' }}</n-button>
+        </div>
+      </div>
+    </div>
+    <DesktopWindowChrome
+      v-if="capabilities.isDesktop"
+      :title="desktopWindowTitle"
+      :show-back="currentView === 'skills'"
+      :back-label="t('skills.back_to_chat')"
+      :chat-actions="currentView === 'chat'"
+      :session-id="currentSessionId || undefined"
+      :workspace="activeCodeState.workspace"
+      :show-workspace-context="activeChatHasMessages"
+      :workspace-branch="desktopWorkspaceSummary?.branch || activeCodeState.session?.git_branch || activeCodeState.workspace?.git_branch || ''"
+      :workspace-source-ref="activeCodeState.sourceRef"
+      :workspace-detached="activeCodeState.session?.detached_head"
+      :code-session-active="Boolean(activeCodeState.session)"
+      :workspace-busy="activeCodeState.busy"
+      :worktree="activeCodeState.worktree"
+      :locale="locale === 'en' ? 'en' : 'zh'"
       :active-tool="desktopActiveToolKind"
+      :git-available="desktopWorkspaceSummary?.git_available === true"
+      :change-count="desktopWorkspaceSummary?.changes.length || 0"
+      :files-available="capabilities.workspaceFiles"
+      :terminal-available="capabilities.projectTerminal"
       :code-available="canUseCode"
       :browser-available="canUseBrowser"
       :workspaces="projectWorkspaces"
       :workspaces-loading="projectWorkspacesLoading"
-      :skills-available="canUseSkills"
-      :tools-available="canUseTools"
-      :knowledge-available="canUseKnowledge"
-      :skill-badge="pendingSkillShareCount"
-      :knowledge-badge="personalKnowledgeUnreadCount"
-      :logged-in="isLoggedIn"
-      :avatar-url="displayAvatar()"
-      :avatar-text="displayAvatarText()"
-      :account-label="isLoggedIn ? displayName() : t('app.sidebar.login_register')"
-      @toggle-sidebar="desktopSidebarCollapsed = !desktopSidebarCollapsed"
-      @new-chat="handleSidebarAction('plus')"
-      @add-project="createProject"
-      @session-left="handleSessionLeft"
       @choose-workspace="addProjectToActiveConversation"
       @select-workspace="(workspace) => selectBoundProject(activeChatKey, workspace)"
       @clear-workspace="codeRuntime.clear(activeChatKey)"
@@ -558,153 +2706,1449 @@ const sidebarBindings = useAppSidebarBindings({
       @open-browser="requestDesktopBrowser"
       @toggle-code-panel="toggleDesktopCodePanel"
       @back="closeSkillsPage"
-      @navigate="openDesktopPrimarySection"
-      @account="toggleUserMenu"
-      @avatar-error="handleAvatarError"
     />
-    <AppSidebarContent :bindings="sidebarBindings" />
-
-    <AppMainRegion
-      :desktop="capabilities.isDesktop"
-      :current-view="currentView"
-      :current-session-id="currentSessionId"
-      :chat-header-title="chatHeaderTitle"
-      :user-id="getUserId()"
-      :main-id="getMainId()"
-      :auth-token="authToken"
-      :members-revision="currentSessionId ? chatRuntime.membersRevisionFor(currentSessionId) : undefined"
-      :selected-skill="selectedSkill"
-      :pending-skill-share-action-count="pendingSkillShareActionCount"
-      :pending-skill-feedback-count="pendingSkillFeedbackCount"
-      :personal-knowledge-share-count="personalKnowledgeShareCount"
-      :personal-knowledge-unread-count="personalKnowledgeUnreadCount"
-      :sessions="sessions"
-      :scheduled-task-initial-session-id="scheduledTaskInitialSessionId"
-      :scheduled-task-initial-prompt="scheduledTaskInitialPrompt"
-      :scheduled-task-create-request-key="scheduledTaskCreateRequestKey"
-      :timezone-value="timezoneValue"
-      @session-left="handleSessionLeft"
-      @configure="openSkillConfig"
-      @login="openLogin"
-      @share-count-change="refreshSkillShareCount"
-      @knowledge-viewed="refreshPersonalKnowledgeCount"
-      @skill-back="closeSkillConfig"
-      @skill-saved="handleSkillConfigSaved"
-      @composite-saved="handleCompositeSaved"
-      @remove-skill="removeSkill"
-      @scheduled-back="navigateTo('chat')"
-      @open-session="selectSession"
-      @usage-back="closeTokenUsagePage"
-    >
-      <template #chat>
-            <SessionSearchOverlay
-              :open="sessionSearchOpen"
-              :query="sessionSearchQuery"
-              :trimmed-query="trimmedSessionSearchQuery"
-              :results="sessionSearchResults"
-              :display-items="sessionSearchDisplayItems"
-              :loading="sessionSearchLoading"
-              :did-run="sessionSearchDidRun"
-              :has-more="sessionSearchHasMore"
-              :current-session-id="currentSessionId"
-              :editing-session-id="editingSessionId"
-              :editing-title="editingSessionTitle"
-              :renaming-session-id="renamingSessionId"
-              :deleting-session-id="deletingSessionId"
-              :display-session-title="displaySessionTitle"
-              :compact-session-title="compactSessionTitle"
-              :session-needs-human-assistance="sessionNeedsHumanAssistance"
-              :session-scheduled-is-running="sessionScheduledIsRunning"
-              :session-is-running="sessionIsRunning"
-              :session-is-unread="sessionIsUnread"
-              @close="closeSessionSearch"
-              @update:query="sessionSearchQuery = $event"
-              @update:editing-title="editingSessionTitle = $event"
-              @new-session="startLocalSession({ inheritCurrentProject: true })"
-              @select-session="selectSession"
-              @edit-session="startEditSessionTitle"
-              @commit-title="commitSessionTitleEdit"
-              @cancel-title="cancelSessionTitleEdit"
-              @delete-session="handleDeleteSession"
-              @load-more="runSessionSearch(false)"
+    <!-- SIDEBAR -->
+    <aside class="app-sidebar w-[260px] bg-[#f8fafc] flex flex-col border-r border-gray-200 shadow-[1px_0_0_rgba(0,0,0,0.02)]">
+      <div v-if="!capabilities.isDesktop" class="flex h-14 items-center gap-2.5 px-5" aria-label="墨攻">
+        <img src="/mogo-logo.png" alt="" class="h-8 w-10 object-contain" />
+        <span class="text-[15px] font-extrabold tracking-[0.14em] text-slate-800">墨攻</span>
+      </div>
+      <!-- Workspace Section：项目为顶层分组，会话缩进在项目下 -->
+      <div
+        class="group mt-2 flex w-full items-center gap-1 px-5 pb-1 text-left text-sm font-bold text-gray-500"
+      >
+        <span>{{ locale === 'en' ? 'Project' : '项目' }}</span>
+        <!-- 搜索会话 -->
+        <span
+          class="ml-auto flex h-6 w-6 cursor-pointer items-center justify-center rounded text-slate-600 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+          role="button" tabindex="0"
+          :aria-label="locale === 'en' ? 'Search conversations' : '搜索会话'"
+          :title="locale === 'en' ? 'Search conversations' : '搜索会话'"
+          @click.stop="openSessionSearch"
+          @keydown.enter.stop="openSessionSearch"
+        >
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" class="h-4 w-4"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
+        </span>
+        <!-- 展示偏好（分组/排序/筛选） -->
+        <span
+          v-if="canUseCode"
+          class="relative flex h-6 w-6 cursor-pointer items-center justify-center rounded text-slate-600 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+          role="button" tabindex="0"
+          :aria-label="locale === 'en' ? 'Display options' : '展示选项'"
+          :title="locale === 'en' ? 'Display options' : '展示选项'"
+          @click.stop="projectDisplayMenuOpen = !projectDisplayMenuOpen"
+          @keydown.enter.stop="projectDisplayMenuOpen = !projectDisplayMenuOpen"
+        >
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" class="h-4 w-4"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/><circle cx="5.5" cy="4.5" r="1.4" fill="#f8fafc"/><circle cx="10.5" cy="8" r="1.4" fill="#f8fafc"/><circle cx="6.5" cy="11.5" r="1.4" fill="#f8fafc"/></svg>
+          <!-- 下拉菜单 -->
+          <div
+            v-if="projectDisplayMenuOpen"
+            data-project-display-menu
+            class="absolute left-0 top-6 z-50 w-[216px] origin-top-left rounded-xl border border-gray-200 bg-white py-1.5 shadow-[0_12px_40px_rgba(15,23,42,0.14)]"
+            @click.stop
+          >
+            <div class="px-3 pb-1 pt-1 text-[10px] font-bold uppercase tracking-[0.08em] text-gray-400">{{ locale === 'en' ? 'Grouping' : '分组方式' }}</div>
+            <button
+              v-for="opt in ([{ value: 'workspace', label: '按项目' }, { value: 'tree', label: '按项目树' }, { value: 'list', label: '单列表' }] as const)"
+              :key="opt.value"
+              type="button"
+              class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-100"
+              @click="projectGroupMode = opt.value; projectDisplayMenuOpen = false"
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" class="h-3.5 w-3.5 shrink-0"><path d="M2.5 3.5h3l1 1.5h7v7a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-8.5Z"/></svg>
+              <span class="flex-1">{{ opt.label }}</span>
+              <svg v-if="projectGroupMode === opt.value" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true" class="h-3.5 w-3.5 text-gray-800"><path d="m3.5 8.5 3 3 6-7"/></svg>
+            </button>
+            <div class="my-1 border-t border-gray-100"></div>
+            <div class="px-3 pb-1 pt-1 text-[10px] font-bold uppercase tracking-[0.08em] text-gray-400">{{ locale === 'en' ? 'Sorting' : '排序方式' }}</div>
+            <button
+              v-for="opt in ([{ value: 'manual', label: '手动排序' }, { value: 'recent', label: '最近更新' }] as const)"
+              :key="opt.value"
+              type="button"
+              class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-100"
+              @click="projectSortMode = opt.value; projectDisplayMenuOpen = false"
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" class="h-3.5 w-3.5 shrink-0"><path d="m4 6 4-3 4 3M4 10l4 3 4-3"/></svg>
+              <span class="flex-1">{{ opt.label }}</span>
+              <svg v-if="projectSortMode === opt.value" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true" class="h-3.5 w-3.5 text-gray-800"><path d="m3.5 8.5 3 3 6-7"/></svg>
+            </button>
+            <div class="my-1 border-t border-gray-100"></div>
+            <div class="px-3 pb-1 pt-1 text-[10px] font-bold uppercase tracking-[0.08em] text-gray-400">{{ locale === 'en' ? 'Filter sessions' : '筛选会话' }}</div>
+            <button
+              v-for="opt in ([{ value: 'hide_archived', label: '隐藏已归档' }, { value: 'all', label: '全部对话（显示已归档）' }, { value: 'archived_only', label: '仅显示已归档' }] as const)"
+              :key="opt.value"
+              type="button"
+              class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-100"
+              @click="projectFilterMode = opt.value; projectDisplayMenuOpen = false"
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" class="h-3.5 w-3.5 shrink-0"><path d="M2 8a6 6 0 0 1 6-6h1M14 8a6 6 0 0 1-6 6H7"/><path d="M9 2h2M9 14h2"/><path d="M9 2v3M9 14v-3"/></svg>
+              <span class="flex-1">{{ opt.label }}</span>
+              <svg v-if="projectFilterMode === opt.value" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true" class="h-3.5 w-3.5 text-gray-800"><path d="m3.5 8.5 3 3 6-7"/></svg>
+            </button>
+          </div>
+        </span>
+        <span
+          v-if="canUseCode && capabilities.localWorkspacePicker"
+          class="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-blue-600 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+          role="button" tabindex="0"
+          :aria-label="locale === 'en' ? 'New project' : '新建项目'"
+          :title="locale === 'en' ? 'New project' : '新建项目'"
+          @click.stop="createProject"
+          @keydown.enter.stop="createProject"
+        >
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" class="h-4 w-4"><path d="M8 3v10M3 8h10"/></svg>
+        </span>
+      </div>
+      <div class="flex-1 overflow-y-auto px-3 space-y-1 custom-scrollbar history-scrollbar">
+        <div
+          v-if="sessionsLoading"
+          class="px-3 py-4 text-xs text-gray-400 animate-pulse italic text-center"
+        >
+          {{ t('app.sidebar.loading_history') }}
+        </div>
+        <template v-for="group in renderedProjectGroups" :key="group.id">
+          <div
+            v-if="group.id !== '__flat__'"
+            class="group flex w-full min-w-0 items-center gap-1.5 px-2 py-1 text-left text-xs font-semibold text-slate-500 hover:text-slate-700"
+            :title="group.title"
+            role="button"
+            tabindex="0"
+            @click="toggleProjectHistory(group.id)"
+            @dblclick.stop="toggleProjectHistory(group.id)"
+            @keydown.enter.stop="toggleProjectHistory(group.id)"
+          >
+            <svg v-if="projectHistoryExpanded(group.id)" :class="projectFolderIconClass(group.id)" viewBox="0 0 24 24" fill="none" stroke="currentColor" :stroke-width="group.id === DEFAULT_PROJECT_ID ? 1.5 : 1.8" aria-hidden="true"><path d="M3 7.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/></svg>
+            <svg v-else :class="projectFolderIconClass(group.id)" viewBox="0 0 24 24" fill="none" stroke="currentColor" :stroke-width="group.id === DEFAULT_PROJECT_ID ? 1.5 : 1.8" aria-hidden="true"><path d="M3 7.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/><path d="M3 7.5V6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1.5"/></svg>
+            <n-input
+              v-if="editingProjectId === group.id"
+              v-model:value="editingProjectTitle"
+              size="small"
+              class="min-w-0 flex-1"
+              :data-project-title-input="group.id"
+              :disabled="renamingProjectId === group.id"
+              @click.stop
+              @dblclick.stop
+              @blur="commitProjectTitleEdit(group.id)"
+              @keydown.enter.prevent="commitProjectTitleEdit(group.id)"
+              @keydown.esc.prevent="cancelProjectTitleEdit"
             />
-          <AppChatPanes
-            :panes="visibleChatPanes"
-            :server-running-session-ids="serverRunningSessionIds"
-            :active-key="activeChatKey"
-            :code-state-for="codeRuntime.stateFor"
-            :user-id="getUserId() || undefined"
-            :main-id="getMainId()"
-            :auth-token="authToken"
-            :project-workspaces="projectWorkspaces"
-            :project-workspaces-loading="projectWorkspacesLoading"
-            :desktop-browser-request="desktopBrowserRequest"
-            :desktop-tool-tabs-for="desktopToolTabsFor"
-            :desktop-active-tool-for="desktopActiveToolFor"
-            :desktop-available-tools="desktopAvailableTools"
-            :desktop-code-review-path="desktopCodeReviewPath"
-            :desktop-code-review-changes="desktopCodeReviewChanges"
-            :desktop-code-file-path="desktopCodeFilePath"
-            :agent-policy="userProfile?.agentPolicy"
-            :actions="chatPaneActions"
+            <span v-else class="truncate" @dblclick.stop="startEditProjectTitle(group.id, group.title)">{{ group.title }}</span>
+            <span class="ml-auto text-[10px] font-normal text-slate-600">{{ group.sessions.length }}</span>
+            <!-- 右侧操作：默认项目不可重命名/删除；非默认显示「+ 新增会话」与「…」上下文菜单 -->
+            <template v-if="group.id !== DEFAULT_PROJECT_ID">
+              <button
+                type="button"
+                class="ml-1 shrink-0 rounded p-0.5 text-slate-600 hover:bg-slate-100 hover:text-blue-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+                :title="locale === 'en' ? 'Add session' : '增加会话'"
+                @click.stop="handleAddSessionToProject(group.id)"
+              >
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" class="h-3.5 w-3.5"><path d="M8 3v10M3 8h10"/></svg>
+              </button>
+              <div class="relative shrink-0">
+                <button
+                  type="button"
+                  class="rounded p-0.5 text-slate-600 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+                  :title="locale === 'en' ? 'Project actions' : '项目操作'"
+                  @click.stop="toggleProjectMenu(group.id)"
+                >
+                  <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" class="h-3.5 w-3.5"><circle cx="3" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="13" cy="8" r="1.3"/></svg>
+                </button>
+                <div
+                  v-if="projectMenuOpenFor === group.id"
+                  class="absolute right-0 top-5 z-50 w-[180px] origin-top-right rounded-xl border border-gray-200 bg-white py-1 shadow-[0_12px_40px_rgba(15,23,42,0.14)]"
+                  data-project-menu
+                  @click.stop
+                >
+                  <button type="button" class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] text-gray-700 hover:bg-gray-100" @click="startEditProjectTitle(group.id, group.title)">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" class="h-3.5 w-3.5"><path d="M11.5 2.5 13.5 4.5 6 12l-2.5.5L4 10z"/></svg>
+                    <span>{{ locale === 'en' ? 'Rename' : '重命名' }}</span>
+                  </button>
+                  <button type="button" class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] text-gray-700 hover:bg-gray-100" @click="openProjectMembers(group.id)">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" class="h-3.5 w-3.5"><circle cx="6" cy="5.5" r="2.2"/><path d="M2 13c0-2 1.8-3.5 4-3.5s4 1.5 4 3.5"/><path d="M11 4.5a2 2 0 1 1 0 4M12 13c0-1.6-.7-2.8-1.8-3.4"/></svg>
+                    <span>{{ locale === 'en' ? 'Members' : '成员' }}</span>
+                  </button>
+                  <button type="button" class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] text-red-600 hover:bg-red-50" @click="handleDeleteProject(group.id)">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" class="h-3.5 w-3.5"><path d="M3 4h10M6 4V3h4v1M5 4v9h6V4"/></svg>
+                    <span>{{ locale === 'en' ? 'Delete Project' : '删除项目' }}</span>
+                  </button>
+                </div>
+              </div>
+            </template>
+          </div>
+          <div
+            v-for="session in (group.id === '__flat__' || projectHistoryExpanded(group.id) ? group.sessions : [])"
+            :key="session.id"
+            class="group w-full text-left pl-5 pr-2.5 py-1.5 rounded-lg transition-all border border-transparent"
+            :class="session.id === currentSessionId && currentView === 'chat' ? 'bg-white text-blue-700 shadow-sm border-gray-200 font-semibold' : 'text-gray-600 hover:bg-gray-200/50 hover:text-gray-900'"
+            @click="editingSessionId !== session.id && selectSession(session.id)"
+            @keydown.enter.prevent="editingSessionId !== session.id && selectSession(session.id)"
+            @keydown.space.prevent="editingSessionId !== session.id && selectSession(session.id)"
+            role="button"
+            tabindex="0"
+          >
+            <div class="flex min-w-0 items-center gap-2">
+              <n-input
+                v-if="editingSessionId === session.id"
+                v-model:value="editingSessionTitle"
+                size="small"
+                class="min-w-0 flex-1"
+                :data-session-title-input="session.id"
+                :disabled="renamingSessionId === session.id"
+                @click.stop
+                @dblclick.stop
+                @blur="commitSessionTitleEdit(session)"
+                @keydown.enter.prevent="commitSessionTitleEdit(session)"
+                @keydown.esc.prevent="cancelSessionTitleEdit"
+              />
+              <div
+                v-else
+                class="min-w-0 flex-1 text-[13px] truncate"
+                :title="displaySessionTitle(session)"
+                @dblclick.stop="startEditSessionTitle(session)"
+              >
+                {{ compactSessionTitle(session) }}
+              </div>
+              <span
+                v-if="editingSessionId !== session.id"
+                class="shrink-0 text-[10px] text-gray-400"
+                :title="sessionLastActiveAt(session)"
+              >{{ formatRelativeTime(sessionLastActiveAt(session)) }}</span>
+              <span
+                v-if="sessionNeedsHumanAssistance(session.id)"
+                class="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700"
+                :aria-label="t('app.sidebar.session_needs_assistance')"
+                :title="t('app.sidebar.session_needs_assistance')"
+              >
+                {{ t('app.sidebar.session_needs_assistance_short') }}
+              </span>
+              <div
+                v-else-if="sessionScheduledIsRunning(session.id)"
+                class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600"
+                aria-label="定时任务正在运行"
+                title="定时任务正在运行"
+              >
+                <svg viewBox="0 0 24 24" class="h-3.5 w-3.5 animate-pulse" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+              </div>
+              <div
+                v-else-if="sessionIsRunning(session.id)"
+                class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-50"
+                :aria-label="t('app.sidebar.session_running')"
+                :title="t('app.sidebar.session_running')"
+              >
+                <span class="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+              </div>
+              <span
+                v-else-if="sessionIsUnread(session.id)"
+                class="h-2 w-2 shrink-0 rounded-full bg-blue-500"
+                :aria-label="t('app.sidebar.session_unread')"
+                :title="t('app.sidebar.session_unread')"
+              ></span>
+              <div class="relative shrink-0">
+                <button
+                  type="button"
+                  class="shrink-0 rounded p-0 text-gray-400 opacity-0 transition-all hover:bg-gray-200 hover:text-gray-700 group-hover:p-1 group-hover:opacity-100"
+                  :title="locale === 'en' ? 'Session actions' : '会话操作'"
+                  @click.stop="toggleSessionMenu(session.id)"
+                >
+                  <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" class="h-3.5 w-3.5"><circle cx="3" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="13" cy="8" r="1.3"/></svg>
+                </button>
+                <div
+                  v-if="sessionMenuOpenFor === session.id"
+                  class="absolute right-0 top-5 z-50 w-[200px] origin-top-right rounded-xl border border-gray-200 bg-white py-1 shadow-[0_12px_40px_rgba(15,23,42,0.14)]"
+                  data-session-menu
+                  @click.stop
+                >
+                  <button type="button" class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] text-gray-700 hover:bg-gray-100" @click="handlePinSession(session)">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" class="h-3.5 w-3.5"><path d="m9 1 5 5-1.8.5-1.5 3.2-.8-.8-3 3-1-1 3-3-.8-.8 3.2-1.5z"/><path d="M4 9l2.5 2.5"/></svg>
+                    <span>{{ locale === 'en' ? 'Pin session' : '置顶会话' }}</span>
+                  </button>
+                  <button type="button" class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] text-gray-700 hover:bg-gray-100" @click="startEditSessionTitle(session)">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" class="h-3.5 w-3.5"><path d="M11.5 2.5 13.5 4.5 6 12l-2.5.5L4 10z"/></svg>
+                    <span>{{ locale === 'en' ? 'Rename' : '重命名' }}</span>
+                  </button>
+                  <button type="button" class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] text-gray-700 hover:bg-gray-100" @click="handleForkSession(session)">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" class="h-3.5 w-3.5"><path d="M3 3v4a2 2 0 0 0 2 2h6"/><path d="m8 6 3 3-3 3"/><path d="M13 13V9"/></svg>
+                    <span>{{ locale === 'en' ? 'Fork session' : '分叉会话' }}</span>
+                  </button>
+                  <button type="button" class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] text-gray-700 hover:bg-gray-100" @click="handleArchiveSession(session)">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" class="h-3.5 w-3.5"><path d="M2.5 6h11M3.5 6v7a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V6"/><path d="M6 6V4.5h4V6M6 9h4"/></svg>
+                    <span>{{ session.archived ? (locale === 'en' ? 'Unarchive session' : '取消归档') : (locale === 'en' ? 'Archive session' : '归档会话') }}</span>
+                  </button>
+                  <button type="button" class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] text-gray-700 hover:bg-gray-100" @click="handleCopySessionId(session)">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" class="h-3.5 w-3.5"><rect x="5" y="5" width="8" height="8" rx="1"/><path d="M3.5 10.5h-1v-6a1 1 0 0 1 1-1h6v1"/></svg>
+                    <span>{{ locale === 'en' ? 'Copy Session ID' : '复制 Session ID' }}</span>
+                  </button>
+                </div>
+              </div>
+              <button
+                type="button"
+                class="shrink-0 overflow-hidden rounded-md p-0 text-gray-400 opacity-0 transition-all hover:bg-gray-200 hover:text-red-500 group-hover:w-6 group-hover:p-1 group-hover:opacity-100"
+                :class="deletingSessionId === session.id ? 'w-6 !p-1 !opacity-100 text-red-500' : 'w-0'"
+                :disabled="deletingSessionId === session.id"
+                @click.stop="handleDeleteSession(session.id)"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+              </button>
+            </div>
+          </div>
+        </template>
+        <!-- P3 三期-a：分享给我的会话，跟随普通会话之后、项目分区之前。 -->
+        <template v-if="sharedSessions.length">
+          <button
+            type="button"
+            class="group mt-2 flex w-full items-center gap-1 px-2 pb-1 text-left text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400"
+            :aria-expanded="sharedHistoryExpanded"
+            @click="sharedHistoryExpanded = !sharedHistoryExpanded"
+          >
+            <span>{{ t('session.sharedWithMe.title') }}</span>
+            <svg class="h-3.5 w-3.5 transition-transform duration-150" :class="sharedHistoryExpanded ? 'rotate-90' : ''" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m5 3 5 5-5 5"/></svg>
+          </button>
+          <div
+            v-for="session in sharedHistoryExpanded ? sharedSessions : []"
+            :key="session.id"
+            class="group w-full text-left px-2.5 py-1.5 rounded-lg transition-all border border-transparent"
+            :class="session.id === currentSessionId && currentView === 'chat'
+              ? 'bg-white text-blue-700 shadow-sm border-gray-200 font-semibold'
+              : 'text-gray-600 hover:bg-gray-200/50 hover:text-gray-900'"
+            @click="selectSession(session.id)"
+            @keydown.enter.prevent="selectSession(session.id)"
+            @keydown.space.prevent="selectSession(session.id)"
+            role="button"
+            tabindex="0"
+          >
+            <div class="flex min-w-0 items-center gap-2">
+              <div class="min-w-0 flex-1 text-[13px] truncate" :title="displaySessionTitle(session)">
+                {{ compactSessionTitle(session) }}
+              </div>
+              <span
+                class="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-600"
+                :aria-label="t('session.sharedWithMe.badge')"
+                :title="t('session.sharedWithMe.badge')"
+              >
+                {{ t('session.sharedWithMe.badge') }}
+              </span>
+              <span
+                v-if="session.shared_unread"
+                class="h-2 w-2 shrink-0 rounded-full bg-blue-500"
+                :aria-label="t('session.sharedWithMe.unread')"
+                :title="t('session.sharedWithMe.unread')"
+              ></span>
+            </div>
+          </div>
+          <button
+            v-if="sharedHistoryExpanded && !sharedSessionsLoading && sharedSessionsHasMore && sharedSessions.length >= sessionPageSize"
+            class="w-full text-left px-2.5 py-1 text-[11px] text-gray-400 hover:text-gray-600 disabled:opacity-60 disabled:cursor-not-allowed"
+            :disabled="sharedSessionsLoadingMore"
+            @click="loadSharedSessions(false)"
+          >
+            {{ sharedSessionsLoadingMore ? t('ui.loading') : t('app.sidebar.load_more') }}
+          </button>
+        </template>
+        <div v-if="canUseCode && projectWorkspacesLoading && !unifiedProjectGroups.length" class="mt-5 flex items-center gap-2 px-3 py-2 text-xs text-slate-400">
+          <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500"></span>
+          <span>{{ locale === 'en' ? 'Loading projects' : '正在加载项目' }}</span>
+        </div>
+        <button
+          v-if="!trimmedSessionSearchQuery && !sessionsLoading && sessionsHasMore && historyItems.length >= sessionPageSize"
+          class="w-full text-left px-2.5 py-1 text-[11px] text-gray-400 hover:text-gray-600 disabled:opacity-60 disabled:cursor-not-allowed"
+          :disabled="sessionsLoadingMore"
+          @click="loadSessions(false)"
+        >
+          {{ sessionsLoadingMore ? t('ui.loading') : t('app.sidebar.load_more') }}
+        </button>
+        <div class="mt-4 border-t border-gray-200/70 px-2 pb-1 pt-2 text-sm font-bold text-gray-500">{{ t('app.sidebar.skills') }}</div>
+        <div class="mb-2 space-y-0.5">
+          <button
+            v-if="canUseSkills"
+          class="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left text-sm transition-all active:scale-95"
+          :class="currentView === 'skills' 
+            ? 'bg-white text-blue-700 shadow-sm border-gray-200 font-semibold' 
+            : 'text-gray-700 hover:bg-gray-200/50'"
+          @click="openSkillsPage"
+        >
+          <span class="text-gray-500">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M20 7l.94-2.06L23 4l-2.06-.94L20 1l-.94 2.06L17 4l2.06.94zM8.5 7l.94-2.06L11.5 4l-2.06-.94L8.5 1l-.94 2.06L5.5 4l2.06.94zM20 12.5l-.94 2.06l-2.06.94l2.06.94l.94 2.06l.94-2.06L23 15.5l-2.06-.94zm-2.29-3.38l-2.83-2.83c-.2-.19-.45-.29-.71-.29c-.26 0-.51.1-.71.29L2.29 17.46a.996.996 0 0 0 0 1.41l2.83 2.83c.2.2.45.3.71.3s.51-.1.71-.29l11.17-11.17c.39-.39.39-1.03 0-1.42zm-3.54-.7l1.41 1.41L14.41 11L13 9.59l1.17-1.17zM5.83 19.59l-1.41-1.41L11.59 11L13 12.41l-7.17 7.18z"/></svg>
+          </span>
+          <span>{{ t('app.sidebar.marketplace') }}</span>
+          <span
+            v-if="pendingSkillShareCount > 0"
+            class="ml-auto inline-flex min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white shadow-sm"
+            :title="t('skills.share.pending_nav', { count: pendingSkillShareCount })"
+            :aria-label="t('skills.share.pending_nav', { count: pendingSkillShareCount })"
+          >{{ pendingSkillShareCount > 99 ? '99+' : pendingSkillShareCount }}</span>
+        </button>
+        <button
+          v-if="canUseTools"
+          class="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left text-sm transition-all active:scale-95"
+          :class="currentView === 'tools' 
+            ? 'bg-white text-blue-700 shadow-sm border-gray-200 font-semibold' 
+            : 'text-gray-700 hover:bg-gray-200/50'"
+          @click="openToolsPage"
+        >
+          <span class="text-gray-500">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path opacity=".3" d="M3 10.5c-.55 0-1-.45-1-1s.45-1 1-1s1 .45 1 1s-.45 1-1 1zM6 21c-.55 0-1-.45-1-1s.45-1 1-1s1 .45 1 1s-.45 1-1 1zm5-18c0-.55.45-1 1-1s1 .45 1 1s-.45 1-1 1s-1-.45-1-1zm1 12a2.5 2.5 0 0 1 0-5a2.5 2.5 0 0 1 0 5zm6 4c.55 0 1 .45 1 1s-.45 1-1 1s-1-.45-1-1s.45-1 1-1zm3-8.5c-.55 0-1-.45-1-1s.45-1 1-1s1 .45 1 1s-.45 1-1 1z" /><path d="M21 6.5a2.996 2.996 0 0 0-2.99 3.21l-2.03.68a4.468 4.468 0 0 0-3.22-2.32V5.91A3.018 3.018 0 0 0 15 3c0-1.66-1.34-3-3-3S9 1.34 9 3c0 1.4.96 2.57 2.25 2.91v2.16c-1.4.23-2.58 1.11-3.22 2.32l-2.04-.68C6 9.64 6 9.57 6 9.5c0-1.66-1.34-3-3-3s-3 1.34-3 3s1.34 3 3 3c1.06 0 1.98-.55 2.52-1.37l2.03.68c-.2 1.29.17 2.66 1.09 3.69l-1.41 1.77C6.85 17.09 6.44 17 6 17c-1.66 0-3 1.34-3 3s1.34 3 3 3s3-1.34 3-3c0-.68-.22-1.3-.6-1.8l1.41-1.77c1.36.76 3.02.75 4.37 0l1.41 1.77c-.37.5-.59 1.12-.59 1.8c0 1.66 1.34 3 3 3s3-1.34 3-3s-1.34-3-3-3c-.44 0-.85.09-1.23.26l-1.41-1.77a4.49 4.49 0 0 0 1.09-3.69l2.03-.68c.53.82 1.46 1.37 2.52 1.37c1.66 0 3-1.34 3-3S22.66 6.5 21 6.5zm-18 4c-.55 0-1-.45-1-1s.45-1 1-1s1 .45 1 1s-.45 1-1 1zM6 21c-.55 0-1-.45-1-1s.45-1 1-1s1 .45 1 1s-.45 1-1 1zm5-18c0-.55.45-1 1-1s1 .45 1 1s-.45 1-1 1s-1-.45-1-1zm1 12a2.5 2.5 0 0 1 0-5a2.5 2.5 0 0 1 0 5zm6 4c.55 0 1 .45 1 1s-.45 1-1 1s-1-.45-1-1s.45-1 1-1zm3-8.5c-.55 0-1-.45-1-1s.45-1 1-1s1 .45 1 1s-.45 1-1 1z" /></svg>
+          </span>
+          <span>{{ t('app.sidebar.tools') }}</span>
+        </button>
+        <button
+          v-if="canUseTools"
+          class="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left text-sm transition-all active:scale-95"
+          :class="currentView === 'plugins' 
+            ? 'bg-white text-blue-700 shadow-sm border-gray-200 font-semibold' 
+            : 'text-gray-700 hover:bg-gray-200/50'"
+          @click="openPluginsPage"
+        >
+          <span class="text-gray-500">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M20 18c1.1 0 2-.9 2-2s-.9-2-2-2s-2 .9-2 2s.9 2 2 2zM4 18c1.1 0 2-.9 2-2s-.9-2-2-2s-2 .9-2 2s.9 2 2 2zM20 10c1.1 0 2-.9 2-2s-.9-2-2-2s-2 .9-2 2s.9 2 2 2zM4 10c1.1 0 2-.9 2-2s-.9-2-2-2s-2 .9-2 2s.9 2 2 2z"/><path d="M12 5c-.83 0-1.5.67-1.5 1.5S11.17 8 12 8s1.5-.67 1.5-1.5S12.83 5 12 5zm0 5.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5s1.5-.67 1.5-1.5s-.67-1.5-1.5-1.5zm0 5.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5s1.5-.67 1.5-1.5s-.67-1.5-1.5-1.5z"/></svg>
+          </span>
+          <span>{{ t('plugins.sidebar') }}</span>
+        </button>
+        <button
+          v-if="canUseTools"
+          class="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left text-sm transition-all active:scale-95"
+          :class="currentView === 'knowledge' ? 'bg-white text-blue-700 shadow-sm border-gray-200 font-semibold' : 'text-gray-700 hover:bg-gray-200/50'"
+          @click="openKnowledgePage"
+        >
+          <span class="text-gray-500">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>
+          </span>
+          <span>{{ t('knowledge.sidebar') }}</span>
+          <span v-if="personalKnowledgeUnreadCount > 0" class="ml-auto inline-flex min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">{{ personalKnowledgeUnreadCount > 99 ? '99+' : personalKnowledgeUnreadCount }}</span>
+        </button>
+        <button
+          v-if="isLoggedIn"
+          class="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left text-sm transition-all active:scale-95"
+          :class="currentView === 'ontology-grants' ? 'bg-white text-blue-700 shadow-sm border-gray-200 font-semibold' : 'text-gray-700 hover:bg-gray-200/50'"
+          @click="openOntologyGrantsPage"
+        >
+          <span class="text-gray-500">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
+          </span>
+          <span>{{ t('ontology_grant.sidebar') }}</span>
+        </button>
+        <button
+          v-if="isLoggedIn"
+          class="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left text-sm transition-all active:scale-95"
+          :class="currentView === 'orchestration' ? 'bg-white text-blue-700 shadow-sm border-gray-200 font-semibold' : 'text-gray-700 hover:bg-gray-200/50'"
+          @click="openOrchestrationPage"
+        >
+          <span class="text-gray-500">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/><rect x="15" y="3" width="6" height="6" rx="1"/><path d="M9 6h6M6 9v6h9M18 9v6"/></svg>
+          </span>
+          <span>{{ t('orchestration.sidebar') }}</span>
+        </button>
+        <button
+          v-if="isLoggedIn"
+          class="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left text-sm transition-all active:scale-95"
+          :class="currentView === 'approval-todos' ? 'bg-white text-blue-700 shadow-sm border-gray-200 font-semibold' : 'text-gray-700 hover:bg-gray-200/50'"
+          @click="openApprovalTodosPage"
+        >
+          <span class="text-gray-500">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          </span>
+          <span>{{ t('orchestration.todos.sidebar') }}</span>
+        </button>
+        <button
+          class="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left text-sm transition-all active:scale-95"
+          :class="currentView === 'scheduled-tasks' ? 'bg-white text-blue-700 shadow-sm border-gray-200 font-semibold' : 'text-gray-700 hover:bg-gray-200/50'"
+          @click="openScheduledTasks()"
+        >
+          <span class="text-gray-500">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          </span>
+          <span>{{ locale === 'zh' ? '定时任务' : 'Scheduled tasks' }}</span>
+        </button>
+        <button
+          v-if="isLoggedIn"
+          class="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left text-sm transition-all active:scale-95"
+          :class="currentView === 'portal' ? 'bg-white text-blue-700 shadow-sm border-gray-200 font-semibold' : 'text-gray-700 hover:bg-gray-200/50'"
+          @click="openPortalPage"
+        >
+          <span class="text-gray-500">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9h18l-1.5 11.5a1 1 0 0 1-1 .9H5.5a1 1 0 0 1-1-.9L3 9Z"/><path d="M8 9V6a4 4 0 0 1 8 0v3"/></svg>
+          </span>
+          <span>{{ locale === 'zh' ? '资产门户' : 'Asset portal' }}</span>
+        </button>
+        <!-- 017 T029：侧栏「我的记忆」入口（最小改动，仅新增本菜单项；不动 049 项目「成员」菜单项）。 -->
+        <button
+          v-if="isLoggedIn"
+          class="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left text-sm transition-all active:scale-95"
+          :class="currentView === 'memories' ? 'bg-white text-blue-700 shadow-sm border-gray-200 font-semibold' : 'text-gray-700 hover:bg-gray-200/50'"
+          @click="navigateTo('memories')"
+        >
+          <span class="text-gray-500">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/><path d="M9 7h7M9 11h7"/></svg>
+          </span>
+          <span>{{ locale === 'zh' ? '我的记忆' : 'My memories' }}</span>
+        </button>
+        </div>
+      </div>
+
+      <!-- User Profile (Bottom) -->
+      <div class="p-4 border-t border-gray-200 bg-white/50" data-user-menu>
+        <div
+          v-if="isLoggedIn"
+          class="flex items-center gap-3 p-2 rounded-xl hover:bg-gray-200/70 cursor-pointer transition-colors"
+          @click.stop="toggleUserMenu"
+        >
+          <div class="w-9 h-9 rounded-xl overflow-hidden bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold shadow-sm">
+            <img v-if="displayAvatar()" :src="displayAvatar()" alt="" class="w-full h-full object-cover" @error="handleAvatarError" />
+            <span v-else>{{ displayAvatarText() }}</span>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="text-xs font-semibold text-gray-900 truncate">{{ displayName() }}</div>
+            <div v-if="accountTierLabel" class="text-[10px] text-gray-400 font-medium">
+              {{ accountTierLabel }}
+            </div>
+          </div>
+          <svg class="w-3 h-3 text-gray-400 shrink-0" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+        </div>
+        <div v-else class="flex items-center gap-3 p-2 rounded-xl hover:bg-gray-200/70 cursor-pointer transition-colors" @click="openLogin">
+          <div class="w-9 h-9 rounded-xl bg-gray-200 flex items-center justify-center text-gray-400 font-bold border border-gray-300 border-dashed">
+            ?
+          </div>
+          <div class="text-sm font-semibold text-gray-700">{{ t('app.sidebar.login_register') }}</div>
+        </div>
+        
+        <!-- User Menu Popup -->
+        <div
+          v-if="userMenuOpen && isLoggedIn"
+          class="fixed bottom-20 left-4 z-[80] w-[360px] max-w-[calc(100vw-2rem)] rounded-2xl border border-gray-200 bg-white shadow-[0_18px_56px_rgba(15,23,42,0.14)] p-3 text-sm text-gray-700 animate-in fade-in slide-in-from-bottom-2 duration-200"
+        >
+          <div class="flex items-center gap-3 px-2 pb-3 pt-1">
+            <div class="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-blue-600 font-bold text-white">
+              <img v-if="displayAvatar()" :src="displayAvatar()" alt="" class="h-full w-full object-cover" @error="handleAvatarError" />
+              <span v-else>{{ displayAvatarText() }}</span>
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="truncate font-semibold text-gray-900">{{ displayName() }}</div>
+              <div v-if="maskedPhone() || accountTierLabel" class="mt-0.5 text-xs text-gray-500">
+                {{ maskedPhone() || accountTierLabel }}
+                <span v-if="maskedPhone() && accountTierLabel" class="mx-1 text-gray-300">·</span>
+                <span v-if="maskedPhone() && accountTierLabel">{{ accountTierLabel }}</span>
+              </div>
+            </div>
+            <button
+               type="button"
+               class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
+               :aria-label="t('ui.edit_profile')"
+               :title="t('ui.edit_profile')"
+               @click.stop="openProfileEditor"
+             >
+               <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                 <path d="M12 20h9"/>
+                 <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+               </svg>
+             </button>
+           </div>
+
+           <div class="mb-3 rounded-xl bg-slate-50 px-3 py-3">
+             <div class="flex items-start justify-between gap-3">
+               <div>
+                 <div class="text-[11px] font-medium text-slate-500">{{ t('ui.quota_remaining') }}</div>
+                 <div v-if="billingSummary" class="mt-1 text-xl font-bold text-slate-900" :title="`${formatExactTokenAmount(quotaRemaining, locale)} Token`">
+                   {{ formatTokenCount(quotaRemaining) }}
+                 </div>
+                 <div v-else-if="billingSummaryLoading || !billingSummaryLoaded" class="mt-2 h-6 w-20 animate-pulse rounded bg-slate-200"></div>
+                 <div v-else class="mt-1 text-sm font-medium text-slate-500">{{ t('ui.quota_unavailable') }}</div>
+               </div>
+               <div v-if="billingSummary" class="text-right text-[11px] leading-5 text-slate-500">
+                 <div :title="`${formatExactTokenAmount(quotaTotal, locale)} Token`">{{ quotaTotalLabel }} {{ formatTokenCount(quotaTotal) }}</div>
+                 <div>{{ t('ui.quota_used') }} {{ quotaUsedPercentLabel }}%</div>
+               </div>
+             </div>
+             <div class="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-200" :aria-label="t('ui.quota_usage_progress')">
+               <div
+                 class="h-full rounded-full bg-blue-600 transition-all duration-300"
+                 :style="{ width: `${quotaUsedPercent}%` }"
+               ></div>
+             </div>
+             <button
+               type="button"
+               class="mt-2 flex min-h-[32px] w-full items-center justify-between text-xs font-medium text-slate-600 transition-colors hover:text-slate-900"
+               @click="openTokenUsagePage"
+             >
+               <span>{{ t('ui.view_usage_history') }}</span>
+               <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                 <path d="m9 18 6-6-6-6"/>
+               </svg>
+             </button>
+           </div>
+
+           <div class="px-1 py-1">
+             <div class="mb-1 text-[10px] font-bold text-gray-400 uppercase tracking-widest">{{ locale === 'zh' ? '组织' : 'Organization' }}</div>
+             <div v-if="availableTenants.length" class="space-y-1 max-h-40 overflow-auto pr-1">
+               <div
+                 v-for="tenant in availableTenants"
+                 :key="tenant.tenantId"
+                 class="flex min-h-[48px] w-full items-center gap-1 rounded-xl px-2 transition-colors"
+                 :class="tenant.tenantId === getTenantId() ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50 text-gray-700'"
+               >
+                 <button
+                   type="button"
+                   class="min-w-0 flex-1 px-1 py-2 text-left leading-5 disabled:cursor-wait disabled:opacity-60"
+                   :disabled="switchingTenant || adminSsoStarting"
+                   @click="handleSwitchTenant(tenant.tenantId)"
+                 >
+                   <span class="block whitespace-normal break-words font-medium">{{ tenant.orgName || tenant.tenantId }}</span>
+                   <span v-if="isEnterpriseTenant(tenant)" class="mt-0.5 block text-[11px] font-normal text-slate-400">
+                     {{ t('ui.enterprise_space') }}
+                   </span>
+                 </button>
+                 <button
+                   v-if="canAccessAdmin(tenant)"
+                   type="button"
+                   class="flex min-h-9 shrink-0 items-center gap-1 rounded-lg px-2 text-xs font-medium text-slate-500 transition-colors hover:bg-white hover:text-blue-600 disabled:cursor-wait disabled:opacity-50"
+                   :aria-label="t('ui.enter_tenant_admin', { org: tenant.orgName || tenant.tenantId })"
+                   :title="t('ui.enter_tenant_admin', { org: tenant.orgName || tenant.tenantId })"
+                   :disabled="switchingTenant || adminSsoStarting"
+                   @click.stop="openAdminConsole(tenant.tenantId)"
+                 >
+                   <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                     <rect x="3" y="4" width="18" height="14" rx="2"/>
+                     <path d="M8 21h8M12 18v3M7 9h4M7 13h7"/>
+                   </svg>
+                   <span>{{ t('ui.admin_short') }}</span>
+                 </button>
+               </div>
+             </div>
+             <div v-else class="rounded-xl bg-blue-50 px-3 py-2.5 font-medium text-blue-700">
+               {{ userProfile?.orgName || t('ui.personal_space') }}
+             </div>
+             <button
+               v-if="canCreateOrganization"
+               type="button"
+               class="mt-1 flex min-h-[40px] w-full items-center gap-2 rounded-xl px-3 text-left font-medium text-blue-600 transition-colors hover:bg-blue-50"
+               @click="openCreateOrganization"
+             >
+               <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                 <path d="M12 5v14M5 12h14"/>
+               </svg>
+               {{ t('ui.create_enterprise') }}
+             </button>
+           </div>
+           <button v-if="canUpgradePlan" @click="openBilling" class="mt-1 flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-gray-50">
+             <svg class="h-4 w-4 shrink-0 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
+             {{ t('app.account.upgrade') }}
+           </button>
+           <button class="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-gray-50" @click="openProfileEditor">
+             <svg class="h-4 w-4 shrink-0 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+               <path d="M20 21a8 8 0 0 0-16 0"/>
+               <circle cx="12" cy="7" r="4"/>
+             </svg>
+             {{ t('ui.edit_profile') }}
+           </button>
+          <button class="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-gray-50" @click="openPersonalization">
+            <svg class="h-4 w-4 shrink-0 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/>
+              <circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/>
+              <circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/>
+              <circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/>
+              <path d="M12 22a10 10 0 1 1 10-10c0 2.2-1.8 4-4 4h-1.8a1.8 1.8 0 0 0-1.4 3l.2.3A1.7 1.7 0 0 1 13.6 22Z"/>
+            </svg>
+            {{ t('app.account.personalization') }}
+          </button>
+          <button
+            v-if="capabilities.isDesktop"
+            class="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-gray-50"
+            @click="openSettingsPanel"
+          >
+            <svg class="h-4 w-4 shrink-0 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.09A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.09A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.09A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.18.37.39.7.6 1 .26.35.4.77.4 1.2v1.6c0 .43-.14.85-.4 1.2-.21.3-.42.63-.6 1Z"/>
+            </svg>
+            {{ t('app.account.settings') }}
+          </button>
+          <div class="h-px bg-gray-100 my-2"></div>
+          <button class="w-full rounded-xl px-3 py-2.5 text-left font-medium text-red-600 transition-colors hover:bg-red-50" @click="logout">
+            {{ t('app.account.logout') }}
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main id="main-content" class="app-main flex-1 flex flex-col min-w-0 min-h-0 bg-white">
+
+      <!-- Main Area -->
+      <div class="flex-1 flex min-w-0 min-h-0 overflow-hidden">
+        <div v-if="currentView === 'skills'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
+          <SkillsPage
+            :userId="getUserId()"
+            :tenantId="getTenantId()"
+            :pendingShareCount="pendingSkillShareActionCount"
+            :pendingFeedbackCount="pendingSkillFeedbackCount"
+            @configure="openSkillConfig"
+            @login="openLogin"
+            @share-count-change="refreshSkillShareCount"
           />
-      </template>
-    </AppMainRegion>
-    <AppAccountDialogs
-      :login-modal="ProductLoginModal"
-      :billing-modal="ProductBillingModal"
-      :create-organization-modal="ProductCreateOrganizationModal"
-      :login-open="loginOpen"
-      :billing-open="billingOpen"
-      :profile-open="profileOpen"
-      :create-organization-open="createOrganizationOpen"
+        </div>
+        <div v-else-if="currentView === 'tools'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
+          <ToolsPage
+            :userId="getUserId()"
+            :tenantId="getTenantId()"
+          />
+        </div>
+        <div v-else-if="currentView === 'plugins'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
+          <PluginsPage />
+        </div>
+        <div v-else-if="currentView === 'knowledge'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
+          <KnowledgePage
+            :shared-unread-count="personalKnowledgeShareCount"
+            :unread-count="personalKnowledgeUnreadCount"
+            @viewed="refreshPersonalKnowledgeCount"
+          />
+        </div>
+        <div v-else-if="currentView === 'skill-config'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
+          <SkillConfigPage
+            :skill="selectedSkill"
+            :userId="getUserId()"
+            :tenantId="getTenantId()"
+            @back="closeSkillConfig"
+            @saved="handleSkillConfigSaved"
+          />
+        </div>
+        <div v-else-if="currentView === 'composite-editor'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
+          <CompositeSkillEditor
+            :skill="selectedSkill"
+            :userId="getUserId()"
+            @back="closeSkillConfig"
+            @saved="handleCompositeSaved"
+            @remove="removeSkill"
+          />
+        </div>
+        <div v-else-if="currentView === 'scheduled-tasks'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
+          <ScheduledTaskPage
+            :token="authToken"
+            :sessions="sessions"
+            :current-session-id="scheduledTaskInitialSessionId || currentSessionId"
+            :timezone="timezoneValue"
+            :initial-prompt="scheduledTaskInitialPrompt"
+            :create-request-key="scheduledTaskCreateRequestKey"
+            @back="navigateTo('chat')"
+            @open-session="selectSession"
+          />
+        </div>
+        <div v-else-if="currentView === 'token-usage'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
+          <TokenUsagePage
+            :user-id="getUserId()"
+            :tenant-id="getTenantId()"
+            :token="authToken"
+            @back="closeTokenUsagePage"
+          />
+        </div>
+        <div v-else-if="currentView === 'ontology-grants'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
+          <MyOntologyPage @back="closeOntologyGrantsPage" />
+        </div>
+        <div v-else-if="currentView === 'orchestration'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
+          <OrchestrationCanvasPage :userId="getUserId() ?? undefined" :tenantId="getTenantId() ?? undefined" @back="closeOrchestrationPage" />
+        </div>
+        <div v-else-if="currentView === 'approval-todos'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
+          <ApprovalTodosPage @back="closeApprovalTodosPage" />
+        </div>
+        <div v-else-if="currentView === 'portal'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
+          <PortalCatalogPage @back="closePortalPage" />
+        </div>
+        <div v-else-if="currentView === 'memories'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
+          <MyMemoriesPage :userId="getUserId()" />
+        </div>
+        <template v-else>
+          <div class="flex-1 relative overflow-hidden min-h-0">
+            <div
+              v-if="sessionSearchOpen"
+              class="absolute inset-0 z-20 flex items-start justify-center bg-white/45 backdrop-blur-[2px] px-6 pt-20"
+              @click.self="closeSessionSearch"
+            >
+              <div class="w-full max-w-[720px] overflow-hidden rounded-[28px] border border-gray-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.12)]">
+                <div class="flex items-center gap-3 border-b border-gray-100 px-6 py-5">
+                  <n-input
+                    v-model:value="sessionSearchQuery"
+                    clearable
+                    :placeholder="t('app.search.placeholder')"
+                    size="large"
+                    class="flex-1"
+                  />
+                  <button
+                    class="shrink-0 rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                    @click="closeSessionSearch"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                  </button>
+                </div>
+                <div class="max-h-[60vh] overflow-y-auto px-3 py-3 custom-scrollbar">
+                  <button
+                    class="mb-3 flex w-full items-center gap-3 rounded-2xl bg-gray-50 px-5 py-4 text-left text-gray-700 transition-colors hover:bg-gray-100"
+                    @click="() => startLocalSession({ inheritCurrentProject: true })"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+                    <span class="text-base font-medium">{{ t('app.sidebar.new_chat') }}</span>
+                  </button>
+
+                  <div v-if="!trimmedSessionSearchQuery" class="px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-gray-400">
+                    {{ t('app.search.recent') }}
+                  </div>
+                  <div
+                    v-else-if="sessionSearchLoading && !sessionSearchResults.length"
+                    class="px-4 py-8 text-center text-sm italic text-gray-400"
+                  >
+                    {{ t('app.search.searching') }}
+                  </div>
+                  <div
+                    v-else-if="sessionSearchDidRun && !sessionSearchResults.length"
+                    class="px-4 py-8 text-center text-sm italic text-gray-400"
+                  >
+                    {{ t('app.search.no_results') }}
+                  </div>
+
+                  <div
+                    v-for="session in sessionSearchDisplayItems"
+                    :key="session.id"
+                    class="group flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition-colors"
+                    :class="session.id === currentSessionId
+                      ? 'bg-gray-100 text-gray-900'
+                      : 'text-gray-700 hover:bg-gray-50'"
+                    @click="editingSessionId !== session.id && selectSession(session.id)"
+                    @keydown.enter.prevent="editingSessionId !== session.id && selectSession(session.id)"
+                    @keydown.space.prevent="editingSessionId !== session.id && selectSession(session.id)"
+                    role="button"
+                    tabindex="0"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0 text-gray-400"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                    <n-input
+                      v-if="editingSessionId === session.id"
+                      v-model:value="editingSessionTitle"
+                      size="small"
+                      class="min-w-0 flex-1"
+                      :data-session-title-input="session.id"
+                      :disabled="renamingSessionId === session.id"
+                      @click.stop
+                      @dblclick.stop
+                      @blur="commitSessionTitleEdit(session)"
+                      @keydown.enter.prevent="commitSessionTitleEdit(session)"
+                      @keydown.esc.prevent="cancelSessionTitleEdit"
+                    />
+                    <span
+                      v-else
+                      class="min-w-0 flex-1 truncate text-base"
+                      :title="displaySessionTitle(session)"
+                      @dblclick.stop="startEditSessionTitle(session)"
+                    >
+                      {{ compactSessionTitle(session, 44) }}
+                    </span>
+                    <span
+                      v-if="sessionNeedsHumanAssistance(session.id)"
+                      class="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700"
+                      :aria-label="t('app.sidebar.session_needs_assistance')"
+                      :title="t('app.sidebar.session_needs_assistance')"
+                    >
+                      {{ t('app.sidebar.session_needs_assistance_short') }}
+                    </span>
+                    <span
+                      v-else-if="sessionScheduledIsRunning(session.id)"
+                      class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600"
+                      aria-label="定时任务正在运行"
+                      title="定时任务正在运行"
+                    >
+                      <svg viewBox="0 0 24 24" class="h-3.5 w-3.5 animate-pulse" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+                    </span>
+                    <span
+                      v-else-if="sessionIsRunning(session.id)"
+                      class="h-2 w-2 shrink-0 rounded-full bg-blue-500 animate-pulse"
+                      :aria-label="t('app.sidebar.session_running')"
+                      :title="t('app.sidebar.session_running')"
+                    ></span>
+                    <span
+                      v-else-if="sessionIsUnread(session.id)"
+                      class="h-2 w-2 shrink-0 rounded-full bg-blue-500"
+                      :aria-label="t('app.sidebar.session_unread')"
+                      :title="t('app.sidebar.session_unread')"
+                    ></span>
+                    <button
+                      type="button"
+                      class="shrink-0 overflow-hidden rounded-md p-0 text-gray-400 opacity-0 transition-all hover:bg-gray-100 hover:text-red-500 group-hover:w-6 group-hover:p-1 group-hover:opacity-100"
+                      :class="deletingSessionId === session.id ? 'w-6 !p-1 !opacity-100 text-red-500' : 'w-0'"
+                      :disabled="deletingSessionId === session.id"
+                      @click.stop="handleDeleteSession(session.id)"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+                    </button>
+                  </div>
+
+                  <button
+                    v-if="trimmedSessionSearchQuery && sessionSearchDidRun && sessionSearchHasMore"
+                    class="mt-3 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    :disabled="sessionSearchLoading"
+                    @click="runSessionSearch(false)"
+                  >
+                    {{ sessionSearchLoading ? t('app.search.searching') : t('app.search.load_more_results') }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          <div
+            v-for="pane in visibleChatPanes"
+            v-show="pane.key === activeChatKey"
+            :key="pane.key"
+            class="flex h-full w-full flex-col"
+          >
+            <ChatViewTabs
+              :view="pane.activeView"
+              @update:view="(view: 'chat' | 'trajectory') => chatRuntime.setPaneView(pane.key, view)"
+            >
+              <template #actions>
+                <button
+                  v-if="pane.key === activeChatKey && canShareSession"
+                  type="button"
+                  class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-blue-600"
+                  :aria-label="t('session.share.action')"
+                  :title="t('session.share.action')"
+                  @click="openSessionShare"
+                >
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="m8 6 4-4 4 4M12 2v13"/></svg>
+                </button>
+              </template>
+            </ChatViewTabs>
+            <SessionShareDialog
+              v-if="sessionShareOpen && currentSessionId"
+              v-model:show="sessionShareOpen"
+              :mode="sessionShareMode"
+              :session-id="currentSessionId"
+              :members-revision="sessionShareMembersRevision"
+              @left="handleSessionShareLeft"
+              @removed="handleSessionShareMutated"
+              @revoked="handleSessionShareMutated"
+            />
+            <div class="relative min-h-0 flex-1">
+            <div v-show="pane.activeView !== 'trajectory'" class="h-full w-full">
+            <ChatWindow
+              :initial-messages="pane.messages"
+              :session-id="pane.sessionId || undefined"
+              :model-instance-id="pane.modelInstanceId || undefined"
+              :active="pane.key === activeChatKey"
+              :user-id="getUserId() || undefined"
+              :tenant-id="getTenantId()"
+              :auth-token="authToken"
+              :running="pane.running"
+              :stopping="pane.stopping || codeRuntime.stateFor(pane.key).stopping"
+              :active-intervention="pane.activeIntervention"
+              :code-workspace="codeRuntime.stateFor(pane.key).workspace"
+              :code-workspaces="projectWorkspaces"
+              :code-workspaces-loading="projectWorkspacesLoading"
+              :code-session="codeRuntime.stateFor(pane.key).session"
+              :code-events="codeRuntime.stateFor(pane.key).events"
+              :code-approvals="codeRuntime.stateFor(pane.key).approvals"
+              :code-approval-busy="codeRuntime.stateFor(pane.key).approvalBusy"
+              :code-error="codeRuntime.stateFor(pane.key).error"
+              :code-workspace-busy="codeRuntime.stateFor(pane.key).busy"
+              :code-worktree="codeRuntime.stateFor(pane.key).worktree"
+              :code-source-ref="codeRuntime.stateFor(pane.key).sourceRef"
+              :code-history-read-only="pane.executionLocation !== 'server' && !codeRuntime.stateFor(pane.key).session"
+              :code-history-location="pane.executionLocation === 'server' ? undefined : pane.executionLocation"
+              :code-history-project="pane.codeProject"
+              :desktop-browser-request="desktopBrowserRequest"
+              :browser-session-id="pane.sessionId || pane.key"
+              :desktop-tool-tabs="desktopToolTabsFor(pane.key)"
+              :desktop-active-tool="desktopActiveToolFor(pane.key)"
+              :desktop-available-tools="pane.key === activeChatKey ? desktopAvailableTools : []"
+              :desktop-code-review-path="pane.key === activeChatKey ? desktopCodeReviewPath : ''"
+              :desktop-code-review-changes="pane.key === activeChatKey ? desktopCodeReviewChanges : null"
+              :desktop-code-file-path="pane.key === activeChatKey ? desktopCodeFilePath : ''"
+              :agent-policy="userProfile?.agentPolicy"
+              @send="(payload) => handlePaneSend(pane.key, payload)"
+              @stop="handlePaneStop(pane.key)"
+              @open-skills="openSkillsPage"
+              @open-tools="openToolsPage"
+              @open-knowledge="openKnowledgePage"
+              @schedule-message="({ prompt, sessionId }) => openScheduledTasks({ prompt, sessionId, create: true })"
+              @clear-intervention="chatRuntime.clearPaneIntervention(pane.key)"
+              @approval-decided="refreshSessionSummaries"
+              @choose-code-workspace="() => openProjectCreate(pane.key)"
+              @select-code-workspace="(workspace) => selectBoundProject(pane.key, workspace)"
+              @clear-code-workspace="codeRuntime.clear(pane.key)"
+              @code-worktree="(enabled) => codeRuntime.setWorktree(pane.key, enabled)"
+              @code-source-ref="(fullRef) => codeRuntime.setSourceRef(pane.key, fullRef)"
+              @code-branch-updated="(branch) => codeRuntime.setWorkspaceBranch(pane.key, branch)"
+              @code-approval="(approvalId, decision, scope) => codeRuntime.decide(pane.key, approvalId, decision, scope)"
+              @close-code-panel="hideDesktopTools"
+              @select-desktop-tool="selectDesktopTool"
+              @close-desktop-tool="closeDesktopTool"
+              @open-desktop-tool="openDesktopTool"
+              @open-desktop-file-tab="openDesktopFileTab"
+              @open-desktop-diff-tab="openDesktopDiffTab"
+              @code-workspace-change="refreshDesktopWorkspaceSummary"
+              @review-code-changes="reviewCodeChanges"
+              @open-code-file="openCodeFile"
+            />
+            </div>
+            <div v-show="pane.activeView === 'trajectory'" class="absolute inset-0">
+            <SessionTrajectoryView
+              :messages="pane.messages"
+            />
+            </div>
+            </div>
+          </div>
+          </div>
+        </template>
+      </div>
+    </main>
+    <component
+      :is="ProductLoginModal"
+      :open="loginOpen"
       :saved-users="savedUsers"
+      :challenge-token="portalChallengeToken /* pragma: allowlist secret */"
+      :tenant-candidates="portalTenantCandidates"
+      @close="closeLogin"
+      @login-success="handleLoginSuccess"
+    />
+    <component
+      v-if="ProductBillingModal"
+      :is="ProductBillingModal"
+      :open="billingOpen"
+      :token="authToken"
+      :can-access-admin="isEnterpriseSpace && userProfile?.canAccessAdmin === true"
+      @close="billingOpen = false"
+      @upgrade-success="handleBillingSuccess"
+    />
+    <ProfileModal
+      :open="profileOpen"
       :token="authToken"
       :profile="userProfile"
-      :can-access-billing-admin="isEnterpriseSpace && userProfile?.canAccessAdmin === true"
-      @close-login="loginOpen = false"
-      @close-billing="billingOpen = false"
-      @close-profile="profileOpen = false"
-      @close-create-organization="createOrganizationOpen = false"
-      @login-success="handleLoginSuccess"
-      @profile-updated="handleProfileUpdated"
+      @close="profileOpen = false"
+      @updated="handleProfileUpdated"
+    />
+    <component
+      v-if="ProductCreateOrganizationModal"
+      :is="ProductCreateOrganizationModal"
+      :open="createOrganizationOpen"
+      :token="authToken"
+      @close="createOrganizationOpen = false"
+      @created="handleOrganizationCreated"
     />
 
-    <DeleteSessionDialog
-      :session="pendingDeleteSession"
-      :deleting-session-id="deletingSessionId"
-      @cancel="cancelDeleteSession"
-      @confirm="confirmDeleteSession"
-    />
+    <div
+      v-if="pendingDeleteSession"
+      class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/22 px-4 backdrop-blur-[2px]"
+      @click.self="cancelDeleteSession"
+    >
+      <div class="w-full max-w-md rounded-[24px] border border-gray-200 bg-white p-6 shadow-[0_24px_80px_rgba(15,23,42,0.18)]">
+        <div class="text-lg font-semibold text-gray-900">{{ t('app.delete_chat.title') }}</div>
+        <div class="mt-3 text-sm leading-6 text-gray-500">
+          {{ t('app.delete_chat.body', { title: pendingDeleteSession.title || t('app.sidebar.new_chat') }) }}
+        </div>
+        <div class="mt-6 flex items-center justify-end gap-3">
+          <button
+            type="button"
+            class="rounded-xl px-4 py-2.5 text-sm font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+            @click="cancelDeleteSession"
+          >
+            {{ t('ui.cancel') }}
+          </button>
+          <button
+            type="button"
+            class="rounded-xl bg-red-500 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
+            :disabled="deletingSessionId === pendingDeleteSession.id"
+            @click="confirmDeleteSession"
+          >
+            {{ deletingSessionId === pendingDeleteSession.id ? t('app.delete_chat.deleting') : t('ui.delete') }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <SkillCreationDialog v-model:name="skillName" v-model:summary="skillSummary" v-model:type="skillType" v-model:scenario="skillScenario" v-model:channels="skillChannels" v-model:forms="skillForms" v-model:audience="skillAudience" v-model:style="skillStyle" v-model:required="skillRequired" v-model:forbidden="skillForbidden" :open="skillFormOpen" :creating="skillCreating" :enriching="skillEnriching" @close="closeSkillForm" @enrich="enrichDraftFromForm" @create="createSkill" />
-  <PersonalizationDialog
-    :open="personalizationOpen"
-    :locale="locale"
-    :language-saving="languageSaving"
-    :timezone-value="timezoneValue"
-    :timezone-options="timezoneOptions"
-    :timezone-saving="timezoneSaving"
-    :theme-mode="themeMode"
-    :theme-options="themeOptions"
-    :user-id="getUserId()"
-    :main-id="getMainId()"
-    @close="closePersonalization"
-    @select-language="selectLanguage"
-    @select-timezone="selectTimezone"
-    @select-theme="selectThemeMode"
-  />
-  <DesktopSettingsDialog :open="capabilities.isDesktop && settingsPanelOpen" @close="closeSettingsPanel" />
-  <SessionSnapshotViewer
-    v-if="pendingSnapshotToken && authToken && userProfile"
-    :token="pendingSnapshotToken"
-    @close="pendingSnapshotToken = null"
-  />
+  <div v-if="skillFormOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+    <div class="w-[820px] max-h-[88vh] overflow-y-auto rounded-3xl bg-white shadow-xl border border-gray-200 p-6 custom-scrollbar">
+      <div class="flex items-center justify-between mb-3">
+        <div>
+          <div class="text-lg font-semibold text-gray-900">{{ t('app.skill_form.title') }}</div>
+          <div class="text-xs text-gray-500 mt-1">{{ t('app.skill_form.subtitle') }}</div>
+        </div>
+        <n-button text size="small" class="!text-gray-400 hover:!text-gray-600" @click="closeSkillForm">{{ t('ui.close') }}</n-button>
+      </div>
+      <div class="space-y-5">
+        <section class="rounded-2xl border border-gray-200 bg-gray-50/60 p-4">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <div class="text-sm font-semibold text-gray-900">{{ t('app.skill_form.basics') }}</div>
+              <div class="text-xs text-gray-500 mt-1">{{ t('app.skill_form.basics_hint') }}</div>
+            </div>
+            <n-button
+              size="small"
+              secondary
+              :class="canSmartFillSkill ? 'border border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 text-amber-700 shadow-sm hover:from-amber-100 hover:to-orange-100' : 'border border-gray-200 text-gray-400 bg-white'"
+              :disabled="skillEnriching || !canSmartFillSkill"
+              @click="enrichDraftFromForm"
+            >
+              {{ skillEnriching ? t('app.skill_form.smart_fill_loading') : t('app.skill_form.smart_fill') }}
+            </n-button>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div class="col-span-2">
+              <label class="block text-xs font-semibold text-gray-700 mb-1">{{ t('app.skill_form.skill_name') }}</label>
+              <n-input
+                v-model:value="skillName"
+                :placeholder="t('app.skill_form.skill_name_placeholder')"
+              />
+            </div>
+            <div class="col-span-2">
+              <label class="block text-xs font-semibold text-gray-700 mb-1">{{ t('app.skill_form.short_summary') }}</label>
+              <n-input
+                v-model:value="skillSummary"
+                :placeholder="t('app.skill_form.short_summary_placeholder')"
+              />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-700 mb-1">{{ t('app.skill_form.skill_type') }}</label>
+              <n-select v-model:value="skillType" :options="skillTypeOptions" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-700 mb-1">{{ t('app.skill_form.applicable_scenarios') }}</label>
+              <n-input
+                v-model:value="skillScenario"
+                type="textarea"
+                :autosize="{ minRows: 3, maxRows: 5 }"
+                :placeholder="t('app.skill_form.scenario_placeholder')"
+              />
+            </div>
+          </div>
+        </section>
+
+        <section class="rounded-2xl border border-gray-200 bg-white p-4">
+          <div class="text-sm font-semibold text-gray-900 mb-1">{{ t('app.skill_form.positioning') }}</div>
+          <div class="text-xs text-gray-500 mb-4">{{ t('app.skill_form.positioning_hint') }}</div>
+          <div class="grid grid-cols-2 gap-4">
+            <div class="flex min-h-[220px] flex-col">
+              <label class="block text-xs font-semibold text-gray-700 mb-1">{{ t('app.skill_form.publish_channels') }}</label>
+              <TokenInput v-model="skillChannels" :suggestions="publishChannelSuggestions" :placeholder="t('skill_config.add_channels')" />
+            </div>
+            <div class="flex min-h-[220px] flex-col">
+              <label class="block text-xs font-semibold text-gray-700 mb-1">{{ t('app.skill_form.content_forms') }}</label>
+              <TokenInput v-model="skillForms" :suggestions="contentFormSuggestions" :placeholder="t('skill_config.add_content_forms')" />
+            </div>
+            <div class="flex min-h-[220px] flex-col">
+              <label class="block text-xs font-semibold text-gray-700 mb-1">{{ t('app.skill_form.target_audience') }}</label>
+              <TokenInput v-model="skillAudience" :suggestions="targetAudienceSuggestions" :placeholder="t('skill_config.add_audiences')" />
+            </div>
+            <div class="flex min-h-[220px] flex-col">
+              <label class="block text-xs font-semibold text-gray-700 mb-1">{{ t('app.skill_form.preferred_style') }}</label>
+              <TokenInput v-model="skillStyle" :suggestions="preferredStyleSuggestions" :placeholder="t('skill_config.add_styles')" />
+            </div>
+          </div>
+        </section>
+
+        <section class="rounded-2xl border border-gray-200 bg-white p-4">
+          <div class="text-sm font-semibold text-gray-900 mb-1">{{ t('app.skill_form.constraints') }}</div>
+          <div class="text-xs text-gray-500 mb-4">{{ t('app.skill_form.constraints_hint') }}</div>
+          <div class="grid grid-cols-2 gap-4">
+            <div class="min-w-0">
+              <label class="block text-xs font-semibold text-gray-700 mb-1">{{ t('app.skill_form.must_include') }}</label>
+              <TokenInput v-model="skillRequired" :placeholder="t('skill_config.add_required')" />
+            </div>
+            <div class="min-w-0">
+              <label class="block text-xs font-semibold text-gray-700 mb-1">{{ t('app.skill_form.must_avoid') }}</label>
+              <TokenInput v-model="skillForbidden" :placeholder="t('skill_config.add_forbidden')" />
+            </div>
+          </div>
+        </section>
+
+        <div class="flex justify-end gap-2 pt-1">
+          <n-button size="small" @click="closeSkillForm">
+            {{ t('ui.cancel') }}
+          </n-button>
+          <n-button
+            size="small"
+            type="primary"
+            :disabled="skillCreating || !skillName.trim()"
+            @click="createSkill"
+          >
+            {{ skillCreating ? t('app.skill_form.generating') : t('ui.generate') }}
+          </n-button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div
+    v-if="personalizationOpen"
+    class="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/30 px-4 backdrop-blur-[2px]"
+    @click.self="closePersonalization"
+  >
+    <div class="max-h-[calc(100vh-48px)] w-full max-w-3xl overflow-y-auto rounded-2xl border border-gray-200 bg-white p-5 shadow-[0_24px_80px_rgba(15,23,42,0.18)]">
+      <div class="mb-5 flex items-start justify-between gap-4">
+        <div>
+          <div class="text-lg font-semibold text-gray-900">{{ t('app.account.personalization') }}</div>
+          <div class="mt-1 text-sm text-gray-500">{{ t('ui.personalization_desc') }}</div>
+        </div>
+        <button
+          type="button"
+          class="flex h-9 w-9 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
+          :aria-label="t('ui.close')"
+          @click="closePersonalization"
+        >
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M18 6 6 18M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="personalization-layout">
+        <nav class="personalization-nav" :aria-label="t('shortcuts.personalization_menu')">
+          <button type="button" class="personalization-nav-item" :class="{ active: personalizationSection === 'general' }" :aria-current="personalizationSection === 'general' ? 'page' : undefined" @click="personalizationSection = 'general'">
+            <SettingsOutline class="personalization-nav-icon" aria-hidden="true" />
+            <span>{{ t('shortcuts.general_settings') }}</span>
+          </button>
+          <button type="button" class="personalization-nav-item" :class="{ active: personalizationSection === 'shortcuts' }" :aria-current="personalizationSection === 'shortcuts' ? 'page' : undefined" @click="personalizationSection = 'shortcuts'">
+            <AppsOutline class="personalization-nav-icon" aria-hidden="true" />
+            <span>{{ t('shortcuts.title') }}</span>
+          </button>
+        </nav>
+
+        <main class="personalization-content">
+      <div v-show="personalizationSection === 'general'">
+      <div class="mb-5">
+        <div class="mb-2 text-sm font-medium text-gray-700">{{ t('settings.language') }}</div>
+        <div class="grid grid-cols-2 gap-3">
+          <button
+            v-for="option in languageOptions"
+            :key="option.value"
+            type="button"
+            class="min-h-[44px] rounded-xl border px-4 text-sm font-medium transition-colors disabled:cursor-wait disabled:opacity-60"
+            :class="locale === option.value
+              ? 'border-blue-500 bg-blue-50 text-blue-700 ring-2 ring-blue-100'
+              : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'"
+            :aria-pressed="locale === option.value"
+            :disabled="languageSaving"
+            @click="selectLanguage(option.value)"
+          >
+            {{ option.label }}
+          </button>
+        </div>
+      </div>
+
+      <div class="mb-5">
+        <div class="mb-2 text-sm font-medium text-gray-700">{{ t('settings.timezone') }}</div>
+        <n-select
+          :value="timezoneValue"
+          :options="timezoneOptions"
+          filterable
+          :disabled="timezoneSaving"
+          @update:value="selectTimezone"
+        />
+      </div>
+
+      <div class="mb-2 text-sm font-medium text-gray-700">{{ t('ui.appearance') }}</div>
+      <div class="grid grid-cols-3 gap-3">
+        <button
+          v-for="option in themeOptions"
+          :key="option.value"
+          type="button"
+          class="flex min-h-[116px] flex-col items-center justify-center gap-3 rounded-xl border px-2 text-sm font-medium transition-colors"
+          :class="themeMode === option.value
+            ? 'border-blue-500 bg-blue-50 text-blue-700 ring-2 ring-blue-100'
+            : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'"
+          :aria-pressed="themeMode === option.value"
+          @click="selectThemeMode(option.value)"
+        >
+          <span class="flex h-10 w-10 items-center justify-center rounded-full bg-current/10">
+            <svg v-if="option.icon === 'sun'" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <circle cx="12" cy="12" r="4"/>
+              <path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"/>
+            </svg>
+            <svg v-else-if="option.icon === 'moon'" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/>
+            </svg>
+            <svg v-else class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="13" rx="2"/>
+              <path d="M8 21h8M12 17v4"/>
+            </svg>
+          </span>
+          <span>{{ t(option.langKey) }}</span>
+        </button>
+      </div>
+      </div>
+      <div v-if="personalizationSection === 'shortcuts'" class="mt-5">
+        <ShortcutPreferencesPanel :user-id="getUserId()" :tenant-id="getTenantId()" />
+      </div>
+        </main>
+      </div>
+    </div>
+  </div>
+  <div
+    v-if="capabilities.isDesktop && settingsPanelOpen"
+    class="desktop-settings-modal fixed inset-0 z-[80] flex items-start justify-center bg-slate-900/30 px-4 pb-4 pt-16 backdrop-blur-[2px]"
+    @click.self="closeSettingsPanel"
+  >
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="desktop-settings-title"
+      class="flex max-h-[calc(100vh-80px)] w-full max-w-2xl flex-col overflow-hidden rounded-[28px] border border-gray-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.18)]"
+    >
+      <div class="flex shrink-0 items-center justify-between border-b border-gray-100 py-2 pl-6 pr-3">
+        <div id="desktop-settings-title" class="text-lg font-semibold text-gray-900">{{ t('settings.modal.title') }}</div>
+        <button
+          type="button"
+          class="flex min-h-11 min-w-11 items-center justify-center rounded-xl px-3 text-sm text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+          @click="closeSettingsPanel"
+        >
+          {{ t('ui.close') }}
+        </button>
+      </div>
+      <div class="min-h-0 overflow-y-auto overscroll-contain">
+        <SettingsPanel />
+      </div>
+    </div>
+  </div>
   </n-dialog-provider>
   </n-notification-provider>
   </n-message-provider>
   </n-config-provider>
 </template>
 
-<style src="./styles/appShell.css"></style>
+<style>
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  z-index: 1000;
+  padding: 8px 16px;
+  background: var(--mg-brand);
+  color: white;
+  text-decoration: none;
+  transition: top 0.2s;
+}
+.skip-link:focus {
+  top: 0;
+}
+
+.app-shell--desktop > .app-sidebar,
+.app-shell--desktop > .app-main {
+  padding-top: 48px;
+}
+
+.desktop-settings-modal,
+.desktop-settings-modal * {
+  -webkit-app-region: no-drag;
+}
+
+.personalization-layout {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
+  min-height: 420px;
+  overflow: hidden;
+  border: 1px solid var(--mg-border);
+  border-radius: 16px;
+  background: var(--mg-bg-surface);
+}
+
+.personalization-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 10px;
+  border-right: 1px solid var(--mg-border);
+  background: var(--mg-bg-subtle);
+}
+
+.personalization-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 9px;
+  color: var(--mg-text-3);
+  background: transparent;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: color .15s ease, background .15s ease;
+}
+
+.personalization-nav-item:hover {
+  color: var(--mg-brand);
+  background: var(--mg-brand-soft);
+}
+
+.personalization-nav-item.active {
+  color: var(--mg-brand);
+  background: var(--mg-brand-soft);
+  font-weight: 600;
+}
+
+.personalization-nav-icon {
+  display: inline-flex;
+  width: 19px;
+  height: 19px;
+  align-items: center;
+  justify-content: center;
+  color: currentColor;
+}
+
+.personalization-content {
+  min-width: 0;
+  padding: 20px;
+  overflow-y: auto;
+  background: var(--mg-bg-surface);
+}
+
+@media (max-width: 640px) {
+  .personalization-layout {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .personalization-nav {
+    flex-direction: row;
+    border-right: 0;
+    border-bottom: 1px solid var(--mg-border);
+  }
+
+  .personalization-nav-item {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .personalization-content {
+    padding: 14px;
+  }
+}
+
+@media (max-width: 1100px) {
+  .app-shell--desktop > .app-sidebar {
+    width: 220px;
+  }
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--mg-scrollbar-thumb);
+  border-radius: 10px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: var(--mg-scrollbar-thumb-hover);
+}
+
+.history-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+.history-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 999px;
+}
+.history-scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--mg-scrollbar-thumb);
+  border-radius: 999px;
+  border: 2px solid transparent;
+}
+.history-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: var(--mg-scrollbar-thumb-hover);
+}
+
+</style>

@@ -8,20 +8,25 @@ import urllib.request
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 
+from app.security.service_token import service_token_headers
 from app.api.deps import get_current_admin_user
-from app.api.error_locale import localize_detail
 from app.api.time_utils import utc_iso
-from app.api.workflow_proxy_messages import workflow_check_fallback, workflow_proxy_error
 from app.core.config import settings
-from app.core.legacy_error_messages import backend_unavailable
 from app.core.db import get_db
-from app.product.resource_lifecycle import notify_resource_created, notify_resource_deleted
-from app.services.skill_package_proxy import install_organization_skill_zip, organization_skill_dependency_status, retry_organization_skill_dependency
-from app.services.skill_readiness import attach_environment_status
-from app.services.skill_lifecycle import OrganizationSkillLifecycle
+from app.services.skill_market.adoption_client import (
+    apply_low_quality_ranking,
+    fetch_marked_skill_keys,
+)
+from app.services.skill_package_proxy import install_organization_skill_zip
+from app.services.skill_lifecycle import OrganizationSkillLifecycle, RELEASE_COLLECTION
+from app.services.trust_rating.skill_visibility import (
+    L1SkillNotVisible,
+    assert_skill_visible,
+    hidden_l1_skill_ids,
+)
 from app.services.workflow_validation import validate_workflow_config
 
 router = APIRouter()
@@ -65,14 +70,13 @@ def _serialize(doc: dict[str, Any]) -> dict[str, Any]:
     doc = lifecycle.display(doc)
     return {
         "id": str(doc.get("_id") or ""),
-        "mainId": str(doc.get("main_id") or "default"),
+        "tenantId": str(doc.get("tenant_id") or "default"),
         "name": str(doc.get("name") or ""),
         "description": str(doc.get("description") or ""),
         "scenario": str(doc.get("scenario") or ""),
         "type": str(doc.get("type") or "writing_style"),
         "config": _safe_dict(doc.get("config")),
         "enabled": _safe_bool(doc.get("enabled"), True),
-        "environmentStatus": doc.get("environment_status"),
         "createdAt": _time_text(doc.get("created_at")),
         "updatedAt": _time_text(doc.get("updated_at")),
         "lifecycle": lifecycle.view(doc),
@@ -88,24 +92,22 @@ def _serialize(doc: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _backend_url(path: str, main_id: str) -> str:
+def _backend_url(path: str, tenant_id: str) -> str:
     base_url = str(settings.backend_base_url or "http://127.0.0.1:8000").rstrip("/")
     separator = "&" if "?" in path else "?"
-    return f"{base_url}/api{path}{separator}{urllib.parse.urlencode({'mainId': main_id})}"
+    return f"{base_url}/api{path}{separator}{urllib.parse.urlencode({'tenantId': tenant_id})}"
 
 
-def _request_backend(method: str, path: str, main_id: str, body: Any | None = None, *, accept_language: str | None = None) -> Any:
+def _request_backend(method: str, path: str, tenant_id: str, body: Any | None = None) -> Any:
     data = None
     headers = {
         "Accept": "application/json",
-        "X-MOVO-Service-Token": settings.backend_service_token,
+        **service_token_headers(settings.backend_service_token),
     }
-    if accept_language:
-        headers["Accept-Language"] = accept_language
     if body is not None:
         data = json.dumps(body, ensure_ascii=False).encode("utf-8")
         headers["Content-Type"] = "application/json"
-    request = urllib.request.Request(_backend_url(path, main_id), data=data, headers=headers, method=method)
+    request = urllib.request.Request(_backend_url(path, tenant_id), data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
             raw = response.read().decode("utf-8")
@@ -118,7 +120,7 @@ def _request_backend(method: str, path: str, main_id: str, body: Any | None = No
             message = detail or str(exc)
         raise HTTPException(status_code=exc.code, detail=message) from exc
     except urllib.error.URLError as exc:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=backend_unavailable(exc.reason)) from exc
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"backend 不可用：{exc.reason}") from exc
     return json.loads(raw) if raw else {"code": 0, "data": None}
 
 
@@ -128,7 +130,7 @@ def _backend_data(response: Any) -> Any:
     return response
 
 
-def _normalize_writing_style_config(*, main_id: str, name: str, description: str, scenario: str, config: dict[str, Any]) -> dict[str, Any]:
+def _normalize_writing_style_config(*, tenant_id: str, name: str, description: str, scenario: str, config: dict[str, Any]) -> dict[str, Any]:
     normalized = _safe_dict(config)
     contract_json = _safe_dict(normalized.get("contractJson") or normalized.get("contract_json"))
     normalized.pop("compiledPrompt", None)
@@ -248,23 +250,32 @@ class WritingStyleEnrichPayload(BaseModel):
 
 @router.get("")
 async def list_skills(current_user: dict = Depends(get_current_admin_user)) -> list[dict[str, Any]]:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
-    cursor = db.skills.find({"main_id": main_id}).sort("updated_at", -1)
-    rows = [doc async for doc in cursor]
-    await attach_environment_status(rows, main_id)
-    return [_serialize(doc) for doc in rows]
+    cursor = db.skills.find({"tenant_id": tenant_id}).sort("updated_at", -1)
+    skills = [_serialize(doc) async for doc in cursor]
+    # T014-3 / T015-2: read the 011-shared ``marked_low_quality`` bit back so a
+    # flagged skill is down-ranked (still visible, sorted last) in the market.
+    marked = await fetch_marked_skill_keys(db, tenant_id=tenant_id)
+    # 036 FR-014: an L1 skill is owner-only; hide it from unrelated callers in the
+    # catalogue/market listing (non-invasive filter, list semantics unchanged).
+    hidden = await hidden_l1_skill_ids(
+        db, tenant_id=tenant_id, viewer_id=str(current_user.get("_id") or current_user.get("id") or "")
+    )
+    if hidden:
+        skills = [row for row in skills if str(row.get("id") or "") not in hidden]
+    return apply_low_quality_ranking(skills, marked=marked)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_skill(payload: SkillPayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
     now = _now()
     normalized_payload = _normalize_payload(payload.model_dump())
     if str(normalized_payload.get("type") or "") == "writing_style":
         normalized_payload["config"] = _normalize_writing_style_config(
-            main_id=main_id,
+            tenant_id=tenant_id,
             name=str(normalized_payload.get("name") or ""),
             description=str(normalized_payload.get("description") or ""),
             scenario=str(normalized_payload.get("scenario") or ""),
@@ -272,43 +283,38 @@ async def create_skill(payload: SkillPayload, current_user: dict = Depends(get_c
         )
     doc = {
         "_id": uuid.uuid4().hex,
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         **normalized_payload,
         "created_at": now,
         "updated_at": now,
     }
     await db.skills.insert_one(doc)
     if str(doc.get("type") or "") in {"writing_style", "workflow"}:
-        await OrganizationSkillLifecycle().initialize(main_id=main_id, skill_id=doc["_id"], draft=doc)
-    try:
-        await notify_resource_created("skill", main_id, str(doc["_id"]))
-    except Exception:
-        await db.skills.delete_one({"_id": doc["_id"], "main_id": main_id})
-        raise
-    return _serialize(await db.skills.find_one({"_id": doc["_id"], "main_id": main_id}) or doc)
+        await OrganizationSkillLifecycle().initialize(tenant_id=tenant_id, skill_id=doc["_id"], draft=doc)
+    return _serialize(await db.skills.find_one({"_id": doc["_id"], "tenant_id": tenant_id}) or doc)
 
 
 @router.post("/generate-workflow-steps")
-async def generate_workflow_steps(payload: WorkflowStepsGeneratePayload, request: Request, current_user: dict = Depends(get_current_admin_user)) -> Any:
-    main_id = str(current_user.get("main_id") or "default")
+async def generate_workflow_steps(payload: WorkflowStepsGeneratePayload, current_user: dict = Depends(get_current_admin_user)) -> Any:
+    tenant_id = str(current_user.get("tenant_id") or "default")
     body = payload.model_dump()
     body["existing_steps"] = _safe_list(body.pop("existingSteps", []))
     max_steps = body.pop("maxSteps", None)
     if max_steps is not None:
         body["max_steps"] = max_steps
     try:
-        return _backend_data(_request_backend("POST", "/skills/generate-workflow-steps", main_id, body, accept_language=request.headers.get("accept-language")))
+        return _backend_data(_request_backend("POST", "/skills/generate-workflow-steps", tenant_id, body))
     except HTTPException as exc:
         return {
             "steps": [],
             "source": "error",
-            "message": workflow_proxy_error(exc.detail, "生成服务不可用", request.headers.get("accept-language")),
+            "message": str(exc.detail or "生成服务不可用"),
         }
 
 
 @router.post("/generate-workflow-nodes")
-async def generate_workflow_nodes(payload: WorkflowNodesGeneratePayload, request: Request, current_user: dict = Depends(get_current_admin_user)) -> Any:
-    main_id = str(current_user.get("main_id") or "default")
+async def generate_workflow_nodes(payload: WorkflowNodesGeneratePayload, current_user: dict = Depends(get_current_admin_user)) -> Any:
+    tenant_id = str(current_user.get("tenant_id") or "default")
     body = payload.model_dump()
     body["existing_nodes"] = _safe_list(body.pop("existingNodes", []))
     body["node_catalog"] = _safe_list(body.pop("nodeCatalog", []))
@@ -316,72 +322,98 @@ async def generate_workflow_nodes(payload: WorkflowNodesGeneratePayload, request
     if max_nodes is not None:
         body["max_nodes"] = max_nodes
     try:
-        return _backend_data(_request_backend("POST", "/skills/generate-workflow-nodes", main_id, body, accept_language=request.headers.get("accept-language")))
+        return _backend_data(_request_backend("POST", "/skills/generate-workflow-nodes", tenant_id, body))
     except HTTPException as exc:
         return {
             "nodes": [],
             "source": "error",
-            "message": workflow_proxy_error(exc.detail, "生成服务不可用", request.headers.get("accept-language")),
+            "message": str(exc.detail or "生成服务不可用"),
         }
 
 
 @router.post("/polish-workflow-node")
-async def polish_workflow_node(payload: WorkflowNodePolishPayload, request: Request, current_user: dict = Depends(get_current_admin_user)) -> Any:
-    main_id = str(current_user.get("main_id") or "default")
+async def polish_workflow_node(payload: WorkflowNodePolishPayload, current_user: dict = Depends(get_current_admin_user)) -> Any:
+    tenant_id = str(current_user.get("tenant_id") or "default")
     body = payload.model_dump()
     body["existing_nodes"] = _safe_list(body.pop("existingNodes", []))
     body["node_catalog"] = _safe_list(body.pop("nodeCatalog", []))
     try:
-        return _backend_data(_request_backend("POST", "/skills/polish-workflow-node", main_id, body, accept_language=request.headers.get("accept-language")))
+        return _backend_data(_request_backend("POST", "/skills/polish-workflow-node", tenant_id, body))
     except HTTPException as exc:
         return {
             "text": "",
             "source": "error",
-            "message": workflow_proxy_error(exc.detail, "润色服务不可用", request.headers.get("accept-language")),
+            "message": str(exc.detail or "润色服务不可用"),
         }
 
 
 @router.post("/check-workflow-logic")
-async def check_workflow_logic(payload: WorkflowLogicCheckPayload, request: Request, current_user: dict = Depends(get_current_admin_user)) -> Any:
-    main_id = str(current_user.get("main_id") or "default")
+async def check_workflow_logic(payload: WorkflowLogicCheckPayload, current_user: dict = Depends(get_current_admin_user)) -> Any:
+    tenant_id = str(current_user.get("tenant_id") or "default")
     body = payload.model_dump()
     try:
-        return _backend_data(_request_backend("POST", "/skills/check-workflow-logic", main_id, body, accept_language=request.headers.get("accept-language")))
+        return _backend_data(_request_backend("POST", "/skills/check-workflow-logic", tenant_id, body))
     except HTTPException as exc:
-        return workflow_check_fallback(exc.detail, nodes=False, accept_language=request.headers.get("accept-language"))
+        return {
+            "pass": False,
+            "logic": {
+                "label": "检查失败",
+                "level": "warning",
+                "summary": str(exc.detail or "检查服务不可用"),
+            },
+            "coverage": [],
+            "readiness": [],
+            "suggestions": ["后端检查服务暂不可用，请稍后重试。"],
+            "conclusion": "本次未完成后端语义检查。",
+            "source": "error",
+            "message": str(exc.detail or "检查服务不可用"),
+        }
 
 
 @router.post("/check-workflow-nodes")
-async def check_workflow_nodes(payload: WorkflowLogicCheckPayload, request: Request, current_user: dict = Depends(get_current_admin_user)) -> Any:
-    main_id = str(current_user.get("main_id") or "default")
+async def check_workflow_nodes(payload: WorkflowLogicCheckPayload, current_user: dict = Depends(get_current_admin_user)) -> Any:
+    tenant_id = str(current_user.get("tenant_id") or "default")
     body = payload.model_dump()
     try:
-        return _backend_data(_request_backend("POST", "/skills/check-workflow-nodes", main_id, body, accept_language=request.headers.get("accept-language")))
+        return _backend_data(_request_backend("POST", "/skills/check-workflow-nodes", tenant_id, body))
     except HTTPException as exc:
-        return workflow_check_fallback(exc.detail, nodes=True, accept_language=request.headers.get("accept-language"))
+        return {
+            "pass": False,
+            "logic": {
+                "label": "检查失败",
+                "level": "warning",
+                "summary": str(exc.detail or "检查服务不可用"),
+            },
+            "coverage": [],
+            "readiness": [],
+            "suggestions": ["后端检查服务暂不可用，请稍后重试。"],
+            "conclusion": "本次未完成后端语义节点检查。",
+            "source": "error",
+            "message": str(exc.detail or "检查服务不可用"),
+        }
 
 
 @router.post("/check-script-plugin")
-async def check_script_plugin(payload: ScriptPluginCheckPayload, request: Request, current_user: dict = Depends(get_current_admin_user)) -> Any:
-    main_id = str(current_user.get("main_id") or "default")
-    return _backend_data(_request_backend("POST", "/skills/check-script-plugin", main_id, payload.model_dump(), accept_language=request.headers.get("accept-language")))
+async def check_script_plugin(payload: ScriptPluginCheckPayload, current_user: dict = Depends(get_current_admin_user)) -> Any:
+    tenant_id = str(current_user.get("tenant_id") or "default")
+    return _backend_data(_request_backend("POST", "/skills/check-script-plugin", tenant_id, payload.model_dump()))
 
 
 @router.post("/fix-script-plugin")
-async def fix_script_plugin(payload: ScriptPluginFixPayload, request: Request, current_user: dict = Depends(get_current_admin_user)) -> Any:
-    main_id = str(current_user.get("main_id") or "default")
-    return _backend_data(_request_backend("POST", "/skills/fix-script-plugin", main_id, payload.model_dump(), accept_language=request.headers.get("accept-language")))
+async def fix_script_plugin(payload: ScriptPluginFixPayload, current_user: dict = Depends(get_current_admin_user)) -> Any:
+    tenant_id = str(current_user.get("tenant_id") or "default")
+    return _backend_data(_request_backend("POST", "/skills/fix-script-plugin", tenant_id, payload.model_dump()))
 
 
 @router.post("/generate-script-plugin")
-async def generate_script_plugin(payload: ScriptPluginGeneratePayload, request: Request, current_user: dict = Depends(get_current_admin_user)) -> Any:
-    main_id = str(current_user.get("main_id") or "default")
-    return _backend_data(_request_backend("POST", "/skills/generate-script-plugin", main_id, payload.model_dump(), accept_language=request.headers.get("accept-language")))
+async def generate_script_plugin(payload: ScriptPluginGeneratePayload, current_user: dict = Depends(get_current_admin_user)) -> Any:
+    tenant_id = str(current_user.get("tenant_id") or "default")
+    return _backend_data(_request_backend("POST", "/skills/generate-script-plugin", tenant_id, payload.model_dump()))
 
 
 @router.post("/enrich-writing-style")
-async def enrich_writing_style(payload: WritingStyleEnrichPayload, request: Request, current_user: dict = Depends(get_current_admin_user)) -> Any:
-    main_id = str(current_user.get("main_id") or "default")
+async def enrich_writing_style(payload: WritingStyleEnrichPayload, current_user: dict = Depends(get_current_admin_user)) -> Any:
+    tenant_id = str(current_user.get("tenant_id") or "default")
     draft = _safe_dict(payload.draft)
     body = {
         "user_id": "organization",
@@ -406,13 +438,13 @@ async def enrich_writing_style(payload: WritingStyleEnrichPayload, request: Requ
         },
     }
     try:
-        data = _backend_data(_request_backend("POST", "/skills/enrich_draft", main_id, body, accept_language=request.headers.get("accept-language")))
+        data = _backend_data(_request_backend("POST", "/skills/enrich_draft", tenant_id, body))
     except HTTPException as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc.detail or "写作规范补全失败")) from exc
     if not isinstance(data, dict):
         return {"inputProfile": body["input_profile"], "contractJson": body["input_profile"], "skillMarkdown": ""}
     normalized_config = _normalize_writing_style_config(
-        main_id=main_id,
+        tenant_id=tenant_id,
         name=payload.name,
         description=payload.description,
         scenario=payload.scenario,
@@ -427,7 +459,6 @@ async def enrich_writing_style(payload: WritingStyleEnrichPayload, request: Requ
 
 @router.post("/install-zip", status_code=status.HTTP_201_CREATED)
 async def install_skill_zip(
-    request: Request,
     file: UploadFile = File(...),
     confirm_replace: bool = Form(default=False, alias="confirmReplace"),
     current_user: dict = Depends(get_current_admin_user),
@@ -435,77 +466,63 @@ async def install_skill_zip(
     filename = str(file.filename or "").strip()
     if not filename.lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail={
-            "code": "zip_required", "message": localize_detail("请选择 ZIP 格式的 Skill 安装包", 400, request.headers.get("accept-language")), "file": filename,
+            "code": "zip_required", "message": "请选择 ZIP 格式的 Skill 安装包", "file": filename,
         })
-    max_archive_bytes = 100 * 1024 * 1024
-    content = await file.read(max_archive_bytes + 1)
-    if len(content) > max_archive_bytes:
+    content = await file.read(5 * 1024 * 1024 + 1)
+    if len(content) > 5 * 1024 * 1024:
         raise HTTPException(status_code=413, detail={
-            "code": "archive_too_large", "message": localize_detail("Skill ZIP 不能超过 100 MiB", 413, request.headers.get("accept-language")),
+            "code": "archive_too_large", "message": "Skill ZIP 不能超过 5 MiB",
         })
-    result = install_organization_skill_zip(
-        main_id=str(current_user.get("main_id") or "default"),
+    return install_organization_skill_zip(
+        tenant_id=str(current_user.get("tenant_id") or "default"),
         filename=filename,
         content=content,
         confirm_replace=confirm_replace,
-    )
-    skill_id = str(result.get("id") or "")
-    if skill_id:
-        await notify_resource_created(
-            "skill", str(current_user.get("main_id") or "default"), skill_id,
-        )
-    return result
-
-
-@router.get("/{skill_id}/dependency-status")
-def skill_dependency_status(skill_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    return organization_skill_dependency_status(
-        main_id=str(current_user.get("main_id") or "default"), skill_id=skill_id,
-    )
-
-
-@router.post("/{skill_id}/dependency-retry")
-def retry_skill_dependency(skill_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    return retry_organization_skill_dependency(
-        main_id=str(current_user.get("main_id") or "default"), skill_id=skill_id,
     )
 
 
 @router.get("/{skill_id}")
 async def get_skill(skill_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
-    doc = await db.skills.find_one({"_id": str(skill_id), "main_id": main_id})
+    doc = await db.skills.find_one({"_id": str(skill_id), "tenant_id": tenant_id})
     if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="技能不存在")
+    # 036 FR-014: direct reads of an L1 skill are restricted to its owner; surface the
+    # same 404 as "not found" so we never disclose that the asset exists.
+    try:
+        await assert_skill_visible(
+            db,
+            tenant_id=tenant_id,
+            viewer_id=str(current_user.get("_id") or current_user.get("id") or ""),
+            skill_key=str(skill_id),
+        )
+    except L1SkillNotVisible:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="技能不存在")
     return _serialize(doc)
 
 
 @router.put("/{skill_id}")
 async def update_skill(skill_id: str, payload: SkillPayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
     normalized_payload = _normalize_payload(payload.model_dump())
     if str(normalized_payload.get("type") or "") == "writing_style":
         normalized_payload["config"] = _normalize_writing_style_config(
-            main_id=main_id,
+            tenant_id=tenant_id,
             name=str(normalized_payload.get("name") or ""),
             description=str(normalized_payload.get("description") or ""),
             scenario=str(normalized_payload.get("scenario") or ""),
             config=_safe_dict(normalized_payload.get("config")),
         )
-    current = await db.skills.find_one({"_id": str(skill_id), "main_id": main_id})
+    current = await db.skills.find_one({"_id": str(skill_id), "tenant_id": tenant_id})
     if current is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="技能不存在")
-    if normalized_payload.get("enabled"):
-        await attach_environment_status([current], main_id)
-        if current.get("environment_status") not in {None, "ready"}:
-            raise HTTPException(status_code=409, detail="Skill environment is not ready")
     if current.get("package_id") or str(current.get("type") or "") not in {"writing_style", "workflow"}:
-        await db.skills.update_one({"_id": str(skill_id), "main_id": main_id}, {"$set": {**normalized_payload, "updated_at": _now()}})
-        return _serialize(await db.skills.find_one({"_id": str(skill_id), "main_id": main_id}) or current)
+        await db.skills.update_one({"_id": str(skill_id), "tenant_id": tenant_id}, {"$set": {**normalized_payload, "updated_at": _now()}})
+        return _serialize(await db.skills.find_one({"_id": str(skill_id), "tenant_id": tenant_id}) or current)
     try:
-        doc = await OrganizationSkillLifecycle().save(main_id=main_id, skill_id=str(skill_id), draft=normalized_payload)
+        doc = await OrganizationSkillLifecycle().save(tenant_id=tenant_id, skill_id=str(skill_id), draft=normalized_payload)
     except LookupError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="技能不存在")
     return _serialize(doc)
@@ -517,50 +534,72 @@ async def set_skill_enabled(
     payload: SkillEnabledPayload,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
-    current = await db.skills.find_one({"_id": str(skill_id), "main_id": main_id})
-    if payload.enabled and current:
-        await attach_environment_status([current], main_id)
-        if current.get("environment_status") not in {None, "ready"}:
-            raise HTTPException(status_code=409, detail="Skill environment is not ready")
+    current = await db.skills.find_one({"_id": str(skill_id), "tenant_id": tenant_id})
     if payload.enabled and current and current.get("publication_status") == "draft" and not current.get("published_version"):
         raise HTTPException(status_code=409, detail="请先发布 Skill，再启用")
     result = await db.skills.update_one(
-        {"_id": str(skill_id), "main_id": main_id},
+        {"_id": str(skill_id), "tenant_id": tenant_id},
         {"$set": {"enabled": bool(payload.enabled), "updated_at": _now()}},
     )
     if not result.matched_count:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="技能不存在")
-    doc = await db.skills.find_one({"_id": str(skill_id), "main_id": main_id})
-    if doc:
-        await attach_environment_status([doc], main_id)
+    doc = await db.skills.find_one({"_id": str(skill_id), "tenant_id": tenant_id})
     return _serialize(doc or {})
 
 
 @router.delete("/{skill_id}")
 async def delete_skill(skill_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, str]:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
     existing = await db.skills.find_one(
-        {"_id": str(skill_id), "main_id": main_id}, {"package_id": 1, "previous_package_ids": 1},
+        {"_id": str(skill_id), "tenant_id": tenant_id}, {"package_id": 1, "previous_package_ids": 1},
     )
-    result = await db.skills.delete_one({"_id": str(skill_id), "main_id": main_id})
+    result = await db.skills.delete_one({"_id": str(skill_id), "tenant_id": tenant_id})
     if not result.deleted_count:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="技能不存在")
     if existing:
         package_ids = [str(existing.get("package_id") or ""), *[str(item) for item in existing.get("previous_package_ids") or []]]
         await db.skill_packages.delete_many({"_id": {"$in": [item for item in package_ids if item]}})
-    await notify_resource_deleted("skill", main_id, str(skill_id))
     return {"id": skill_id}
+
+
+@router.post("/{skill_id}/releases/{release_id}/verify")
+async def verify_skill_release(
+    skill_id: str,
+    release_id: str,
+    current_user: dict = Depends(get_current_admin_user),
+) -> dict[str, Any]:
+    """004 FR-5: verify the integrity of a stored skill release row.
+
+    Recomputes the sha256 digest over the canonical snapshot and compares it
+    with the stored digest; a mismatch (or empty digest) is a hard 409 so a
+    tampered release can never be accepted silently.
+    """
+    tenant_id = str(current_user.get("tenant_id") or "default")
+    row = await get_db()[RELEASE_COLLECTION].find_one(
+        {"_id": release_id, "tenant_id": tenant_id, "skill_id": str(skill_id)}
+    )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="发布物不存在")
+    lifecycle = OrganizationSkillLifecycle()
+    valid = lifecycle.verify_release(row=row)
+    if not valid:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={
+            "code": "release_digest_mismatch",
+            "message": "发布物摘要校验失败，可能已被篡改",
+            "releaseId": release_id,
+        })
+    return {"id": release_id, "version": str(row.get("version") or ""), "digest": str(row.get("digest") or ""), "valid": True}
 
 
 async def ensure_indexes() -> None:
     db = get_db()
-    await db.skills.create_index([("main_id", 1), ("updated_at", -1)], name="skills_main_updated")
-    await db.skills.create_index([("main_id", 1), ("name", 1)], name="skills_main_name")
-    await db.skills.create_index([("main_id", 1), ("enabled", 1), ("updated_at", -1)], name="skills_main_enabled_updated")
+    await db.skills.create_index([("tenant_id", 1), ("updated_at", -1)], name="skills_tenant_updated")
+    await db.skills.create_index([("tenant_id", 1), ("name", 1)], name="skills_tenant_name")
+    await db.skills.create_index([("tenant_id", 1), ("enabled", 1), ("updated_at", -1)], name="skills_tenant_enabled_updated")
     await db.skills.create_index(
-        [("main_id", 1), ("package_slug", 1)], unique=True,
+        [("tenant_id", 1), ("package_slug", 1)], unique=True,
         partialFilterExpression={"source_kind": "zip"}, name="organization_zip_skill_slug",
     )

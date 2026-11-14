@@ -23,7 +23,7 @@ class KnowledgeRetrievalClient:
         self,
         *,
         query: str,
-        main_id: str,
+        tenant_id: str,
         user_id: str = "",
         knowledge_base_ids: List[str] | None = None,
         top_n: int = 8,
@@ -42,7 +42,7 @@ class KnowledgeRetrievalClient:
             for knowledge_base_id in ids:
                 payload = RetrievalSearchPayload(
                     query=query,
-                    mainId=main_id,
+                    tenantId=tenant_id,
                     userId=user_id,
                     knowledgeBaseId=knowledge_base_id,
                     topN=top_n,

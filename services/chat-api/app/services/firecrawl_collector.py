@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import asyncio
 from typing import Any, Dict
@@ -41,7 +42,8 @@ class FirecrawlCollector:
     async def _scrape_with_sdk(self, url: str) -> Any:
         try:
             from firecrawl import Firecrawl  # type: ignore
-        except Exception:
+        except Exception as exc:
+            log_print(f"[services.firecrawl_collector] silent exception caught: {exc}", flush=True)
             return None
 
         def call() -> Any:
@@ -70,7 +72,8 @@ class FirecrawlCollector:
             try:
                 dumped = value.model_dump()
                 return dumped if isinstance(dumped, dict) else {}
-            except Exception:
+            except Exception as exc:
+                log_print(f"[firecrawl] serialize failed: {exc}", flush=True)
                 return {}
         if hasattr(value, "__dict__"):
             data = dict(getattr(value, "__dict__", {}) or {})

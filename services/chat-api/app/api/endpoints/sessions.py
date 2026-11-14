@@ -1,38 +1,21 @@
-# allow: SIZE_OK — pre-existing 1000+ LOC endpoint module; the frozen plan pins
-# sessions.py as the single-file seam (todos 8-12 address it by line number) and
-# a split is a later todo's decision.
 from __future__ import annotations
 from app.infrastructure.observability.config import log_print
 
 import json
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from bson import ObjectId
+from app.core.ids import is_valid_backend_id, to_backend_id
 from fastapi import APIRouter, Header, HTTPException, Query
-from pymongo.errors import BulkWriteError, DuplicateKeyError
 from pydantic import AliasChoices, BaseModel, Field
 
 from app.core.db import get_db
 from app.api.endpoints.auth import _resolve_session_user
-from app.core.tenant import add_main_scope, resolve_main_id
+from app.core.tenant import add_tenant_scope, resolve_tenant_id
 from app.dsh_runtime.conversation.participants_repository import SessionParticipantsRepository
-from app.dsh_runtime.conversation.repository import ConversationRepository, MessageSequenceConflict
-from app.dsh_runtime.events.repository import KernelEventRepository
-from app.dsh_runtime.session_live import (
-    CURSOR_VERSION,
-    MESSAGE_ID_RE,
-    TERMINAL_TURN_STATUSES,
-    build_live_cursor,
-    revision_digest,
-)
-from app.services.session_identity_projection import (
-    message_identity,
-    resolve_author_projections,
-)
 from app.utils.oss_uploader import AliyunOSSUploader
 from app.llm.factory import get_llm_client
 from app.llm.types import Message, Role
@@ -52,51 +35,48 @@ async def _authorized_scope(
     authorization: str | None,
     *,
     claimed_user_id: str,
-    claimed_main_id: str | None,
+    claimed_tenant_id: str | None,
 ) -> tuple[str, str]:
     resolved = await _resolve_session_user(authorization if isinstance(authorization, str) else None)
     actual_user_id = str(resolved["user"].get("_id") or "")
-    actual_main_id = resolve_main_id(resolved["main_id"])
+    actual_tenant_id = resolve_tenant_id(resolved.get("tenant_id"))
     if claimed_user_id and claimed_user_id != actual_user_id:
         raise HTTPException(status_code=404, detail="Session not found")
-    if claimed_main_id and resolve_main_id(claimed_main_id) != actual_main_id:
+    if claimed_tenant_id and resolve_tenant_id(claimed_tenant_id) != actual_tenant_id:
         raise HTTPException(status_code=404, detail="Session not found")
-    return actual_user_id, actual_main_id
+    return actual_user_id, actual_tenant_id
 
 
 class MessageIn(BaseModel):
     role: str = Field(..., description="Message role: user/assistant/system")
     content: str = Field(..., description="Message content")
-    user_id: Optional[str] = Field(None, description="Message author (server-side addition on session GET)")
     plan: Optional[dict] = Field(None, description="Optional plan payload")
     progress: Optional[list] = Field(None, description="Optional progress logs")
     documents: Optional[list] = Field(None, description="Optional generated documents")
-    knowledge_references: Optional[list[dict[str, Any]]] = None
     images: Optional[list] = Field(None, description="Optional uploaded image metadata")
     evidence_bundles: Optional[list] = Field(None, validation_alias=AliasChoices("evidence_bundles", "evidenceBundles"), description="Optional persisted evidence bundles")
     message_id: Optional[str] = Field(None, description="Streaming message id from chat completion (X-Message-Id)")
     execution_events: Optional[list] = Field(None, description="Replayed V3 execution events on session GET (read-only)")
-    question_answers: Optional[list] = Field(None, description="Answered human questions within this assistant turn")
     trigger_source: Optional[str] = None
     scheduled_job_id: Optional[str] = None
     scheduled_run_id: Optional[str] = None
     created_at: Optional[datetime] = None
-    seq: int = Field(0, description="Server-side per-session ordinal; 0 marks a degraded unsequenced row")
-    legacy_key: str = Field("", description="Server-side stable per-row fallback identity")
-    author: Optional[dict] = Field(None, description="Server-side author projection for user messages")
 
 
 class SessionCreate(BaseModel):
     user_id: str = Field(..., description="User ID from login")
-    main_id: Optional[str] = Field(None, validation_alias=AliasChoices("main_id", "mainId"), description="Tenant / main account ID")
+    tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("tenantId", "tenant_id"), description="Tenant / main account ID")
     title: Optional[str] = Field(None, description="Session title")
     messages: Optional[List[MessageIn]] = Field(default_factory=list)
+    # 051 FR-003: 会话创建可选 employee_id；声明后档案注入（边界/知识库/记忆/模型）。
+    # 未声明员工的会话行为零改动（零回归硬约束）。
+    employee_id: Optional[str] = Field(None, validation_alias=AliasChoices("employeeId", "employee_id"), description="Digital employee id to bind")
 
 
 class SessionSummary(BaseModel):
     id: str
     user_id: str
-    main_id: str = "default"
+    tenant_id: str = "default"
     title: str
     created_at: datetime
     updated_at: datetime
@@ -115,18 +95,18 @@ class SessionSummary(BaseModel):
     runtime_preset_id: str = "askai-enterprise"
     model_instance_id: Optional[str] = None
     code_project: Optional[dict] = None
+    # 046 FR-011: 项目维度分组键。必须在 SessionSummary 上显式声明，否则
+    # list_sessions/search_sessions 的 `SessionSummary(**_serialize_session_summary(doc))`
+    # 会因模型缺字段把 project_id 剥离，前端收不到归属 → 会话被误归「默认工作区」。
+    project_id: str = "default"
+    # 侧边栏扩展项：置顶时间戳（null/缺省 = 未置顶）。
+    pinned_at: Optional[datetime] = None
+    # 侧边栏扩展项：是否已归档。
+    archived: bool = False
 
 
 class SessionDetail(SessionSummary):
     messages: List[MessageIn] = Field(default_factory=list)
-    # Pinned by todo 9: the detail response captures the access fields that
-    # _serialize_session emits — pydantic's extra='ignore' would otherwise
-    # silently drop them. SessionSummary stays WITHOUT them so the owner
-    # list payload (todo 8's byte-compatible contract) is unchanged.
-    access: str = "owner"
-    owner_user_id: str = ""
-    participant_count: int = 0
-    live_cursor: str = ""
 
 
 class SessionSearchResult(SessionSummary):
@@ -137,14 +117,29 @@ class SessionSearchResult(SessionSummary):
 
 class MessageAppend(BaseModel):
     user_id: str = Field(..., description="User ID from login")
-    main_id: Optional[str] = Field(None, validation_alias=AliasChoices("main_id", "mainId"), description="Tenant / main account ID")
+    tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("tenantId", "tenant_id"), description="Tenant / main account ID")
     messages: List[MessageIn] = Field(..., description="Messages to append")
 
 
 class SessionUpdate(BaseModel):
     user_id: str = Field(..., description="User ID from login")
-    main_id: Optional[str] = Field(None, validation_alias=AliasChoices("main_id", "mainId"), description="Tenant / main account ID")
+    tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("tenantId", "tenant_id"), description="Tenant / main account ID")
     title: str = Field(..., min_length=1, max_length=160, description="Session title")
+
+
+class SessionFlagUpdate(BaseModel):
+    """侧边栏扩展项：置顶 / 归档 的开关载荷。"""
+    user_id: str = Field(..., description="User ID from login")
+    tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("tenantId", "tenant_id"), description="Tenant / main account ID")
+    pinned: Optional[bool] = Field(None, description="置顶开关（pin 端点使用）")
+    archived: Optional[bool] = Field(None, description="归档开关（archive 端点使用）")
+
+
+class SessionFork(BaseModel):
+    """分叉会话：以源会话的消息为副本创建一个新会话。"""
+    user_id: str = Field(..., description="User ID from login")
+    tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("tenantId", "tenant_id"), description="Tenant / main account ID")
+    title: Optional[str] = Field(None, min_length=1, max_length=160, description="新会话标题（缺省为「原标题 - 副本」）")
 
 
 class ApiResponse(BaseModel):
@@ -160,7 +155,7 @@ def _serialize_session(doc: dict, *, access: str = "owner", participant_count: i
         "access": access,
         "owner_user_id": doc.get("user_id"),
         "participant_count": participant_count,
-        "main_id": resolve_main_id(doc.get("main_id")),
+        "tenant_id": resolve_tenant_id(doc.get("tenant_id")),
         "title": doc.get("title"),
         "created_at": doc.get("created_at"),
         "updated_at": doc.get("updated_at"),
@@ -179,6 +174,11 @@ def _serialize_session(doc: dict, *, access: str = "owner", participant_count: i
         "runtime_preset_id": str(doc.get("runtime_preset_id") or "askai-enterprise"),
         "model_instance_id": str(doc.get("model_instance_id") or "") or None,
         "code_project": doc.get("code_project"),
+        "project_id": str(doc.get("project_id") or "").strip() or str(
+            (doc.get("code_project") or {}).get("workspace_id") or ""
+        ).strip() or "default",
+        "pinned_at": doc.get("pinned_at"),
+        "archived": bool(doc.get("archived")),
     }
 
 
@@ -187,7 +187,7 @@ def _serialize_session_summary(doc: dict) -> dict:
     return {
         "id": str(doc.get("_id")),
         "user_id": doc.get("user_id"),
-        "main_id": resolve_main_id(doc.get("main_id")),
+        "tenant_id": resolve_tenant_id(doc.get("tenant_id")),
         "title": doc.get("title"),
         "created_at": doc.get("created_at"),
         "updated_at": doc.get("updated_at"),
@@ -206,39 +206,22 @@ def _serialize_session_summary(doc: dict) -> dict:
         "runtime_preset_id": str(doc.get("runtime_preset_id") or "askai-enterprise"),
         "model_instance_id": str(doc.get("model_instance_id") or "") or None,
         "code_project": doc.get("code_project"),
+        # 046 FR-011: 迁移期读侧兼容 —— project_id 优先，回退 code_project.workspace_id，最终落 "default"。
+        # TODO(046-P2-cleanup): 回填完成后移除 workspace_id 回退，仅保留 project_id。
+        "project_id": str(doc.get("project_id") or "").strip() or str(
+            (doc.get("code_project") or {}).get("workspace_id") or ""
+        ).strip() or "default",
+        # 侧边栏扩展项：置顶（pinned_at）与归档（archived）状态随行返回，前端据此排序/过滤。
+        "pinned_at": doc.get("pinned_at"),
+        "archived": bool(doc.get("archived")),
     }
-
-
-async def _attach_pending_approval_counts(
-    db: Any,
-    documents: List[Dict[str, Any]],
-    *,
-    main_id: str,
-    user_id: str,
-) -> None:
-    by_id = {str(doc.get("_id")): doc for doc in documents if doc.get("_id") is not None}
-    if not by_id:
-        return
-    pipeline = [
-        {"$match": {
-            "tenant_id": resolve_main_id(main_id),
-            "user_id": str(user_id),
-            "conversation_id": {"$in": list(by_id)},
-            "status": "pending",
-        }},
-        {"$group": {"_id": "$conversation_id", "count": {"$sum": 1}}},
-    ]
-    async for row in db.enterprise_tool_approvals.aggregate(pipeline):
-        target = by_id.get(str(row.get("_id") or ""))
-        if target is not None:
-            target["pending_approval_count"] = int(row.get("count") or 0)
 
 
 async def _serialize_shared_sessions(
     db: Any,
     documents: List[Dict[str, Any]],
     *,
-    main_id: str,
+    tenant_id: str,
     read_cursors: Dict[str, int],
 ) -> List[dict]:
     # Active non-owner participant rows per session (owners never hold a row),
@@ -247,25 +230,20 @@ async def _serialize_shared_sessions(
     count_by_id: Dict[str, int] = {}
     if by_id:
         pipeline = [
-            {"$match": add_main_scope(
-                {"conversation_id": {"$in": list(by_id)}, "removed_at": None}, main_id
+            {"$match": add_tenant_scope(
+                {"conversation_id": {"$in": list(by_id)}, "removed_at": None}, tenant_id
             )},
             {"$group": {"_id": "$conversation_id", "count": {"$sum": 1}}},
         ]
         async for row in db.session_participants.aggregate(pipeline):
             count_by_id[str(row.get("_id") or "")] = int(row.get("count") or 0)
-    # Todo 19 unread reference: the session's max message seq. DSH sessions
-    # carry next_message_seq — every DSH append mints the message's seq AS the
-    # new counter value, so after each append next_message_seq EQUALS the
-    # session's max seq and doubles as the unread reference. Legacy sessions
-    # never set the field: PINNED DECISION — fall back to the messages' max
-    # seq (one indexed aggregation for the legacy subset) so pre-feature
-    # sessions still surface unread state instead of silently reading as
-    # clear. A DSH-created session whose only appends were legacy-writer calls
-    # keeps next_message_seq 0 while messages exist; it is treated as read
-    # here, the counter self-heals on the first DSH append (todo 6's $max
-    # floor), and the frontend's appendMessages path is dead code (T10's
-    # finding), so that state requires manual API use.
+    # Unread reference: the session's max message seq. DSH sessions carry
+    # next_message_seq — every DSH append mints the message's seq AS the new
+    # counter value, so after each append next_message_seq EQUALS the session's
+    # max seq and doubles as the unread reference. Legacy sessions never set
+    # the field: fall back to the messages' max seq (one indexed aggregation
+    # for the legacy subset) so pre-feature sessions still surface unread
+    # state instead of silently reading as clear.
     max_seq_by_id: Dict[str, int] = {}
     legacy_ids = [
         doc_id for doc_id, doc in by_id.items() if doc.get("next_message_seq") is None
@@ -273,8 +251,8 @@ async def _serialize_shared_sessions(
     if legacy_ids:
         pipeline = [
             {"$match": {
-                "main_id": resolve_main_id(main_id),
-                "session_id": {"$in": [ObjectId(doc_id) for doc_id in legacy_ids]},
+                "tenant_id": resolve_tenant_id(tenant_id),
+                "session_id": {"$in": [to_backend_id(doc_id) for doc_id in legacy_ids]},
             }},
             {"$group": {"_id": "$session_id", "max_seq": {"$max": "$seq"}}},
         ]
@@ -290,13 +268,37 @@ async def _serialize_shared_sessions(
             access="shared",
             participant_count=count_by_id.get(doc_id, 0),
         )
-        # shared_unread: the viewer's last_read_seq vs the session's max seq
-        # (todo 30's frontend dot consumes it). The owner's scheduled_unread
-        # (serialized as-is above) is untouched — the participant cursor never
-        # writes the session doc.
+        # shared_unread: the viewer's last_read_seq vs the session's max seq.
+        # The owner's scheduled_unread (serialized as-is above) is untouched —
+        # the participant cursor never writes the session doc.
         item["shared_unread"] = bool(int(read_cursors.get(doc_id) or 0) < max_seq)
         items.append(item)
     return items
+
+
+async def _attach_pending_approval_counts(
+    db: Any,
+    documents: List[Dict[str, Any]],
+    *,
+    tenant_id: str,
+    user_id: str,
+) -> None:
+    by_id = {str(doc.get("_id")): doc for doc in documents if doc.get("_id") is not None}
+    if not by_id:
+        return
+    pipeline = [
+        {"$match": {
+            "tenant_id": resolve_tenant_id(tenant_id),
+            "user_id": str(user_id),
+            "conversation_id": {"$in": list(by_id)},
+            "status": "pending",
+        }},
+        {"$group": {"_id": "$conversation_id", "count": {"$sum": 1}}},
+    ]
+    async for row in db.enterprise_tool_approvals.aggregate(pipeline):
+        target = by_id.get(str(row.get("_id") or ""))
+        if target is not None:
+            target["pending_approval_count"] = int(row.get("count") or 0)
 
 
 def _build_match_snippet(text: str, query: str, radius: int = 72) -> str:
@@ -318,16 +320,17 @@ def _build_match_snippet(text: str, query: str, radius: int = 72) -> str:
     return f"{prefix}{source[start:end].strip()}{suffix}"
 
 
-async def _next_seq(db, session_id: ObjectId, user_id: str, main_id: str = "default") -> int:
+async def _next_seq(db, session_id: str, user_id: str, tenant_id: str = "default") -> int:
     last = await db.chat_messages.find_one(
-        add_main_scope({"session_id": session_id, "user_id": str(user_id)}, main_id),
+        add_tenant_scope({"session_id": session_id, "user_id": str(user_id)}, tenant_id),
         sort=[("seq", -1), ("created_at", -1)],
     )
     if not last:
         return 1
     try:
         return int(last.get("seq") or 0) + 1
-    except Exception:
+    except Exception as exc:
+        log_print(f"[api.endpoints.sessions] silent exception caught: {exc}", flush=True)
         return 1
 
 
@@ -350,7 +353,7 @@ def _extract_latest_artifact_ref_from_messages(messages: List[MessageIn]) -> Opt
             "url": url,
             "filename": str(target.get("filename") or ""),
             "title": str(target.get("title") or ""),
-            "updated_at": datetime.utcnow(),
+            "updated_at": datetime.now(tz=timezone.utc),
         }
     return None
 
@@ -416,7 +419,7 @@ def _build_active_document_from_messages(
         "type": str(target.get("type") or "markdown").strip() or "markdown",
         "object_path": str(target.get("object_path") or "").strip(),
         "url": str(target.get("url") or "").strip(),
-        "updated_at": datetime.utcnow(),
+        "updated_at": datetime.now(tz=timezone.utc),
     }
 
 
@@ -426,16 +429,16 @@ def _make_version_entry(doc: Dict[str, Any], version: int) -> Dict[str, Any]:
         "title": str(doc.get("title") or "").strip(),
         "content": str(doc.get("content") or "").strip(),
         "content_preview": str(doc.get("content_preview") or "")[:600],
-        "updated_at": doc.get("updated_at") or datetime.utcnow(),
+        "updated_at": doc.get("updated_at") or datetime.now(tz=timezone.utc),
         "object_path": str(doc.get("object_path") or "").strip(),
         "url": str(doc.get("url") or "").strip(),
         "type": str(doc.get("type") or "markdown").strip() or "markdown",
     }
 
 
-async def _latest_user_request_from_db(db, session_id: ObjectId, user_id: str, main_id: str = "default") -> str:
+async def _latest_user_request_from_db(db, session_id: str, user_id: str, tenant_id: str = "default") -> str:
     row = await db.chat_messages.find_one(
-        add_main_scope({"session_id": session_id, "user_id": str(user_id), "role": "user"}, main_id),
+        add_tenant_scope({"session_id": session_id, "user_id": str(user_id), "role": "user"}, tenant_id),
         sort=[("seq", -1), ("created_at", -1)],
     )
     return str((row or {}).get("content") or "").strip()
@@ -500,8 +503,8 @@ async def _resolve_document_registry_update(
         parsed = _json.loads(data)
         action = str(parsed.get("action") or action).strip()
         target_document_id = str(parsed.get("target_document_id") or target_document_id).strip() or target_document_id
-    except Exception:
-        pass
+    except Exception as exc:
+        log_print(f"[sessions] intent routing LLM failed: {exc}", flush=True)
 
     if action == "create_new" or target_document_id == "NEW":
         doc_id = f"doc_{uuid4().hex[:12]}"
@@ -553,14 +556,14 @@ def _build_context_summary_from_messages(rows: List[Dict[str, Any]]) -> str:
     return context_compactor.heuristic_summary(rows)
 
 
-async def _maybe_compact_session_messages(db, *, session_id: ObjectId, user_id: str, main_id: str = "default") -> None:
+async def _maybe_compact_session_messages(db, *, session_id: str, user_id: str, tenant_id: str = "default") -> None:
     cursor = db.chat_messages.find(
-        add_main_scope({
+        add_tenant_scope({
             "session_id": session_id,
             "user_id": str(user_id),
             "message_type": {"$ne": "context_summary"},
             "compacted": {"$ne": True},
-        }, main_id)
+        }, tenant_id)
     ).sort("seq", 1)
     rows = await cursor.to_list(length=1000)
     if len(rows) <= COMPACTION_TRIGGER_MESSAGES:
@@ -571,13 +574,13 @@ async def _maybe_compact_session_messages(db, *, session_id: ObjectId, user_id: 
     compaction_id = f"cmp_{uuid4().hex[:12]}"
     compaction = await context_compactor.compact_messages(
         to_compact,
-        output_spec={"user_id": str(user_id), "main_id": resolve_main_id(main_id), "session_id": str(session_id)},
+        output_spec={"user_id": str(user_id), "tenant_id": resolve_tenant_id(tenant_id), "session_id": str(session_id)},
     )
     summary_text = compaction.summary or _build_context_summary_from_messages(to_compact)
     if compaction.memories:
         await project_memory_service.upsert_memories(
             user_id=str(user_id),
-            main_id=resolve_main_id(main_id),
+            tenant_id=resolve_tenant_id(tenant_id),
             project_id="default",
             memories=compaction.memories,
             source=f"session_compaction:{compaction_id}",
@@ -586,23 +589,23 @@ async def _maybe_compact_session_messages(db, *, session_id: ObjectId, user_id: 
     if ids:
         await db.chat_messages.update_many(
             {"_id": {"$in": ids}},
-            {"$set": {"compacted": True, "compaction_id": compaction_id, "compacted_at": datetime.utcnow()}},
+            {"$set": {"compacted": True, "compaction_id": compaction_id, "compacted_at": datetime.now(tz=timezone.utc)}},
         )
     start_seq = int(to_compact[0].get("seq") or 0)
     end_seq = int(to_compact[-1].get("seq") or 0)
-    next_seq = await _next_seq(db, session_id, user_id, main_id)
+    next_seq = await _next_seq(db, session_id, user_id, tenant_id)
     await db.chat_messages.insert_one(
         {
             "session_id": session_id,
             "user_id": str(user_id),
-            "main_id": resolve_main_id(main_id),
+            "tenant_id": resolve_tenant_id(tenant_id),
             "role": "system",
             "content": summary_text,
             "plan": None,
             "progress": None,
             "documents": [],
             "images": [],
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(tz=timezone.utc),
             "seq": next_seq,
             "message_type": "context_summary",
             "summary_source": compaction.source,
@@ -613,8 +616,69 @@ async def _maybe_compact_session_messages(db, *, session_id: ObjectId, user_id: 
     )
     await db.chat_sessions.update_one(
         {"_id": session_id},
-        {"$set": {"last_compaction_at": datetime.utcnow(), "latest_compaction_id": compaction_id}},
+        {"$set": {"last_compaction_at": datetime.now(tz=timezone.utc), "latest_compaction_id": compaction_id}},
     )
+
+
+async def _bind_session_employee(
+    session_doc: dict,
+    *,
+    user_id: str,
+    tenant_id: str,
+    employee_id: str,
+) -> dict:
+    """051 FR-003：会话创建时物化员工档案快照并内嵌会话文档。
+
+    员工不可用（不存在 / 软删 / 非 active / 引用失效 / 跨租户 / 不可见）一律
+    fail-closed 拒绝并落 001 审计。
+    """
+    from app.employees.profile import materialize_employee_profile, EmployeeReferenceError
+    from app.employees.injection import merge_employee_into_session
+    from app.employees.repository import EmployeeRepository
+
+    repo = EmployeeRepository()
+    row = await repo.get(tenant_id, employee_id)
+    if not row:
+        await _audit_employee_bind(tenant_id, user_id, employee_id, "denied", {"reason": "not_found"})
+        raise HTTPException(status_code=404, detail="员工不存在或不可用")
+    # 可见性 fail-closed（FR-005）：创建者 / 成员才可绑定。
+    if not repo._visible(row, user_id):
+        await _audit_employee_bind(tenant_id, user_id, employee_id, "denied", {"reason": "not_visible"})
+        raise HTTPException(status_code=404, detail="员工不存在或不可用")
+    if str(row.get("status") or "") != "active":
+        await _audit_employee_bind(tenant_id, user_id, employee_id, "denied", {"reason": "not_active"})
+        raise HTTPException(status_code=409, detail="员工未开通或已停用")
+
+    try:
+        profile = await materialize_employee_profile(tenant_id, employee_id)
+    except EmployeeReferenceError as exc:
+        await _audit_employee_bind(tenant_id, user_id, employee_id, "denied", {"reason": "reference_invalid", "detail": str(exc)})
+        raise HTTPException(status_code=422, detail=f"员工档案引用失效：{exc}") from exc
+    if profile is None:
+        await _audit_employee_bind(tenant_id, user_id, employee_id, "denied", {"reason": "unavailable"})
+        raise HTTPException(status_code=404, detail="员工不存在或不可用")
+
+    merged = merge_employee_into_session(session_doc, profile)
+    db = get_db()
+    await db.chat_sessions.update_one(
+        add_tenant_scope({"_id": session_doc["_id"], "user_id": str(user_id)}, tenant_id),
+        {"$set": {
+            "employee_id": merged.get("employee_id"),
+            "employee_profile": merged.get("employee_profile"),
+            "employee_model_config": merged.get("employee_model_config"),
+            "employee_memory_scope": merged.get("employee_memory_scope"),
+            "knowledge_base_ids": merged.get("knowledge_base_ids"),
+        }},
+    )
+    await _audit_employee_bind(tenant_id, user_id, employee_id, "granted", {"session_id": str(session_doc["_id"])})
+    merged["_id"] = session_doc["_id"]
+    return merged
+
+
+async def _audit_employee_bind(tenant_id: str, user_id: str, employee_id: str, action: str, detail: dict) -> None:
+    from app.employees.repository import EmployeeRepository
+
+    await EmployeeRepository().audit(tenant_id, user_id, f"session.{action}", employee_id, detail)
 
 
 @router.post("/sessions", response_model=ApiResponse)
@@ -622,23 +686,31 @@ async def create_session(
     payload: SessionCreate,
     authorization: str | None = Header(default=None),
 ) -> ApiResponse:
-    user_id, main_id = await _authorized_scope(
-        authorization, claimed_user_id=str(payload.user_id), claimed_main_id=payload.main_id
+    user_id, tenant_id = await _authorized_scope(
+        authorization, claimed_user_id=str(payload.user_id), claimed_tenant_id=payload.tenant_id
     )
     session_doc = await session_persistence_service.create_session(
         user_id=user_id,
-        main_id=main_id,
+        tenant_id=tenant_id,
         title=payload.title or "New Chat",
         messages=payload.messages or [],
     )
+    # 051 FR-003: 声明 employee_id 时物化档案快照注入会话（边界/知识库/记忆/模型）。
+    # 未声明路径零改动；员工不可用（不存在/软删/非 active/引用失效/跨租户）fail-closed。
+    if payload.employee_id:
+        session_doc = await _bind_session_employee(
+            session_doc,
+            user_id=user_id,
+            tenant_id=tenant_id,
+            employee_id=str(payload.employee_id),
+        )
     return ApiResponse(code=0, message="success", data=_serialize_session(session_doc))
 
 
 @router.get("/sessions", response_model=ApiResponse)
 async def list_sessions(
     user_id: str = Query(..., alias="userId"),
-    main_id: str = Query("default", alias="mainId"),
-    main_id_snake: Optional[str] = Query(None, alias="main_id"),
+    tenant_id: str = Query("default", alias="tenantId"),
     scope: str = Query("owner"),
     paged: bool = Query(False),
     limit: int = Query(30, ge=1, le=100),
@@ -646,22 +718,21 @@ async def list_sessions(
     authorization: str | None = Header(default=None),
 ) -> ApiResponse:
     t0 = time.perf_counter()
-    main_id = main_id_snake or main_id
-    user_id, main_id = await _authorized_scope(
-        authorization, claimed_user_id=user_id, claimed_main_id=main_id
+    user_id, tenant_id = await _authorized_scope(
+        authorization, claimed_user_id=user_id, claimed_tenant_id=tenant_id
     )
     # Anything other than an exact "shared" resolves to the owner scope (pinned
     # decision: the endpoint's lenient Query style has no strict validation).
     shared_scope = str(scope or "").strip() == "shared"
     log_print(
-        "[perf][sessions] list_sessions:start user_id=%s main_id=%s scope=%s paged=%s limit=%s offset=%s"
-        % (str(user_id), resolve_main_id(main_id), scope, bool(paged), int(limit), int(offset)),
+        "[perf][sessions] list_sessions:start user_id=%s tenant_id=%s scope=%s paged=%s limit=%s offset=%s"
+        % (str(user_id), resolve_tenant_id(tenant_id), scope, bool(paged), int(limit), int(offset)),
         flush=True,
     )
     db = get_db()
     projection = {
         "user_id": 1,
-        "main_id": 1,
+        "tenant_id": 1,
         "title": 1,
         "created_at": 1,
         "updated_at": 1,
@@ -674,6 +745,17 @@ async def list_sessions(
         "active_run": 1,
         "scheduled_unread": 1,
         "last_scheduled_run": 1,
+        # 046 FR-011: 项目维度分组键与会话工作区绑定必须随行返回；遗漏会令
+        # _serialize_session_summary 的 project_id 回退链落到 "default"，
+        # 导致「增加会话到项目」的新会话在侧边栏被误归到默认工作区。
+        "execution_location": 1,
+        "runtime_preset_id": 1,
+        "model_instance_id": 1,
+        "code_project": 1,
+        "project_id": 1,
+        # 侧边栏扩展项：置顶 / 归档状态随行返回。
+        "pinned_at": 1,
+        "archived": 1,
     }
     if shared_scope:
         participants = SessionParticipantsRepository(db)
@@ -683,7 +765,7 @@ async def list_sessions(
         batch_offset = 0
         while True:
             rows = await participants.list_for_user(
-                resolve_main_id(main_id), user_id=str(user_id), limit=batch_size, offset=batch_offset
+                resolve_tenant_id(tenant_id), user_id=str(user_id), limit=batch_size, offset=batch_offset
             )
             conversation_ids.extend(
                 str(row.get("conversation_id")) for row in rows if row.get("conversation_id")
@@ -700,16 +782,15 @@ async def list_sessions(
             batch_offset += batch_size
         base_cursor = (
             db.chat_sessions.find(
-                add_main_scope({"_id": {"$in": [ObjectId(str(cid)) for cid in conversation_ids]}}, main_id),
+                add_tenant_scope({"_id": {"$in": [to_backend_id(cid) for cid in conversation_ids]}}, tenant_id),
                 {**projection, "next_message_seq": 1},
             )
             .sort([("updated_at", -1), ("_id", -1)])
         )
     else:
         base_cursor = (
-            db.chat_sessions.find(add_main_scope({"user_id": str(user_id)}, main_id), projection)
+            db.chat_sessions.find(add_tenant_scope({"user_id": str(user_id)}, tenant_id), projection)
             .sort([("updated_at", -1), ("_id", -1)])
-            .hint([("user_id", 1), ("updated_at", -1), ("_id", -1)])
         )
 
     if not paged:
@@ -717,21 +798,21 @@ async def list_sessions(
         async for doc in base_cursor:
             documents.append(doc)
         await _attach_pending_approval_counts(
-            db, documents, main_id=main_id, user_id=user_id
+            db, documents, tenant_id=tenant_id, user_id=user_id
         )
         await attach_session_runtime_contexts(
-            db, documents, tenant_id=main_id, user_id=user_id
+            db, documents, tenant_id=tenant_id, user_id=user_id
         )
         if shared_scope:
             sessions = await _serialize_shared_sessions(
-                db, documents, main_id=main_id, read_cursors=read_cursors
+                db, documents, tenant_id=tenant_id, read_cursors=read_cursors
             )
         else:
             sessions = [SessionSummary(**_serialize_session_summary(doc)) for doc in documents]
         duration_ms = int((time.perf_counter() - t0) * 1000)
         log_print(
-            "[perf][sessions] list_sessions:done user_id=%s main_id=%s paged=false count=%s duration_ms=%s"
-            % (str(user_id), resolve_main_id(main_id), len(sessions), duration_ms),
+            "[perf][sessions] list_sessions:done user_id=%s tenant_id=%s paged=false count=%s duration_ms=%s"
+            % (str(user_id), resolve_tenant_id(tenant_id), len(sessions), duration_ms),
             flush=True,
         )
         return ApiResponse(code=0, message="success", data=sessions)
@@ -744,21 +825,21 @@ async def list_sessions(
     if has_more:
         documents = documents[:limit]
     await _attach_pending_approval_counts(
-        db, documents, main_id=main_id, user_id=user_id
+        db, documents, tenant_id=tenant_id, user_id=user_id
     )
     await attach_session_runtime_contexts(
-        db, documents, tenant_id=main_id, user_id=user_id
+        db, documents, tenant_id=tenant_id, user_id=user_id
     )
     if shared_scope:
         sessions = await _serialize_shared_sessions(
-            db, documents, main_id=main_id, read_cursors=read_cursors
+            db, documents, tenant_id=tenant_id, read_cursors=read_cursors
         )
     else:
         sessions = [SessionSummary(**_serialize_session_summary(doc)) for doc in documents]
     duration_ms = int((time.perf_counter() - t0) * 1000)
     log_print(
-        "[perf][sessions] list_sessions:done user_id=%s main_id=%s paged=true count=%s has_more=%s duration_ms=%s"
-        % (str(user_id), resolve_main_id(main_id), len(sessions), bool(has_more), duration_ms),
+        "[perf][sessions] list_sessions:done user_id=%s tenant_id=%s paged=true count=%s has_more=%s duration_ms=%s"
+        % (str(user_id), resolve_tenant_id(tenant_id), len(sessions), bool(has_more), duration_ms),
         flush=True,
     )
     return ApiResponse(
@@ -776,17 +857,15 @@ async def list_sessions(
 @router.get("/sessions/search", response_model=ApiResponse)
 async def search_sessions(
     user_id: str = Query(..., alias="userId"),
-    main_id: str = Query("default", alias="mainId"),
-    main_id_snake: Optional[str] = Query(None, alias="main_id"),
+    tenant_id: str = Query("default", alias="tenantId"),
     q: str = Query(..., min_length=1),
     limit: int = Query(20, ge=1, le=50),
     offset: int = Query(0, ge=0),
     authorization: str | None = Header(default=None),
 ) -> ApiResponse:
     db = get_db()
-    main_id = main_id_snake or main_id
-    user_id, main_id = await _authorized_scope(
-        authorization, claimed_user_id=user_id, claimed_main_id=main_id
+    user_id, tenant_id = await _authorized_scope(
+        authorization, claimed_user_id=user_id, claimed_tenant_id=tenant_id
     )
     query_text = str(q or "").strip()
     if not query_text:
@@ -799,7 +878,7 @@ async def search_sessions(
     regex = re.compile(re.escape(query_text), re.IGNORECASE)
     projection = {
         "user_id": 1,
-        "main_id": 1,
+        "tenant_id": 1,
         "title": 1,
         "created_at": 1,
         "updated_at": 1,
@@ -812,18 +891,29 @@ async def search_sessions(
         "active_run": 1,
         "scheduled_unread": 1,
         "last_scheduled_run": 1,
+        # 046 FR-011: 项目维度分组键与会话工作区绑定必须随行返回；遗漏会令
+        # _serialize_session_summary 的 project_id 回退链落到 "default"，
+        # 导致「增加会话到项目」的新会话在侧边栏被误归到默认工作区。
+        "execution_location": 1,
+        "runtime_preset_id": 1,
+        "model_instance_id": 1,
+        "code_project": 1,
+        "project_id": 1,
+        # 侧边栏扩展项：置顶 / 归档状态随行返回。
+        "pinned_at": 1,
+        "archived": 1,
     }
 
     candidates: Dict[str, Dict[str, Any]] = {}
 
     async for doc in db.chat_sessions.find(
-        add_main_scope({
+        add_tenant_scope({
             "user_id": str(user_id),
             "$or": [
                 {"title": {"$regex": regex}},
                 {"last_message_preview": {"$regex": regex}},
             ],
-        }, main_id),
+        }, tenant_id),
         projection,
     ).sort("updated_at", -1).limit(max(limit * 4, 40)):
         sid = str(doc.get("_id"))
@@ -848,11 +938,11 @@ async def search_sessions(
 
     message_limit = max((offset + limit) * 12, 120)
     async for msg in db.chat_messages.find(
-        add_main_scope({
+        add_tenant_scope({
             "user_id": str(user_id),
             "message_type": {"$ne": "context_summary"},
             "content": {"$regex": regex},
-        }, main_id),
+        }, tenant_id),
         {
             "session_id": 1,
             "content": 1,
@@ -866,7 +956,7 @@ async def search_sessions(
         entry = candidates.get(sid)
         if entry is None:
             session_doc = await db.chat_sessions.find_one(
-                add_main_scope({"_id": raw_session_id, "user_id": str(user_id)}, main_id),
+                add_tenant_scope({"_id": raw_session_id, "user_id": str(user_id)}, tenant_id),
                 projection,
             )
             if not session_doc:
@@ -905,13 +995,13 @@ async def search_sessions(
     await _attach_pending_approval_counts(
         db,
         [item.get("session") or {} for item in paged],
-        main_id=main_id,
+        tenant_id=tenant_id,
         user_id=user_id,
     )
     await attach_session_runtime_contexts(
         db,
         [item.get("session") or {} for item in paged],
-        tenant_id=main_id,
+        tenant_id=tenant_id,
         user_id=user_id,
     )
 
@@ -940,101 +1030,41 @@ async def search_sessions(
 async def get_session(
     session_id: str,
     user_id: str = Query(..., alias="userId"),
-    main_id: str = Query("default", alias="mainId"),
-    main_id_snake: Optional[str] = Query(None, alias="main_id"),
+    tenant_id: str = Query("default", alias="tenantId"),
     include_context_summary: bool = Query(False, alias="includeContextSummary"),
     authorization: str | None = Header(default=None),
 ) -> ApiResponse:
     db = get_db()
     try:
-        oid = ObjectId(session_id)
+        oid = to_backend_id(session_id)
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid session id") from exc
 
-    user_id, main_id = await _authorized_scope(
+    user_id, tenant_id = await _authorized_scope(
         authorization,
         claimed_user_id=user_id,
-        claimed_main_id=main_id_snake or main_id,
+        claimed_tenant_id=tenant_id,
     )
-    # Membership authorization. Every caller who cannot see the session — a
-    # non-member, a removed participant, a cross-tenant id — receives 404,
-    # never 403: the session's existence is not disclosed (todo 4's pinned
-    # status mapping).
-    session_doc = await db.chat_sessions.find_one(add_main_scope({"_id": oid}, main_id))
-    if session_doc is None:
-        raise HTTPException(status_code=404, detail="Session not found")
-    participants = SessionParticipantsRepository(db)
-    if str(session_doc.get("user_id") or "") == user_id:
-        role = "owner"
-    elif await participants.is_member(str(oid), tenant_id=main_id, user_id=user_id):
-        role = "participant"
-    else:
+    session_doc = await db.chat_sessions.find_one(add_tenant_scope({"_id": oid, "user_id": str(user_id)}, tenant_id))
+    if not session_doc:
         raise HTTPException(status_code=404, detail="Session not found")
     await _attach_pending_approval_counts(
-        db, [session_doc], main_id=main_id, user_id=user_id
+        db, [session_doc], tenant_id=tenant_id, user_id=user_id
     )
     await attach_session_runtime_contexts(
-        db, [session_doc], tenant_id=main_id, user_id=user_id
+        db, [session_doc], tenant_id=tenant_id, user_id=user_id
     )
 
-    # Session-scoped read (todo 6): deliberately no viewer filter — the
-    # (main_id, session_id) query is served by the unique_main_session_seq
-    # index and every member reads the full thread.
-    conversations = ConversationRepository(db)
-    # Todo 5: a wholly-legacy session is backfilled durably BEFORE the read
-    # projects it; a mixed session is skipped there and degrades below.
-    await conversations.backfill_message_sequences(main_id, str(oid))
-    rows = await conversations.list_messages(main_id, str(oid))
-    participant_rows = await participants.list(str(oid), tenant_id=main_id)
-    # Todo 5: the authoritative live position, minted with T1's canonical
-    # serializer from durable state only, so a client can always reopen with
-    # after=<live_cursor> after a control invalidation.
-    active_run = session_doc.get("active_run")
-    if not isinstance(active_run, dict):
-        active_run = {}
-    active_message_id: Optional[str] = None
-    active_stream_seq: Optional[int] = None
-    active_candidate = str(active_run.get("message_id") or "")
-    if (
-        active_candidate
-        and MESSAGE_ID_RE.match(active_candidate)
-        and str(active_run.get("status") or "") not in TERMINAL_TURN_STATUSES
-    ):
-        active_message_id = active_candidate
-        latest_projection = await db[KernelEventRepository.PROJECTIONS].find_one(
-            {"tenant_id": main_id, "message_id": active_message_id},
-            {"stream_seq": 1},
-            sort=[("stream_seq", -1)],
-        )
-        active_stream_seq = int((latest_projection or {}).get("stream_seq") or 0)
-    live_cursor = build_live_cursor({
-        "v": CURSOR_VERSION,
-        "session_id": str(oid),
-        "revision": revision_digest(
-            session=session_doc, messages=rows, participants=participant_rows
-        ),
-        "last_message_seq": int(session_doc.get("next_message_seq") or 0),
-        "active_message_id": active_message_id,
-        "active_stream_seq": active_stream_seq,
-    })
-    # Todo 19: an active participant's read advances their read cursor to the
-    # session's max seq (T2's set_read_cursor). Owners hold no participant
-    # row, and a removed participant 404s above, so the advance is
-    # participant-scoped; the owner's scheduled_unread clear below stays
-    # owner-scoped. The max seq comes from the UNFILTERED rows — the
-    # participant has read the full thread, so the context_summary filter
-    # below must not stall the cursor. A session with no messages has max seq
-    # 0: nothing to advance, and the cursor is never moved backward.
-    if role == "participant":
-        max_seq = max((int(row.get("seq") or 0) for row in rows), default=0)
-        if max_seq > 0:
-            await participants.set_read_cursor(
-                str(oid), tenant_id=main_id, user_id=user_id, last_read_seq=max_seq
-            )
+    messages = []
+    query: Dict[str, Any] = {
+        "session_id": oid,
+        "user_id": str(user_id),
+    }
+    query = add_tenant_scope(query, tenant_id)
     if not include_context_summary:
         # Frontend should display original dialogue turns only.
         # Context summaries are runtime-only compression artifacts.
-        rows = [row for row in rows if row.get("message_type") != "context_summary"]
+        query["message_type"] = {"$ne": "context_summary"}
 
     uploader: Optional[AliyunOSSUploader] = None
 
@@ -1064,24 +1094,14 @@ async def get_session(
         from app.historical.legacy_execution_logs import LegacyExecutionLogStore
         from app.infrastructure.execution_events.persistence import ExecutionV3Store
         exec_store = LegacyExecutionLogStore(db)
-        exec_events_by_msg_id = await exec_store.get_events_for_session(str(oid), main_id=main_id)
-        v3_events = await ExecutionV3Store(db).get_events_for_session(str(oid), main_id=main_id)
+        exec_events_by_msg_id = await exec_store.get_events_for_session(str(oid), tenant_id=tenant_id)
+        v3_events = await ExecutionV3Store(db).get_events_for_session(str(oid), tenant_id=tenant_id)
         for message_id, events in v3_events.items():
             exec_events_by_msg_id[message_id] = events
     except Exception as exc:
         log_print(f"[sessions] execution_events fetch failed: {exc}", flush=True)
 
-    authors = await resolve_author_projections(
-        db,
-        tenant_id=main_id,
-        user_ids=[
-            str(row.get("user_id") or "")
-            for row in rows
-            if str(row.get("role") or "") == "user"
-        ],
-    )
-    messages = []
-    for msg in rows:
+    async for msg in db.chat_messages.find(query).sort("seq", 1):
         msg_images = msg.get("images") or []
         content = msg.get("content") or ""
 
@@ -1120,56 +1140,60 @@ async def get_session(
             if uploader is not None:
                 _sign_oss_paths_in_events(events_for_msg, uploader)
 
-        seq_value, row_legacy_key = message_identity(msg)
-        row_role = str(msg.get("role") or "")
-        row_author = (
-            authors.get(str(msg.get("user_id") or "")) if row_role == "user" else None
-        )
         messages.append(
             MessageIn(
                 role=msg.get("role"),
                 content=content,
-                user_id=msg.get("user_id"),
                 plan=msg.get("plan"),
                 progress=msg.get("progress"),
                 documents=msg.get("documents"),
-                knowledge_references=msg.get("knowledge_references"),
                 images=msg_images,
                 evidence_bundles=msg.get("evidence_bundles"),
                 message_id=msg_id_val or None,
                 execution_events=events_for_msg or None,
-                question_answers=msg.get("question_answers") or None,
                 trigger_source=msg.get("trigger_source"),
                 scheduled_job_id=msg.get("scheduled_job_id"),
                 scheduled_run_id=msg.get("scheduled_run_id"),
                 created_at=msg.get("created_at"),
-                seq=seq_value,
-                legacy_key=row_legacy_key,
-                author=row_author,
             )
         )
-    # Pinned by todo 9: the detail response carries the viewer's access
-    # ("owner" | "shared") and the active-participant count (todo 4's
-    # convention: active non-owner rows; owners never hold a row) — uniform
-    # with the scope=shared list (todo 8).
-    participant_count = len(participant_rows)
-    data = _serialize_session(
-        session_doc,
-        access="owner" if role == "owner" else "shared",
-        participant_count=participant_count,
-    )
-    # scheduled_unread is the OWNER's unread signal (todo 19 owns a
-    # participant cursor): the user_id filter scopes the clear to the
-    # owner's GET — a participant's read leaves it untouched.
-    if session_doc.get("scheduled_unread"):
-        await db.chat_sessions.update_one(
-            add_main_scope({"_id": oid, "user_id": str(user_id)}, main_id),
-            {"$set": {"scheduled_unread": False}},
-        )
+    data = _serialize_session(session_doc)
+    # 022 FR-15（T032 / QF-637）：GET 必须无副作用。原先读取会话详情时会顺手
+    # 把 ``scheduled_unread`` 置为 False，属于惰性写语义 —— GET 重放（代理缓存、
+    # 浏览器重试）确实会产生数据变更。标记已读拆到显式的
+    # ``POST /sessions/{id}/read``（见 :func:`mark_scheduled_read`）。
     return ApiResponse(
         code=0,
         message="success",
-        data=SessionDetail(**data, messages=messages, live_cursor=live_cursor).model_dump(),
+        data=SessionDetail(**data, messages=messages).model_dump(),
+    )
+
+
+@router.post("/sessions/{session_id}/read", response_model=ApiResponse)
+async def mark_scheduled_read(
+    session_id: str,
+    user_id: str = Query(..., alias="userId"),
+    tenant_id: str = Query("default", alias="tenantId"),
+    authorization: str | None = Header(default=None),
+) -> ApiResponse:
+    """显式标记会话的计划任务消息为已读（022 FR-15 / T032）。
+
+    从 ``GET /sessions/{id}`` 拆出的写操作：把 ``scheduled_unread`` 置为 False。
+    用 POST 显式声明副作用，前端在用户真正打开会话后再调用。
+    """
+    db = get_db()
+    try:
+        oid = to_backend_id(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid session id") from exc
+    updated = await db.chat_sessions.update_one(
+        add_tenant_scope({"_id": oid, "user_id": str(user_id), "scheduled_unread": True}, tenant_id),
+        {"$set": {"scheduled_unread": False, "updated_at": datetime.now(timezone.utc)}},
+    )
+    return ApiResponse(
+        code=0,
+        message="success",
+        data={"acknowledged": bool(getattr(updated, "modified_count", 0))},
     )
 
 
@@ -1181,7 +1205,7 @@ async def update_session(
 ) -> ApiResponse:
     db = get_db()
     try:
-        oid = ObjectId(session_id)
+        oid = to_backend_id(session_id)
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid session id") from exc
 
@@ -1189,11 +1213,11 @@ async def update_session(
     if not title:
         raise HTTPException(status_code=400, detail="Title is required")
 
-    user_id, main_id = await _authorized_scope(
-        authorization, claimed_user_id=str(payload.user_id), claimed_main_id=payload.main_id
+    user_id, tenant_id = await _authorized_scope(
+        authorization, claimed_user_id=str(payload.user_id), claimed_tenant_id=payload.tenant_id
     )
     result = await db.chat_sessions.update_one(
-        add_main_scope({"_id": oid, "user_id": user_id}, main_id),
+        add_tenant_scope({"_id": oid, "user_id": user_id}, tenant_id),
         {
             "$set": {
                 "title": title[:160],
@@ -1203,50 +1227,246 @@ async def update_session(
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    session_doc = await db.chat_sessions.find_one(add_main_scope({"_id": oid, "user_id": user_id}, main_id))
+    session_doc = await db.chat_sessions.find_one(add_tenant_scope({"_id": oid, "user_id": user_id}, tenant_id))
     if not session_doc:
         raise HTTPException(status_code=404, detail="Session not found")
     return ApiResponse(code=0, message="success", data=SessionSummary(**_serialize_session_summary(session_doc)).model_dump())
+
+
+@router.patch("/sessions/{session_id}/pin", response_model=ApiResponse)
+async def pin_session(
+    session_id: str,
+    payload: SessionFlagUpdate,
+    authorization: str | None = Header(default=None),
+) -> ApiResponse:
+    """置顶 / 取消置顶会话（侧边栏扩展项）。"""
+    db = get_db()
+    try:
+        oid = to_backend_id(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid session id") from exc
+    user_id, tenant_id = await _authorized_scope(
+        authorization, claimed_user_id=str(payload.user_id), claimed_tenant_id=payload.tenant_id
+    )
+    now = datetime.now(tz=timezone.utc)
+    set_value: Dict[str, Any] = {"pinned_at": now if payload.pinned else None, "updated_at": now}
+    result = await db.chat_sessions.update_one(
+        add_tenant_scope({"_id": oid, "user_id": user_id}, tenant_id),
+        {"$set": set_value},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session_doc = await db.chat_sessions.find_one(add_tenant_scope({"_id": oid, "user_id": user_id}, tenant_id))
+    if not session_doc:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return ApiResponse(code=0, message="success", data=SessionSummary(**_serialize_session_summary(session_doc)).model_dump())
+
+
+@router.patch("/sessions/{session_id}/archive", response_model=ApiResponse)
+async def archive_session(
+    session_id: str,
+    payload: SessionFlagUpdate,
+    authorization: str | None = Header(default=None),
+) -> ApiResponse:
+    """归档 / 取消归档会话（侧边栏扩展项）。"""
+    db = get_db()
+    try:
+        oid = to_backend_id(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid session id") from exc
+    user_id, tenant_id = await _authorized_scope(
+        authorization, claimed_user_id=str(payload.user_id), claimed_tenant_id=payload.tenant_id
+    )
+    now = datetime.now(tz=timezone.utc)
+    set_value: Dict[str, Any] = {
+        "archived": bool(payload.archived),
+        "archived_at": now if payload.archived else None,
+        "updated_at": now,
+    }
+    result = await db.chat_sessions.update_one(
+        add_tenant_scope({"_id": oid, "user_id": user_id}, tenant_id),
+        {"$set": set_value},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session_doc = await db.chat_sessions.find_one(add_tenant_scope({"_id": oid, "user_id": user_id}, tenant_id))
+    if not session_doc:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return ApiResponse(code=0, message="success", data=SessionSummary(**_serialize_session_summary(session_doc)).model_dump())
+
+
+@router.post("/sessions/{session_id}/fork", response_model=ApiResponse)
+async def fork_session(
+    session_id: str,
+    payload: SessionFork,
+    authorization: str | None = Header(default=None),
+) -> ApiResponse:
+    """分叉会话：复制源会话及其消息为一份新会话（侧边栏扩展项）。
+
+    会话时间线是硬线性约束（resume 永不 fork），因此「分叉」落地为「以源会话的
+    消息副本新建一条独立会话」，而不是在同一会话内产生分支。
+    """
+    db = get_db()
+    try:
+        oid = to_backend_id(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid session id") from exc
+    user_id, tenant_id = await _authorized_scope(
+        authorization, claimed_user_id=str(payload.user_id), claimed_tenant_id=payload.tenant_id
+    )
+    source = await db.chat_sessions.find_one(add_tenant_scope({"_id": oid, "user_id": user_id}, tenant_id))
+    if not source:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    messages = await db.chat_messages.find(
+        add_tenant_scope({"session_id": oid, "user_id": user_id}, tenant_id)
+    ).sort("seq", 1).to_list(length=100000)
+
+    def _to_inbound(m: Any) -> Dict[str, Any]:
+        return {
+            "role": str(m.get("role") or "user"),
+            "content": m.get("content") if m.get("content") is not None else "",
+            "documents": m.get("documents"),
+            "images": m.get("images"),
+            "plan": m.get("plan"),
+            "progress": m.get("progress"),
+        }
+
+    inbound = [_to_inbound(m) for m in messages]
+    new_title = str(payload.title or "").strip() or f"{str(source.get('title') or 'New Chat')} - 副本"
+    # 继承源会话的项目归属，分叉仍在同一工作区下。
+    project_id = str(source.get("project_id") or "").strip() or str(
+        (source.get("code_project") or {}).get("workspace_id") or ""
+    ).strip() or "default"
+    new_doc = await session_persistence_service.create_session(
+        user_id=user_id,
+        tenant_id=tenant_id,
+        title=new_title[:160],
+        messages=inbound,
+    )
+    # 继承 code_project / project_id 归属（create_session 不接收，落库后回填）。
+    patch: Dict[str, Any] = {"project_id": project_id}
+    if source.get("code_project"):
+        patch["code_project"] = source.get("code_project")
+    await db.chat_sessions.update_one(
+        add_tenant_scope({"_id": new_doc["_id"], "user_id": user_id}, tenant_id),
+        {"$set": patch},
+    )
+    new_doc["project_id"] = project_id
+    if source.get("code_project"):
+        new_doc["code_project"] = source.get("code_project")
+    return ApiResponse(code=0, message="success", data=_serialize_session(new_doc))
+
+
+@router.post("/sessions/{session_id}/end", response_model=ApiResponse)
+async def end_session(
+    session_id: str,
+    user_id: str = Query(..., alias="userId"),
+    tenant_id: str | None = Query(default=None, alias="tenantId"),
+    reason: str = Query(default="user_ended"),
+    authorization: str | None = Header(default=None),
+) -> ApiResponse:
+    """End a 002 session → emits the 009 ``SessionEnd`` event (FR-1 / FR-12).
+
+    This is the normal end-of-session seam. It is what drives the 017 tiered
+    memory sedimentation; ``delete_session`` is for removal, not for ending.
+
+    Idempotent — ending an already-ended session is a no-op that returns the
+    current state without re-triggering sedimentation.
+    """
+    try:
+        oid = to_backend_id(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid session id") from exc
+
+    authorized_user_id, authorized_tenant_id = await _authorized_scope(
+        authorization, claimed_user_id=user_id, claimed_tenant_id=tenant_id
+    )
+    from app.services.session_persistence_service import session_persistence_service
+
+    try:
+        session_doc = await session_persistence_service.end_session(
+            session_id=str(oid),
+            user_id=authorized_user_id,
+            tenant_id=authorized_tenant_id,
+            reason=reason,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="Session not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid session id") from exc
+
+    return ApiResponse(
+        code=0,
+        message="success",
+        data=SessionSummary(**_serialize_session_summary(session_doc)).model_dump(),
+    )
 
 
 @router.delete("/sessions/{session_id}", response_model=ApiResponse)
 async def delete_session(
     session_id: str,
     user_id: str = Query(..., alias="userId"),
-    main_id: str = Query("default", alias="mainId"),
-    main_id_snake: Optional[str] = Query(None, alias="main_id"),
+    tenant_id: str = Query("default", alias="tenantId"),
     authorization: str | None = Header(default=None),
 ) -> ApiResponse:
     db = get_db()
     try:
-        oid = ObjectId(session_id)
+        oid = to_backend_id(session_id)
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid session id") from exc
 
-    user_id, main_id = await _authorized_scope(
+    user_id, tenant_id = await _authorized_scope(
         authorization,
         claimed_user_id=user_id,
-        claimed_main_id=main_id_snake or main_id,
+        claimed_tenant_id=tenant_id,
     )
-    session_doc = await db.chat_sessions.find_one(add_main_scope({"_id": oid, "user_id": str(user_id)}, main_id), {"_id": 1})
+    session_doc = await db.chat_sessions.find_one(add_tenant_scope({"_id": oid, "user_id": str(user_id)}, tenant_id))
     if not session_doc:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    from app.dsh_runtime.application import dsh_runtime_application
-    await dsh_runtime_application.require_chat().dispose_conversation(
-        str(oid), tenant_id=main_id, user_id=user_id
-    )
-    await db.chat_sessions.delete_one(add_main_scope({"_id": oid, "user_id": str(user_id)}, main_id))
-    # Cascade (plan todo 12): chat_messages and execution_logs are removed
-    # by session_id (keeping main_id) regardless of author — the user_id
-    # filter here orphaned participant-authored rows; every
-    # session_participants row for the conversation is hard-deleted too.
-    await db.chat_messages.delete_many(add_main_scope({"session_id": oid}, main_id))
+    # 009 SessionEnd → 017 sedimentation normally happens in ``end_session``
+    # (the 002 lifecycle carrier). Here we only sediment as a *fallback* for a
+    # session that is being deleted without ever having been ended, so a removal
+    # still does not silently lose the memory. The ledger keeps this from
+    # double-sedimenting a session that was already ended.
     try:
-        await db.execution_logs.delete_many(add_main_scope({"session_id": str(oid)}, main_id))
+        from app.memory.project_context import resolve_project_context
+        from app.memory.sediment import mark_sedimented, sediment_session_end
+        from app.memory.store import MemoryStore
+
+        if mark_sedimented(str(oid)):
+            # E-2 / N1: resolve (project_id, project_owner_id) from the session;
+            # an unusable project makes sediment fall back to personal (N2).
+            project_id, project_owner_id = await resolve_project_context(
+                db, tenant_id=tenant_id, session_doc=session_doc
+            )
+            await sediment_session_end(
+                session_id=str(oid),
+                session_doc=session_doc,
+                store=MemoryStore(),
+                owner_id=str(user_id),
+                tenant_id=tenant_id,
+                project_id=project_id,
+                project_owner_id=project_owner_id,
+                workspace_id=str(session_doc.get("workspace_id") or ""),
+            )
+    except Exception as exc:  # noqa: BLE001 — sedimentation is non-fatal
+        log_print(f"[sessions] delete-path sedimentation skipped: {exc}", flush=True)
+
+    from app.dsh_runtime.application import dsh_runtime_application
+    try:
+        await dsh_runtime_application.require_chat().dispose_conversation(
+            str(oid), tenant_id=tenant_id, user_id=user_id
+        )
+    except Exception as exc:  # noqa: BLE001 — conversation may have never existed
+        log_print(f"[sessions] delete-path dispose_conversation skipped: {exc}", flush=True)
+    await db.chat_sessions.delete_one(add_tenant_scope({"_id": oid, "user_id": str(user_id)}, tenant_id))
+    await db.chat_messages.delete_many(add_tenant_scope({"session_id": oid, "user_id": str(user_id)}, tenant_id))
+    try:
+        await db.execution_logs.delete_many(add_tenant_scope({"session_id": str(oid), "user_id": str(user_id)}, tenant_id))
     except Exception as exc:
         log_print(f"[sessions] delete execution_logs failed: {exc}", flush=True)
-    await SessionParticipantsRepository(db).delete_for_conversation(str(oid), tenant_id=main_id)
 
     return ApiResponse(
         code=0,
@@ -1262,69 +1482,21 @@ async def append_messages(
     authorization: str | None = Header(default=None),
 ) -> ApiResponse:
     try:
-        ObjectId(session_id)
+        to_backend_id(session_id)
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid session id") from exc
     if not payload.messages:
         raise HTTPException(status_code=400, detail="No messages to append")
-    user_id, main_id = await _authorized_scope(
-        authorization, claimed_user_id=str(payload.user_id), claimed_main_id=payload.main_id
+    user_id, tenant_id = await _authorized_scope(
+        authorization, claimed_user_id=str(payload.user_id), claimed_tenant_id=payload.tenant_id
     )
-    # Guard (plan todo 10): the legacy max(seq)+1 writer below is
-    # per-(session,user) (sessions.py:_next_seq) — in a shared thread it would
-    # mint sequence numbers that collide with the DSH writer's session-scoped
-    # counter. Block it for ANY session with an active participant, regardless
-    # of runtime_owner; single-member sessions keep today's behaviour.
-    guard_db = get_db()
-    guard_session = await guard_db.chat_sessions.find_one(
-        add_main_scope({"_id": ObjectId(session_id)}, main_id)
-    )
-    if guard_session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
-    active_participants = await SessionParticipantsRepository(guard_db).list(
-        str(session_id), tenant_id=main_id
-    )
-    if active_participants:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "session_shared_legacy_append_blocked",
-                "message": (
-                    "this session has an active participant; the legacy append"
-                    " writer is per-(session,user) and would duplicate sequence"
-                    " numbers - use the DSH chat path"
-                ),
-                "session_id": session_id,
-            },
-        )
     try:
         session_doc = await session_persistence_service.append_messages(
             session_id=session_id,
             user_id=user_id,
-            main_id=main_id,
+            tenant_id=tenant_id,
             messages=payload.messages or [],
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail="Session not found") from exc
-    except DuplicateKeyError as exc:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": MessageSequenceConflict.code,
-                "message": str(exc),
-                "session_id": session_id,
-            },
-        ) from exc
-    except BulkWriteError as exc:
-        write_errors = list(exc.details.get("writeErrors") or [])
-        if not any(int(item.get("code") or 0) == 11000 for item in write_errors):
-            raise
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": MessageSequenceConflict.code,
-                "message": str(exc),
-                "session_id": session_id,
-            },
-        ) from exc
     return ApiResponse(code=0, message="success", data=_serialize_session(session_doc))

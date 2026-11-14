@@ -4,7 +4,6 @@ import { validBearerToken } from './host-auth.mjs'
 import { readJson, sendJson } from './http-utils.mjs'
 import { RuntimeIdleReaper } from './runtime-idle-reaper.mjs'
 import { preparePluginCredentialRefresh, rewritePluginProfile } from './plugin-credential-relay.mjs'
-import { personalSpaceKey } from './personal-space.mjs'
 
 export { rewritePluginProfile } from './plugin-credential-relay.mjs'
 
@@ -77,7 +76,7 @@ export class ContainerPluginRuntimePool {
     if (!managerUrl || !managerToken) throw new Error('Container plugin Runtime needs manager URL and token')
     this.managerUrl = managerUrl
     this.managerToken = managerToken
-    const idleSeconds = Number(process.env.MOVO_SANDBOX_PLUGIN_IDLE_SECONDS ?? 900)
+    const idleSeconds = Number(process.env.MOGO_SANDBOX_PLUGIN_IDLE_SECONDS ?? 900)
     this.#reaper = new RuntimeIdleReaper({
       idleMs: idleSeconds * 1000,
       onIdle: entry => this.dispose(entry.runtime.runtimeId),
@@ -97,7 +96,6 @@ export class ContainerPluginRuntimePool {
     if (this.#byIsolation.has(body.isolationKey)) throw new Error('isolation key already has a Runtime')
     const lease = await managerRequest(this.managerUrl, this.managerToken, 'POST', '/v1/plugin-runtimes', {
       isolation_key: body.isolationKey,
-      personal_space_key: personalSpaceKey(body.tenantId, body.modelProfile?.subjectUserId),
     })
     const entry = { ...lease, profile: body.modelProfile, runtime: undefined }
     this.#byLease.set(lease.lease_id, entry)
@@ -122,10 +120,6 @@ export class ContainerPluginRuntimePool {
     const entry = this.#byRuntime.get(runtimeId)
     if (entry) this.#reaper.touch(entry)
     return entry
-  }
-  upgradeTarget(entry, path) {
-    return { url: `ws://${entry.host}:${entry.port}${path}`,
-      headers: { authorization: `Bearer ${entry.token}` } }
   }
   findByIsolation(isolationKey) {
     const entry = this.#byIsolation.get(isolationKey)

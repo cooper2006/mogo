@@ -13,18 +13,18 @@ from app.topic_admission.service import get_policy, preview, save_policy
 router = APIRouter()
 
 
-def _main_id(user: dict[str, Any]) -> str:
-    return str(user.get("main_id") or "default")
+def _tenant_id(user: dict[str, Any]) -> str:
+    return str(user.get("tenant_id") or "default")
 
 
 @router.get("")
 async def read_policy(current_user: dict[str, Any] = Depends(get_current_admin_user)) -> dict[str, Any]:
-    return await get_policy(_main_id(current_user))
+    return await get_policy(_tenant_id(current_user))
 
 
 @router.get("/summary")
 async def read_summary(current_user: dict[str, Any] = Depends(get_current_admin_user)) -> dict[str, Any]:
-    return await get_summary(_main_id(current_user))
+    return await get_summary(_tenant_id(current_user))
 
 
 @router.get("/rules")
@@ -36,7 +36,7 @@ async def read_rules(
     offset: int | None = Query(default=None, ge=0),
     current_user: dict[str, Any] = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
-    return await search_rules(_main_id(current_user), q, status, page, page_size, offset)
+    return await search_rules(_tenant_id(current_user), q, status, page, page_size, offset)
 
 
 @router.put("/changes")
@@ -44,7 +44,7 @@ async def write_changes(
     payload: TopicChangesPayload,
     current_user: dict[str, Any] = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
-    return await save_changes(_main_id(current_user), str(current_user.get("username") or "admin"), payload)
+    return await save_changes(_tenant_id(current_user), str(current_user.get("username") or "admin"), payload)
 
 
 @router.post("/preview")
@@ -52,7 +52,7 @@ async def preview_draft(
     payload: TopicDraftTestPayload,
     current_user: dict[str, Any] = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
-    return await preview_changes(_main_id(current_user), payload.text, payload)
+    return await preview_changes(_tenant_id(current_user), payload.text, payload)
 
 
 @router.put("")
@@ -60,7 +60,7 @@ async def write_policy(
     payload: TopicPolicyPayload,
     current_user: dict[str, Any] = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
-    return await save_policy(_main_id(current_user), str(current_user.get("username") or "admin"), payload)
+    return await save_policy(_tenant_id(current_user), str(current_user.get("username") or "admin"), payload)
 
 
 @router.post("/test")

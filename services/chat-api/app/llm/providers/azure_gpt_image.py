@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import asyncio
 import base64
@@ -9,6 +10,8 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict
 
 import httpx
+
+from app.llm.providers.pools import PROVIDER_AZURE_GPT_IMAGE, register_provider_pool
 
 LogHook = Callable[[str, Dict[str, Any]], None]
 
@@ -54,6 +57,18 @@ class AzureGptImageClient:
 
     def __init__(self, config: AzureGptImageConfig) -> None:
         self._config = config
+        # FR-24 / T082：图像通道每次调用新建 httpx.Client（自带独立 Limits），
+        # 天然不会与文本 provider 抢连接；这里登记声明上限，让隔离在
+        # PoolRegistry 里可观测、可断言，pool 句柄留空（无跨请求持久池）。
+        register_provider_pool(
+            PROVIDER_AZURE_GPT_IMAGE,
+            None,
+            max_connections=max(1, int(config.max_connections or 1)),
+            metadata={
+                "transport": "per-call httpx.Client",
+                "keepalive_connections": config.keepalive_connections,
+            },
+        )
 
     async def generate_image_async(
         self,
@@ -358,15 +373,15 @@ class AzureGptImageClient:
             if raw_ms:
                 try:
                     return max(0.0, float(raw_ms) / 1000.0)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log_print(f"[llm/azure_gpt_image] generation failed: {exc}", flush=True)
         raw = str(resp.headers.get("retry-after", "")).strip()
         if not raw:
             return None
         try:
             return max(0.0, float(raw))
-        except Exception:
-            return None
+        except Exception as exc:
+            log_print(f"[llm.providers.azure_gpt_image] silent exception caught: {exc}", flush=True)
 
     @staticmethod
     def _should_retry_status(code: int) -> bool:

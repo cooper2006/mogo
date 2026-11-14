@@ -5,6 +5,7 @@ directive.  This module retains that directive and turns durable action facts
 into candidate exclusions.  It deliberately does not parse user wording.
 """
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import re
 import logging
@@ -49,7 +50,8 @@ class TargetHistoryState:
             return False
         try:
             directive = TargetHistoryDirective.model_validate(raw)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[enterprise_capabilities.browser.engine.target_history_policy] silent exception caught: {exc}", flush=True)
             return False
 
         changed = False
@@ -154,7 +156,8 @@ class TargetHistoryState:
     def restore_state(self, payload: dict[str, Any]) -> None:
         try:
             directive = TargetHistoryDirective.model_validate(payload or {})
-        except Exception:
+        except Exception as exc:
+            log_print(f"[enterprise_capabilities.browser.engine.target_history_policy] silent exception caught: {exc}", flush=True)
             return
         self.policy = directive.policy
         self.operation = normalize_operation(directive.operation)

@@ -50,5 +50,5 @@ watch(() => props.knowledge, reset, { immediate: true })
 </script>
 
 <style scoped>
-.metadata-form{max-width:680px}.hint{margin-top:12px;color:#8a94a5;font-size:12px}
+.metadata-form{max-width:680px}.hint{margin-top:12px;color: var(--mg-text-3);font-size:12px}
 </style>

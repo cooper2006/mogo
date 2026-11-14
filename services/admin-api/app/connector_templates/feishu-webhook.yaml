@@ -1,0 +1,44 @@
+# 连接器模板种子（041-connector-market）。凭证一律占位符 <...>，加载时校验。
+id: feishu-webhook
+version: 1
+category: oa
+name:
+  zh: "飞书自定义机器人"
+  en: "Feishu Custom Bot"
+description:
+  zh: "向飞书群自定义机器人推送消息卡片。"
+  en: "Push a message card to a Feishu custom bot."
+auth_type: none
+config_template:
+  method: POST
+  url: "https://open.feishu.cn/open-apis/bot/v2/hook/${hook_id}"
+params:
+  - key: hook_id
+    label:
+      zh: "Hook ID"
+      en: "Hook ID"
+    type: string
+    required: true
+    secret: false
+    in: path
+    description:
+      zh: "飞书机器人 Webhook 的 hook 标识"
+      en: "Feishu bot webhook id"
+    example: "<your-feishu-hook-id>"
+  - key: text
+    label:
+      zh: "消息内容"
+      en: "消息内容"
+    type: string
+    required: true
+    secret: false
+    in: body
+    description:
+      zh: "要发送的文本"
+      en: "Text to send"
+    example: "<hello from MOGO>"
+test_hint:
+  probe:
+    zh: "发送一条测试文本"
+    en: "发送一条测试文本"
+  expected_status: 200

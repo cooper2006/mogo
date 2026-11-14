@@ -1,6 +1,6 @@
 
 <template>
-  <div class="flex flex-col h-full w-full bg-[#f8fafc]">
+  <div class="mg-page app-view-page">
     <!-- Header -->
     <header class="h-16 border-b border-gray-200 bg-white/80 backdrop-blur-sm flex items-center px-8 justify-between shrink-0 sticky top-0 z-10">
       <div class="flex items-center gap-4 min-w-0 flex-1">
@@ -355,30 +355,47 @@ const categoryOptions = computed(() => [
   { label: t('skills.category.browser_automation'), value: 'Browser Automation' },
 ])
 
+function applySkillBasics(val: any) {
+  skillName.value = val?.name || ''
+  skillDesc.value = val?.description || ''
+  skillCategory.value = val?.category || 'document'
+  skillType.value = val?.skill_type || 'style'
+  skillMarkdown.value = val?.skill_markdown || ''
+  isActive.value = val?.is_active ?? true
+}
+function applyContractFields(val: any) {
+  const contract = val?.contract_json || {}
+  applicableScenarios.value = contract.applicable_scenarios || ''
+  publishChannelInput.value = (contract.publish_channel || []) as string[]
+  contentFormInput.value = (contract.content_form || []) as string[]
+  targetAudienceInput.value = (contract.target_audience || []) as string[]
+  preferredStyleInput.value = (contract.preferred_style || []) as string[]
+  requiredElementsInput.value = (contract.required_elements || []) as string[]
+  forbiddenElementsInput.value = (contract.forbidden_elements || []) as string[]
+}
+function applyResources(val: any) {
+  const resources = val?.resources || {}
+  resourceKnowledge.value = resources.knowledge || []
+  resourceTemplates.value = resources.templates || []
+  resourceTools.value = resources.tools || []
+}
+function applyAdvanced(val: any) {
+  const advanced = val?.advanced || {}
+  allowToolExecution.value = advanced.allowToolExecution || false
+  requireConfirmation.value = advanced.requireConfirmation || false
+  allowNetwork.value = advanced.allowNetwork || false
+  allowFileWrite.value = advanced.allowFileWrite || false
+}
+function applySkillToForm(val: any) {
+  applySkillBasics(val)
+  applyContractFields(val)
+  applyResources(val)
+  applyAdvanced(val)
+}
+
 watch(
   () => props.skill,
-  (val) => {
-    skillName.value = val?.name || ''
-    skillDesc.value = val?.description || ''
-    skillCategory.value = val?.category || 'document'
-    skillType.value = val?.skill_type || 'style'
-    skillMarkdown.value = val?.skill_markdown || ''
-    applicableScenarios.value = val?.contract_json?.applicable_scenarios || ''
-    publishChannelInput.value = ((val?.contract_json?.publish_channel || []) as string[])
-    contentFormInput.value = ((val?.contract_json?.content_form || []) as string[])
-    targetAudienceInput.value = ((val?.contract_json?.target_audience || []) as string[])
-    preferredStyleInput.value = ((val?.contract_json?.preferred_style || []) as string[])
-    requiredElementsInput.value = ((val?.contract_json?.required_elements || []) as string[])
-    forbiddenElementsInput.value = ((val?.contract_json?.forbidden_elements || []) as string[])
-    resourceKnowledge.value = val?.resources?.knowledge || []
-    resourceTemplates.value = val?.resources?.templates || []
-    resourceTools.value = val?.resources?.tools || []
-    allowToolExecution.value = val?.advanced?.allowToolExecution || false
-    requireConfirmation.value = val?.advanced?.requireConfirmation || false
-    allowNetwork.value = val?.advanced?.allowNetwork || false
-    allowFileWrite.value = val?.advanced?.allowFileWrite || false
-    isActive.value = val?.is_active ?? true
-  }
+  (val) => { applySkillToForm(val) }
 )
 
 async function enrichContract() {
@@ -508,11 +525,11 @@ function saveConfig() {
   background: transparent;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #e2e8f0;
+  background: var(--mg-scrollbar-thumb);
   border-radius: 10px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #cbd5e1;
+  background: var(--mg-scrollbar-thumb-hover);
 }
 
 textarea {

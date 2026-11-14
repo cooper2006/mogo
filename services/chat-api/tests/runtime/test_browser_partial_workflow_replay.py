@@ -141,7 +141,7 @@ def test_missing_business_inputs_skip_cache_instead_of_model_extraction() -> Non
     )
 
     matched = asyncio.run(service.lookup(
-        user_id="u1", main_id="m1", node=node, input_context=context,
+        user_id="u1", tenant_id="m1", node=node, input_context=context,
     ))
 
     assert matched is None
@@ -167,7 +167,7 @@ def test_unresolved_request_values_skip_partial_cache_replay() -> None:
     )
 
     matched = asyncio.run(service.lookup(
-        user_id="u1", main_id="m1", node=node, input_context=context,
+        user_id="u1", tenant_id="m1", node=node, input_context=context,
     ))
 
     assert matched is None

@@ -40,7 +40,7 @@ def test_invocation_update_requires_enabled_exact_package_and_successful_session
     db = Database()
     monkeypatch.setattr(repository_module, "get_db", lambda: db)
     asyncio.run(repository_module.PluginInstallationRepository().mark_invoked(
-        main_id="tenant", user_id="", name="plugin", version="1", spec="plugin@1", tool_name="test_tool",
+        tenant_id="tenant", user_id="", name="plugin", version="1", spec="plugin@1", tool_name="test_tool",
     ))
     assert db.dsh_plugin_installations.query["enabled"] is True
     assert db.dsh_plugin_installations.query["availability.status"] == {"$in": ["session_exposed", "verified"]}

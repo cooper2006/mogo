@@ -63,12 +63,12 @@ function updateSynonyms(index: number, value: string) {
 .topic-rule { display: grid; gap: 18px; }
 .topic-rule-body { display: grid; gap: 12px; }
 .topic-rule-top { display: grid; grid-template-columns: minmax(0, 1fr) 158px; gap: 16px; align-items: start; }
-.topic-rule-status { display: grid; gap: 8px; color: #667085; font-size: 12px; }
-.topic-rule-status > div { display: flex; align-items: center; justify-content: space-between; min-height: 32px; padding: 0 10px; border: 1px solid #dce4ef; border-radius: 6px; }
-.topic-rule-status small { color: #344054; font-size: 12px; }
+.topic-rule-status { display: grid; gap: 8px; color: var(--mg-text-3); font-size: 12px; }
+.topic-rule-status > div { display: flex; align-items: center; justify-content: space-between; min-height: 32px; padding: 0 10px; border: 1px solid var(--mg-border); border-radius: 6px; }
+.topic-rule-status small { color: var(--mg-text-2); font-size: 12px; }
 .topic-rule-body :deep(.n-form-item) { margin-bottom: 0; }
 .topic-term-heading, .topic-term-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(180px, 2fr) 32px; gap: 10px; align-items: center; }
-.topic-term-heading { color: #667085; font-size: 12px; }
-.topic-audience { display: grid; gap: 12px; padding-top: 16px; border-top: 1px solid #edf1f6; }
+.topic-term-heading { color: var(--mg-text-3); font-size: 12px; }
+.topic-audience { display: grid; gap: 12px; padding-top: 16px; border-top: 1px solid var(--mg-border-subtle); }
 @media (max-width: 680px) { .topic-rule-top { grid-template-columns: 1fr; }.topic-term-heading { display: none; } .topic-term-row { grid-template-columns: 1fr 1fr 32px; } }
 </style>

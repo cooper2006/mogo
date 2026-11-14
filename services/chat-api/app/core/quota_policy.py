@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import logging
+from app.infrastructure.observability.config import log_print
+
 from datetime import datetime, timezone, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from app.core.db import get_db
+from app.common.shared_constants import utc_now
 from app.core.product_edition import product_edition_fields
 
 ORG_COLLECTION = "organizations"
@@ -15,17 +19,48 @@ ORG_QUOTA_POLICY_COLLECTION = "org_quota_policies"
 USER_QUOTA_POLICY_COLLECTION = "user_quota_policies"
 USER_QUOTA_OVERRIDE_COLLECTION = "user_quota_overrides"
 USER_QUOTA_LOG_COLLECTION = "user_token_allocation_logs"
+# 042-three-level-quota: 团队/项目层策略仍存 user_quota_policies（scope_type 区分），
+# 项目分组是新建的轻量实体（与桌面 Code 的 projects 端点语义无关）。
+PROJECT_COLLECTION = "projects"  # 049 FR-006: 项目实体统一在 046 的 projects 表（chat-api 写入）
+CHAT_SESSIONS_COLLECTION = "chat_sessions"
+QUOTA_ALERT_COLLECTION = "quota_alert_events"
+QUOTA_ALERT_KINDS = ("exceeded", "approaching", "layer_unreadable")
+DEFAULT_ALERT_THRESHOLD_RATIO = 0.2
+MAX_LAYER_MEMBERS = 5000
+TEAM_SCOPE = "team"
+PROJECT_SCOPE = "project"
+# 并列最小值时的归因顺序：更具体的层优先（R-6）。
+SCOPE_ORDER = ("team", "project", "org", "user")
 
 VALID_PERIODS = {"monthly", "daily", "hourly"}
 DEFAULT_TIMEZONE = "Asia/Shanghai"
 
 
 class QuotaExceededError(ValueError):
-    pass
+    """配额超限。042 起携带超限层信息供调用方结构化取用（R-8）。"""
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        layer: str = "",
+        scope_id: str = "",
+        kind: str = "exceeded",
+    ) -> None:
+        super().__init__(message)
+        self.layer = layer
+        self.scope_id = scope_id
+        self.kind = kind
 
 
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+VALID_PERIODS = {"monthly", "daily", "hourly"}
+DEFAULT_TIMEZONE = "Asia/Shanghai"
+
+
+# 058 R-3：utc_now 单一来源，统一使用
+# ``from app.common.shared_constants import utc_now``（文件顶部 :11）。
+# 不得在此重新定义本地版本——曾有一版返回 naive UTC，覆盖 import 后造成
+# chat-api / admin-api 的时间类型不一致（tz-aware vs naive 混用）。
 
 
 def normalize_period(value: Any) -> str:
@@ -38,7 +73,8 @@ def normalize_timezone(value: Any) -> str:
     try:
         ZoneInfo(name)
         return name
-    except Exception:
+    except Exception as exc:
+        log_print(f"[core.quota_policy.normalize_timezone] suppressed {type(exc).__name__}: {exc}", flush=True)
         return DEFAULT_TIMEZONE
 
 
@@ -73,35 +109,41 @@ def _one_day():
     return timedelta(days=1)
 
 
-async def ensure_org_quota_policy(main_id: str, *, org_total_points: int = 0) -> dict[str, Any]:
+async def ensure_org_quota_policy(tenant_id: str, *, org_total_points: int = 0) -> dict[str, Any]:
     db = get_db()
-    policy = await db[ORG_QUOTA_POLICY_COLLECTION].find_one({"main_id": main_id})
+    # Phase 1 dual-write: match either tenant_id (canonical) or legacy tenant_id.
+    match_scope = {"tenant_id": tenant_id}
+    policy = await db[ORG_QUOTA_POLICY_COLLECTION].find_one(match_scope)
     if policy:
         return policy
     now = utc_now()
     total = max(int(org_total_points or 0), 0)
     policy = {
-        "main_id": main_id,
+        # Phase 1 dual-write: canonical tenant_id + legacy tenant_id.
+        "tenant_id": tenant_id,
         "total_tokens": total,
+        "unlimited": True,
         "period": "monthly",
         "timezone": DEFAULT_TIMEZONE,
         "status": "active",
         "created_at": now,
         "updated_at": now,
     }
-    await db[ORG_QUOTA_POLICY_COLLECTION].update_one({"main_id": main_id}, {"$setOnInsert": policy}, upsert=True)
-    return await db[ORG_QUOTA_POLICY_COLLECTION].find_one({"main_id": main_id}) or policy
+    await db[ORG_QUOTA_POLICY_COLLECTION].update_one({"tenant_id": tenant_id}, {"$setOnInsert": policy}, upsert=True)
+    return await db[ORG_QUOTA_POLICY_COLLECTION].find_one({"tenant_id": tenant_id}) or policy
 
 
-async def ensure_default_user_policy(main_id: str, *, period: str = "monthly") -> dict[str, Any]:
+async def ensure_default_user_policy(tenant_id: str, *, period: str = "monthly") -> dict[str, Any]:
     db = get_db()
-    query = {"main_id": main_id, "scope_type": "all", "scope_id": ""}
+    query = {"tenant_id": tenant_id, "scope_type": "all", "scope_id": ""}
     policy = await db[USER_QUOTA_POLICY_COLLECTION].find_one(query)
     if policy:
         return policy
     now = utc_now()
     policy = {
         **query,
+        # Phase 1 dual-write: canonical tenant_id (tenant_id already in query).
+        "tenant_id": tenant_id,
         "quota_tokens": 0,
         "period": normalize_period(period),
         "priority": 10,
@@ -113,14 +155,23 @@ async def ensure_default_user_policy(main_id: str, *, period: str = "monthly") -
     return await db[USER_QUOTA_POLICY_COLLECTION].find_one(query) or policy
 
 
-async def sum_usage(main_id: str, *, user_id: str = "", start_at: datetime, end_at: datetime) -> int:
+async def sum_usage(
+    tenant_id: str,
+    *,
+    user_id: str = "",
+    user_ids: list[str] | None = None,
+    start_at: datetime,
+    end_at: datetime,
+) -> int:
     db = get_db()
     match: dict[str, Any] = {
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "created_at": {"$gte": start_at, "$lt": end_at},
         "status": {"$ne": "failed"},
     }
-    if user_id:
+    if user_ids is not None:
+        match["user_id"] = {"$in": [str(item) for item in user_ids]}
+    elif user_id:
         match["user_id"] = user_id
     rows = await db[TOKEN_USAGE_COLLECTION].aggregate(
         [{"$match": match}, {"$group": {"_id": None, "tokens": {"$sum": {"$ifNull": ["$total_tokens", 0]}}}}],
@@ -128,28 +179,29 @@ async def sum_usage(main_id: str, *, user_id: str = "", start_at: datetime, end_
     return int(rows[0].get("tokens") or 0) if rows else 0
 
 
-async def resolve_user_policy(main_id: str, user_id: str) -> dict[str, Any]:
+async def resolve_user_policy(tenant_id: str, user_id: str) -> dict[str, Any]:
     db = get_db()
+    match_scope = {"tenant_id": tenant_id}
     user_policy = await db[USER_QUOTA_POLICY_COLLECTION].find_one(
-        {"main_id": main_id, "scope_type": "user", "scope_id": user_id},
+        {**match_scope, "scope_type": "user", "scope_id": user_id},
         sort=[("priority", -1), ("updated_at", -1)],
     )
     if user_policy:
         return user_policy
-    org_policy = await db[ORG_QUOTA_POLICY_COLLECTION].find_one({"main_id": main_id})
+    org_policy = await db[ORG_QUOTA_POLICY_COLLECTION].find_one(match_scope)
     org_period = org_policy.get("period") if org_policy else "monthly"
-    default_policy = await ensure_default_user_policy(main_id, period=org_period)
+    default_policy = await ensure_default_user_policy(tenant_id, period=org_period)
     return default_policy
 
 
-async def sum_active_overrides(main_id: str, user_id: str, now: datetime | None = None) -> int:
+async def sum_active_overrides(tenant_id: str, user_id: str, now: datetime | None = None) -> int:
     db = get_db()
     current = now or utc_now()
     rows = await db[USER_QUOTA_OVERRIDE_COLLECTION].aggregate(
         [
             {
                 "$match": {
-                    "main_id": main_id,
+                    "tenant_id": tenant_id,
                     "user_id": user_id,
                     "status": "active",
                     "$or": [{"expires_at": {"$exists": False}}, {"expires_at": None}, {"expires_at": {"$gt": current}}],
@@ -161,20 +213,235 @@ async def sum_active_overrides(main_id: str, user_id: str, now: datetime | None 
     return int(rows[0].get("tokens") or 0) if rows else 0
 
 
-async def get_quota_summary(main_id: str, user: dict[str, Any]) -> dict[str, Any]:
+async def _team_scope_ids(db, tenant_id: str, user_id: str) -> list[str]:
+    """用户直接所属的部门节点（不做子树聚合，R-3）。"""
+
+    rows = await db[USER_ORG_REL_COLLECTION].find(
+        {"tenant_id": tenant_id, "user_id": user_id}
+    ).to_list(length=200)
+    return [str(row.get("org_id") or "") for row in rows if row.get("org_id")]
+
+
+async def _project_scope_ids(db, tenant_id: str, user_id: str) -> list[str]:
+    """046 FR-012: 项目成员 = 该项目下产生过会话的用户（按当前归属聚合）。
+
+    从 chat_sessions 反查该用户有会话的 distinct project_id，
+    049 FR-006: 项目层成员口径改为 projects.member_user_ids ∪ 创建者；
+    本函数（用户→项目方向）沿用 046 语义：从 chat_sessions 反查该用户产生过会话的项目。
+    （049 前：不再依赖 quota_projects.member_user_ids 内嵌数组。）
+    """
+    rows = await db[CHAT_SESSIONS_COLLECTION].find(
+        {"tenant_id": tenant_id, "user_id": user_id},
+        {"project_id": 1},
+    ).to_list(length=MAX_LAYER_MEMBERS)
+    seen: list[str] = []
+    for row in rows:
+        pid = str(row.get("project_id") or "default").strip() or "default"
+        if pid not in seen:
+            seen.append(pid)
+    return seen
+
+
+async def _scope_members(db, tenant_id: str, scope_type: str, scope_id: str) -> list[str]:
+    if scope_type == TEAM_SCOPE:
+        rows = await db[USER_ORG_REL_COLLECTION].find(
+            {"tenant_id": tenant_id, "org_id": scope_id}
+        ).to_list(length=MAX_LAYER_MEMBERS)
+        return [str(row.get("user_id") or "") for row in rows if row.get("user_id")]
+    # 049 FR-006: 项目成员 = projects.member_user_ids ∪ 创建者（user_id）。
+    # member_user_ids 缺失（迁移期/046 时代数据）时回退 046 语义：
+    # chat_sessions.project_id 反查产生过会话的用户（046 FR-012 现状），创建者兜底。
+    project = await db[PROJECT_COLLECTION].find_one(
+        {"tenant_id": tenant_id, "_id": scope_id}, {"user_id": 1, "member_user_ids": 1}
+    )
+    fallback_members: list[str] = []
+    if not project or not (project.get("member_user_ids") or []):
+        rows = await db[CHAT_SESSIONS_COLLECTION].find(
+            {"tenant_id": tenant_id, "project_id": scope_id},
+            {"user_id": 1},
+        ).to_list(length=MAX_LAYER_MEMBERS)
+        fallback_members = [str(row.get("user_id") or "") for row in rows if row.get("user_id")]
+    members = [str(item) for item in ((project or {}).get("member_user_ids") or [])]
+    for uid in fallback_members:
+        if uid not in members:
+            members.append(uid)
+    creator = str((project or {}).get("user_id") or "")
+    if creator and creator not in members:
+        members.append(creator)
+    seen: list[str] = []
+    for uid in members:
+        if uid and uid not in seen:
+            seen.append(uid)
+    return seen
+
+
+async def _layer_state(db, tenant_id: str, *, scope_type: str, scope_id: str, tz_name: str) -> dict[str, Any] | None:
+    """单个团队/项目层的当前状态；策略缺失或非 active 视为无该层（R-7）。
+
+    049 FR-006: 项目层检查 projects.status——archived 项目不参与取小（046 US2）。
+    """
+
+    policy = await db[USER_QUOTA_POLICY_COLLECTION].find_one(
+        {"tenant_id": tenant_id, "scope_type": scope_type, "scope_id": scope_id, "status": "active"},
+        sort=[("priority", -1), ("updated_at", -1)],
+    )
+    if not policy:
+        return None
+    if scope_type == PROJECT_SCOPE:
+        project_doc = await db[PROJECT_COLLECTION].find_one(
+            {"tenant_id": tenant_id, "_id": scope_id}
+        )
+        if project_doc and str(project_doc.get("status") or "active") == "archived":
+            return None
+    members = await _scope_members(db, tenant_id, scope_type, scope_id)
+    period = normalize_period(policy.get("period") or "monthly")
+    start, end = period_window(period, tz_name)
+    used = await sum_usage(tenant_id, user_ids=members, start_at=start, end_at=end) if members else 0
+    total = int(policy.get("quota_tokens") or policy.get("total_tokens") or 0)
+    return {
+        "scope_type": scope_type,
+        "scope_id": scope_id,
+        "name": str(policy.get("name") or ""),
+        "total": total,
+        "used": used,
+        "remaining": max(0, total - used),
+        "period": period,
+        "period_start": start,
+        "period_end": end,
+    }
+
+
+async def _scoped_layers(db, tenant_id: str, user_id: str, tz_name: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """团队/项目层：用户命中的每条策略各算一次，层内取最严（R-2/R-7）。"""
+
+    details: dict[str, Any] = {}
+    layers: list[dict[str, Any]] = []
+    for scope_type in (TEAM_SCOPE, PROJECT_SCOPE):
+        if scope_type == TEAM_SCOPE:
+            scope_ids = await _team_scope_ids(db, tenant_id, user_id)
+        else:
+            scope_ids = await _project_scope_ids(db, tenant_id, user_id)
+        states = []
+        for scope_id in scope_ids:
+            state = await _layer_state(db, tenant_id, scope_type=scope_type, scope_id=scope_id, tz_name=tz_name)
+            if state:
+                states.append(state)
+        if not states:
+            continue
+        strictest = min(states, key=lambda item: item["remaining"])
+        layers.append(strictest)
+        prefix = "team" if scope_type == TEAM_SCOPE else "project"
+        details[f"{prefix}RemainingPoints"] = strictest["remaining"]
+        details[f"{prefix}TotalPoints"] = strictest["total"]
+        details[f"{prefix}UsedPoints"] = strictest["used"]
+        details[f"{prefix}ResetAt"] = _iso(strictest["period_end"])
+        details[f"{prefix}ScopeId"] = strictest["scope_id"]
+        details[f"{prefix}Name"] = strictest["name"]
+    return details, layers
+
+
+def _iso(value: datetime) -> str:
+    return value.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+async def _record_quota_alert(
+    db,
+    tenant_id: str,
+    layer: dict[str, Any],
+    *,
+    kind: str,
+    ratio: float,
+) -> None:
+    """写 quota 告警事件；同一 (租户, 层, scope, kind, 周期) 只落一次（R-11）。"""
+
+    period_start = layer.get("period_start")
+    alert_key = f"{tenant_id}:{layer['scope_type']}:{layer.get('scope_id') or ''}:{kind}:{period_start.isoformat()}"
+    document = {
+        "tenant_id": tenant_id,
+        "scope_type": layer["scope_type"],
+        "scope_id": str(layer.get("scope_id") or ""),
+        "kind": kind,
+        "ratio": round(float(ratio), 6),
+        "layer_name": str(layer.get("name") or ""),
+        "period_start": period_start,
+        "at": utc_now(),
+        "alert_key": alert_key,
+    }
+    try:
+        await db[QUOTA_ALERT_COLLECTION].update_one(
+            {"alert_key": alert_key}, {"$setOnInsert": document}, upsert=True
+        )
+    except Exception as exc:  # 告警是旁路，写失败不阻断主链路
+        logging.getLogger(__name__).warning(
+            "[core.quota_policy._record_quota_alert] suppressed %s: %s", type(exc).__name__, exc
+        )
+
+
+async def _emit_layer_alerts(db, tenant_id: str, layers: list[dict[str, Any]], threshold_ratio: float) -> None:
+    for layer in layers:
+        total = int(layer.get("total") or 0)
+        if total <= 0:
+            continue
+        remaining = int(layer.get("remaining") or 0)
+        ratio = remaining / total
+        if remaining <= 0:
+            await _record_quota_alert(db, tenant_id, layer, kind="exceeded", ratio=ratio)
+        elif ratio < threshold_ratio:
+            await _record_quota_alert(db, tenant_id, layer, kind="approaching", ratio=ratio)
+
+
+async def get_quota_summary(tenant_id: str, user: dict[str, Any]) -> dict[str, Any]:
     db = get_db()
     user_id = str(user.get("_id") or "")
-    space_type = str(user.get("space_type") or "").strip().lower()
+    org = await db[ORG_COLLECTION].find_one({"tenant_id": tenant_id}) or {}
+    space_type = str(user.get("space_type") or org.get("space_type") or "").strip().lower()
     if space_type not in {"personal", "enterprise"}:
-        space_type = "personal" if str(user.get("org_name") or "").strip() == "个人空间" else "enterprise"
-    org = await db[ORG_COLLECTION].find_one({"main_id": main_id}) or {}
+        org_name = str(org.get("org_name") or user.get("org_name") or "").strip()
+        space_type = "personal" if org_name == "个人空间" else "enterprise"
+
+    # 020 FR-035/036/037: an org flagged ``points_unlimited`` (set by the admin
+    # product-edition policy) has no token ceiling — short-circuit before any
+    # usage accounting so new tenant members are never blocked with 402.
+    if org.get("points_unlimited", True):
+        return {
+            **product_edition_fields(org),
+            "tenantId": tenant_id,
+            "orgName": org.get("org_name") or user.get("org_name") or "组织空间",
+            "spaceType": space_type,
+            "quotaSource": "enterprise_allocation",
+            "period": "lifetime",
+            "unlimited": True,
+            "totalPoints": -1,
+            "usedPoints": 0,
+            "remainingPoints": -1,
+            "resetAt": "",
+            "status": "active",
+        }
 
     if space_type != "enterprise":
         total = int(org.get("total_points") or 0)
         used = int(org.get("used_points") or 0)
+        # A personal space with no configured gift quota (total_points unset/0)
+        # is treated as unlimited so freshly created / test orgs are not blocked
+        # with "额度已用尽" before any quota is provisioned.
+        if total <= 0:
+            return {
+                **product_edition_fields(org),
+                "tenantId": tenant_id,
+                "orgName": org.get("org_name") or user.get("org_name") or "个人空间",
+                "spaceType": "personal",
+                "quotaSource": "registration_gift",
+                "period": "lifetime",
+                "unlimited": True,
+                "totalPoints": -1,
+                "usedPoints": used,
+                "remainingPoints": -1,
+                "resetAt": "",
+                "status": "active",
+            }
         return {
             **product_edition_fields(org),
-            "mainId": main_id,
+            "tenantId": tenant_id,
             "orgName": org.get("org_name") or user.get("org_name") or "个人空间",
             "spaceType": "personal",
             "quotaSource": "registration_gift",
@@ -186,27 +453,93 @@ async def get_quota_summary(main_id: str, user: dict[str, Any]) -> dict[str, Any
             "status": "active",
         }
 
-    org_policy = await ensure_org_quota_policy(main_id, org_total_points=int(org.get("total_points") or 0))
-    user_policy = await resolve_user_policy(main_id, user_id)
+    org_policy = await ensure_org_quota_policy(tenant_id, org_total_points=int(org.get("total_points") or 0))
+    user_policy = await resolve_user_policy(tenant_id, user_id)
     tz_name = normalize_timezone(org_policy.get("timezone"))
     org_start, org_end = period_window(str(org_policy.get("period") or "monthly"), tz_name)
     user_start, user_end = period_window(str(user_policy.get("period") or org_policy.get("period") or "monthly"), tz_name)
-    org_used = await sum_usage(main_id, start_at=org_start, end_at=org_end)
-    user_used = await sum_usage(main_id, user_id=user_id, start_at=user_start, end_at=user_end)
+    org_used = await sum_usage(tenant_id, start_at=org_start, end_at=org_end)
+    user_used = await sum_usage(tenant_id, user_id=user_id, start_at=user_start, end_at=user_end)
     org_total = int(org_policy.get("total_tokens") or 0)
     base_user_total = int(user_policy.get("quota_tokens") or 0)
-    extra = await sum_active_overrides(main_id, user_id)
+    extra = await sum_active_overrides(tenant_id, user_id)
     user_total = max(0, base_user_total + extra)
+    # An enterprise org with no provisioned allocation (org total 0 and no per-user
+    # override) is treated as unlimited instead of blocking every request with
+    # "企业分派额度已用尽". Admins provision real quotas via org/user policies.
+    if org_total <= 0 and user_total <= 0:
+        return {
+            **product_edition_fields(org),
+            "tenantId": tenant_id,
+            "orgName": org.get("org_name") or user.get("org_name") or "组织空间",
+            "spaceType": "enterprise",
+            "quotaSource": "enterprise_allocation",
+            "period": normalize_period(org_policy.get("period") or "monthly"),
+            "unlimited": True,
+            "totalPoints": -1,
+            "usedPoints": user_used,
+            "remainingPoints": -1,
+            "resetAt": "",
+            "status": "active",
+            "orgTotalPoints": -1,
+            "orgUsedPoints": org_used,
+            "orgRemainingPoints": -1,
+        }
     remaining = max(0, min(user_total - user_used, org_total - org_used))
-    return {
+    limiting_scope = "user" if (user_total - user_used) <= (org_total - org_used) else "org"
+    threshold_ratio = float(org_policy.get("alert_threshold_ratio") or DEFAULT_ALERT_THRESHOLD_RATIO)
+    scoped_details, scoped_layers = await _scoped_layers(db, tenant_id, user_id, tz_name)
+    org_layer = {
+        "scope_type": "org",
+        "scope_id": tenant_id,
+        "name": "",
+        "total": org_total,
+        "used": org_used,
+        "remaining": max(0, org_total - org_used),
+        "period_start": org_start,
+        "period_end": org_end,
+    }
+    user_layer = {
+        "scope_type": "user",
+        "scope_id": user_id,
+        "name": "",
+        "total": user_total,
+        "used": user_used,
+        "remaining": max(0, user_total - user_used),
+        "period_start": user_start,
+        "period_end": user_end,
+    }
+    alert_layers = [*scoped_layers, org_layer, user_layer]
+    if scoped_layers:
+        # R-6: 三层取小；unlimited 层（total<=0）不参与，并列时按 SCOPE_ORDER 归因。
+        candidates = [layer for layer in alert_layers if int(layer.get("total") or 0) > 0]
+        if candidates:
+            strictest = min(
+                candidates,
+                key=lambda item: (int(item["remaining"]), SCOPE_ORDER.index(item["scope_type"])),
+            )
+            remaining = max(0, int(strictest["remaining"]))
+            limiting_scope = strictest["scope_type"]
+    await _emit_layer_alerts(db, tenant_id, alert_layers, threshold_ratio)
+    extra_fields: dict[str, Any] = dict(scoped_details)
+    if scoped_layers:
+        extra_fields["limitingScope"] = limiting_scope
+        extra_fields["limitingResetAt"] = _iso(
+            next(
+                (layer["period_end"] for layer in alert_layers if layer["scope_type"] == limiting_scope),
+                user_end,
+            )
+        )
+    result: dict[str, Any] = {
         **product_edition_fields(org),
-        "mainId": main_id,
+        "tenantId": tenant_id,
         "orgName": org.get("org_name") or user.get("org_name") or "组织空间",
         "spaceType": "enterprise",
         "quotaSource": "enterprise_allocation",
         "period": normalize_period(user_policy.get("period") or org_policy.get("period")),
         "totalPoints": user_total,
         "usedPoints": user_used,
+        "unlimited": False,
         "remainingPoints": remaining,
         "resetAt": user_end.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z"),
         "status": "active" if org_policy.get("status") == "active" and user_policy.get("status") == "active" else "disabled",
@@ -214,14 +547,44 @@ async def get_quota_summary(main_id: str, user: dict[str, Any]) -> dict[str, Any
         "orgUsedPoints": org_used,
         "orgRemainingPoints": max(0, org_total - org_used),
     }
+    result.update(extra_fields)
+    return result
 
 
-async def assert_quota_available(main_id: str, user: dict[str, Any]) -> dict[str, Any]:
-    summary = await get_quota_summary(main_id, user)
+def _layer_denial_message(scope_type: str, summary: dict[str, Any]) -> str:
+    """R-8：按超限层给出文案；org/user 沿用既有两句原文。"""
+
+    if scope_type == TEAM_SCOPE:
+        name = str(summary.get("teamName") or "").strip()
+        suffix = f"（{name}）" if name else ""
+        return f"部门额度已用尽{suffix}，请联系企业管理员调整额度。"
+    if scope_type == PROJECT_SCOPE:
+        name = str(summary.get("projectName") or "").strip()
+        suffix = f"（{name}）" if name else ""
+        return f"项目额度已用尽{suffix}，请联系企业管理员调整额度。"
+    if summary.get("spaceType") == "enterprise":
+        return "当前企业分派额度已用尽，请联系企业管理员调整额度。"
+    return "个人赠送额度已用尽，请升级或切换到有可用额度的空间。"
+
+
+async def assert_quota_available(tenant_id: str, user: dict[str, Any]) -> dict[str, Any]:
+    summary = await get_quota_summary(tenant_id, user)
     if summary.get("status") != "active":
-        raise QuotaExceededError("当前空间额度策略未启用，请联系管理员。")
+        raise QuotaExceededError(
+            "当前空间额度策略未启用，请联系管理员。", layer=str(summary.get("limitingScope") or "")
+        )
+    # 020 FR-035/036/037: unlimited orgs are never blocked.
+    if summary.get("unlimited"):
+        return summary
     if int(summary.get("remainingPoints") or 0) <= 0:
-        if summary.get("spaceType") == "enterprise":
-            raise QuotaExceededError("当前企业分派额度已用尽，请联系企业管理员调整额度。")
-        raise QuotaExceededError("个人赠送额度已用尽，请升级或切换到有可用额度的空间。")
+        # 042 R-8：superimposed layers 已由 get_quota_summary 归因到 limitingScope，
+        # 这里直接按其层名产出文案，保持既有 402 / 429 状态码不变。
+        layer = str(summary.get("limitingScope") or "").strip()
+        scope_id = str(summary.get(f"{layer}ScopeId") or "") if layer in (TEAM_SCOPE, PROJECT_SCOPE) else ""
+        raise QuotaExceededError(
+            _layer_denial_message(layer, summary),
+            layer=layer,
+            scope_id=scope_id,
+            kind="exceeded",
+        )
     return summary

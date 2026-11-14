@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 from typing import Any, Dict, List
@@ -12,7 +13,8 @@ def decode_tool_payload(value: Any) -> Dict[str, Any]:
         if text.startswith("{") and text.endswith("}"):
             try:
                 parsed = json.loads(text)
-            except Exception:
+            except Exception as exc:
+                log_print(f"[enterprise_capabilities.evidence.foundation.kb_qa_projection] silent exception caught: {exc}", flush=True)
                 return {}
             if isinstance(parsed, dict):
                 return parsed

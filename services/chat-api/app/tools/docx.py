@@ -101,16 +101,16 @@ def _center_last_picture(doc: Document) -> None:
         paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
         paragraph.paragraph_format.space_before = Pt(6)
         paragraph.paragraph_format.space_after = Pt(6)
-    except Exception:
-        return
+    except Exception as exc:
+        log_print(f"[tools.docx] silent exception caught: {exc}", flush=True)
 
 
 def _add_picture_resilient(doc: Document, image_path: str, *, width: Any) -> None:
     try:
         doc.add_picture(image_path, width=width)
         return
-    except Exception:
-        pass
+    except Exception as exc:
+        log_print(f"[tools/docx] parse failed: {exc}", flush=True)
 
     normalized_path = ""
     try:
@@ -129,8 +129,8 @@ def _add_picture_resilient(doc: Document, image_path: str, *, width: Any) -> Non
         if normalized_path:
             try:
                 os.unlink(normalized_path)
-            except Exception:
-                pass
+            except Exception as exc:
+                log_print(f"[tools/docx] extract failed: {exc}", flush=True)
 
 
 def _setup_styles(doc: Document):
@@ -410,7 +410,7 @@ def generate_docx_file(
         short-form deliverables (resume, email, memo) where a standalone
         cover page is editorial noise.
     skip_toc: when True, the in-document table of contents is suppressed
-        even if the markdown explicitly contains a TOC heading.
+        even if the markdown explicitly contains a "## 目录" heading.
         Mirrors skip_cover semantics for the same short-form cases.
     """
     if template_path and os.path.exists(template_path):
@@ -424,14 +424,94 @@ def generate_docx_file(
     language = "zh" if re.search(r"[\u4e00-\u9fff]", markdown_content or "") else "en"
     toc_title = i18n_get_list("toc_heading_variants", language)[0]
 
-    from app.tools.docx_structure import split_document_structure
+    # 1. Parse Structure
+    # State 0: Cover, State 1: TOC (ignore), State 2: Body
+    has_manual_toc = False
 
-    resolved_cover_title, cover_abstract, body_lines, has_manual_toc = split_document_structure(
-        lines,
-        cover_title=cover_title,
-        toc_headings=i18n_get_list("toc_heading_variants", "zh") + i18n_get_list("toc_heading_variants", "en"),
+    # 优先使用上游传入的 cover_title（基于 goal_contract/uploaded filename 等解析出的标题）
+    resolved_cover_title = str(cover_title or "").strip()
+    if not resolved_cover_title:
+        resolved_cover_title = i18n_get("cover_title_default", language)
+    cover_abstract = ""
+    body_lines = []
+
+    # Pre-scan for markdown structure.
+    # 若 markdown 根本没有 heading（# / ##），不要走 state machine——所有内容直接作为 body 渲染，
+    # 避免把第一段纯文本误判为 abstract 导致正文为空。
+    has_any_heading = any(
+        line.strip().startswith("# ") or line.strip().startswith("## ") or line.strip().startswith("### ")
+        for line in lines
     )
-    resolved_cover_title = resolved_cover_title or i18n_get("cover_title_default", language)
+    has_h1_heading = any(line.strip().startswith("# ") for line in lines)
+    # 若未显式传入 cover_title，尝试用 markdown 第一个 H1 作为封面标题
+    if not cover_title:
+        for line in lines:
+            if line.strip().startswith("# "):
+                resolved_cover_title = line.strip()[2:]
+                break
+
+    if not has_any_heading:
+        # 没有任何标题：所有内容都进 body，不做 cover abstract 抽取
+        state = 2
+        for line in lines:
+            body_lines.append(line)
+    else:
+        state = 0
+
+    # Process lines (仅当有 heading 时进入 state machine)
+    for line in lines if has_any_heading else []:
+        stripped = line.strip()
+
+        # Structure Detection
+        if state == 0:
+            toc_tokens = i18n_get_list("toc_heading_variants", "zh") + i18n_get_list("toc_heading_variants", "en")
+            toc_pattern = r"^#{1,2}\s+(" + "|".join(re.escape(t) for t in toc_tokens) + r")"
+            if re.match(toc_pattern, stripped, re.IGNORECASE):
+                has_manual_toc = True
+                state = 1
+                continue
+            if stripped.startswith("# "):
+                if skip_cover:
+                    state = 2
+                    body_lines.append(line)
+                continue
+            # Accumulate abstract content if not title
+            if stripped and not stripped.startswith("#"):
+                # Only treat leading non-heading text as a cover abstract when
+                # the source markdown provides a document-level H1. Otherwise
+                # this is normal body content and must not be swallowed into the
+                # skipped cover page.
+                if has_h1_heading and not skip_cover and not cover_abstract:
+                    cover_abstract = stripped
+                # 摘要只是封面上的展示位，源段落必须继续留在正文：否则
+                # 「# 标题 + 若干普通段落」这种没有 H2 的短文档会被整段吞掉，
+                # 导出的 docx 只剩封面。取到摘要后立刻转入正文状态。
+                state = 2
+                body_lines.append(line)
+            elif stripped.startswith(("## ", "### ", "#### ")):
+                # Jump straight to body if we missed TOC
+                state = 2
+                body_lines.append(line)
+        
+        elif state == 1:
+            if stripped == "---":
+                state = 2
+                continue
+            if stripped.startswith("## ") or stripped.startswith("# "):
+                 # Transition to body if we hit any real header
+                 state = 2
+                 body_lines.append(line)
+            continue # Ignore markdown TOC
+            
+        elif state == 2:
+            # Ignore leading spacers/empty lines at start of body
+            if not body_lines and not stripped:
+                continue
+            if stripped == "---":
+                 # Preserve horizontal separators as visual separators, not page breaks.
+                 body_lines.append("__HORIZONTAL_RULE__")
+                 continue
+            body_lines.append(line)
 
     # 2. Render Cover (gated for short-form deliverables)
     if not skip_cover:
@@ -459,7 +539,7 @@ def generate_docx_file(
         bookmark_counter += 1
 
     # 4. Render TOC only when the source markdown explicitly includes one.
-    # skip_toc disables the TOC even if a Markdown TOC heading slipped through.
+    # skip_toc forcibly disables the TOC even if a "## 目录" heading slipped
     # through (e.g. user-edited markdown of a short-form deliverable).
     if has_manual_toc and toc_entries and not skip_toc:
         _add_toc_page(doc, toc_title, toc_entries)
@@ -647,7 +727,8 @@ def generate_docx_file(
                     try:
                         if uploader.storage_backend == "local":
                             local_path = str(uploader.local_file_path(object_path))
-                    except Exception:
+                    except Exception as exc:
+                        log_print(f"[tools.docx.generate_docx_file] suppressed {type(exc).__name__}: {exc}", flush=True)
                         local_path = ""
                     if local_path and _os.path.exists(local_path):
                         _add_picture_resilient(doc, local_path, width=Cm(14))
@@ -768,4 +849,5 @@ def create_docx_from_markdown(markdown_content: str, filename: str = "report.doc
         file_path = generate_docx_file(markdown_content, filename)
         return f"DOCX Generated Successfully: {file_path}"
     except Exception as exc:
+        log_print(f"[tools.docx.create_docx_from_markdown] suppressed {type(exc).__name__}: {exc}", flush=True)
         return f"DOCX Generation Failed: {str(exc)}"

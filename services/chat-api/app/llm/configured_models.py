@@ -8,17 +8,16 @@ from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import Any
 
-from bson import ObjectId
-from bson.errors import InvalidId
+from app.core.ids import is_valid_backend_id, to_backend_id, to_backend_id_strict
 
 from app.core.db import get_db
 from app.core.config import get_settings
 from app.llm.base import BaseLLMClient
 from app.llm.capabilities import infer_structured_output_mode
 from app.llm.instrumented_client import InstrumentedLLMClient
+from app.llm.model_group_config import active_group_ids, load_model_group
 from app.llm.providers.azure_openai import AzureOpenAIClient
 from app.llm.providers.default_openai import DefaultOpenAIClient
-from app.llm.model_group_config import active_group_ids, load_model_group
 
 PROVIDER_COLLECTION = "admin_model_providers"
 INSTANCE_COLLECTION = "admin_model_instances"
@@ -93,23 +92,58 @@ def _keystream(nonce: bytes, length: int) -> bytes:
     return bytes(out[:length])
 
 
-async def get_model_config(model_id: str, main_id: str) -> dict[str, Any] | None:
-    return await get_model_config_by_capability(model_id, main_id, capability=None)
+async def get_model_config(model_id: str, tenant_id: str) -> dict[str, Any] | None:
+    return await get_model_config_by_capability(model_id, tenant_id, capability=None)
+
+
+async def _with_inherited_api_key(instance: dict[str, Any], db: Any) -> dict[str, Any]:
+    """子模型实例未配置 api_key_encrypted 时，继承同 provider 有 key 实例的 key。
+
+    管理端为同一 provider（sensenova/agnes 等）添加多个子模型时，子模型实例通常
+    不单独维护密钥，而是与 provider 级账号共享同一把 api_key。若子模型实例缺少
+    api_key_encrypted（且未绑定模型组），回退到同 provider 中 priority 最高的、
+    已配置加密 key 的实例，避免运行时 decrypt_secret("") → 空 api_key → provider
+    网关 401 "Authorization Not Found"（表现为 DSH 任务执行部分后中断）。
+    """
+    if instance.get("api_key_encrypted") or instance.get("group_id"):
+        return instance
+    provider_id = instance.get("provider_id")
+    if not provider_id:
+        return instance
+    # 同一 provider_id 下可能混有多个不同服务（sensenova / agnes / lmstudio），
+    # 它们各自持有不同的 key；按 base_url（同一服务端点）匹配才能继承到正确
+    # 那把 key，而不是同 provider 里 priority 最高的无关服务 key。
+    sibling = await db[INSTANCE_COLLECTION].find_one(
+        {
+            "provider_id": provider_id,
+            "tenant_id": instance.get("tenant_id"),
+            "base_url": instance.get("base_url"),
+            "api_key_encrypted": {"$exists": True, "$ne": ""},
+        },
+        sort=[("priority", 1), ("updated_at", -1)],
+    )
+    if sibling and sibling.get("api_key_encrypted"):
+        inherited = dict(instance)
+        inherited["api_key_encrypted"] = sibling["api_key_encrypted"]
+        return inherited
+    return instance
 
 
 async def get_model_config_by_capability(
     model_id: str,
-    main_id: str,
+    tenant_id: str,
     *,
     capability: str | None = "chat",
 ) -> dict[str, Any] | None:
     db = get_db()
     try:
-        instance = await db[INSTANCE_COLLECTION].find_one({"_id": ObjectId(model_id), "main_id": main_id})
-    except InvalidId as exc:
+        oid = to_backend_id_strict(model_id)
+    except ValueError as exc:
         raise ModelConfigError("模型配置 ID 无效") from exc
+    instance = await db[INSTANCE_COLLECTION].find_one({"_id": oid, "tenant_id": tenant_id})
     if instance is None:
         return None
+    instance = await _with_inherited_api_key(instance, db)
     try:
         group = await load_model_group(instance)
     except ValueError as exc:
@@ -118,23 +152,24 @@ async def get_model_config_by_capability(
     return _to_runtime_config(instance, provider or {}, group=group, required_capability=capability)
 
 
-async def get_default_model_config(main_id: str) -> dict[str, Any] | None:
-    return await get_default_model_config_by_capability(main_id, capability="chat")
+async def get_default_model_config(tenant_id: str) -> dict[str, Any] | None:
+    return await get_default_model_config_by_capability(tenant_id, capability="chat")
 
 
 async def get_default_model_config_by_capability(
-    main_id: str,
+    tenant_id: str,
     *,
     capability: str = "chat",
 ) -> dict[str, Any] | None:
     db = get_db()
     cursor = db[INSTANCE_COLLECTION].find(
         {
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "status": "active",
             "capabilities": _capability_query_value(capability),
         },
-    ).sort([("priority", 1), ("updated_at", -1)])
+        sort=[("priority", 1), ("updated_at", -1)],
+    )
     async for instance in cursor:
         try:
             group = await load_model_group(instance)
@@ -142,31 +177,32 @@ async def get_default_model_config_by_capability(
             continue
         if group is not None and group.get("status") != "active":
             continue
+        instance = await _with_inherited_api_key(instance, db)
         provider = await db[PROVIDER_COLLECTION].find_one({"_id": instance.get("provider_id")})
         return _to_runtime_config(instance, provider or {}, group=group, required_capability=capability)
     return None
 
 
-async def list_chat_model_options(main_id: str) -> list[dict[str, Any]]:
-    return await list_model_options(main_id, capability="chat")
+async def list_chat_model_options(tenant_id: str) -> list[dict[str, Any]]:
+    return await list_model_options(tenant_id, capability="chat")
 
 
 async def list_model_options(
-    main_id: str,
+    tenant_id: str,
     *,
     capability: str = "chat",
 ) -> list[dict[str, Any]]:
     db = get_db()
     cursor = db[INSTANCE_COLLECTION].find(
         {
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "status": "active",
             "capabilities": _capability_query_value(capability),
         }
     ).sort([("priority", 1), ("updated_at", -1)])
     instances = await cursor.to_list(length=200)
     group_ids = [str(item.get("group_id")) for item in instances if item.get("group_id")]
-    active_groups = await active_group_ids(main_id, group_ids)
+    active_groups = await active_group_ids(tenant_id, group_ids)
     instances = [item for item in instances if not item.get("group_id") or str(item["group_id"]) in active_groups]
     provider_ids = [item.get("provider_id") for item in instances if item.get("provider_id")]
     provider_map: dict[str, dict[str, Any]] = {}
@@ -176,10 +212,10 @@ async def list_model_options(
     return [_to_public_option(item, provider_map.get(str(item.get("provider_id")), {})) for item in instances]
 
 
-async def update_model_health(model_id: str, main_id: str, health_status: str, last_error: str = "") -> None:
+async def update_model_health(model_id: str, tenant_id: str, health_status: str, last_error: str = "") -> None:
     db = get_db()
     await db[INSTANCE_COLLECTION].update_one(
-        {"_id": ObjectId(model_id), "main_id": main_id},
+        {"_id": to_backend_id(model_id), "tenant_id": tenant_id},
         {
             "$set": {
                 "health_status": health_status,
@@ -222,7 +258,7 @@ def _to_runtime_config(
         settings = provider.get("settings") if isinstance(provider.get("settings"), dict) else {}
     config = {
         "id": str(instance.get("_id") or ""),
-        "main_id": str(instance.get("main_id") or ""),
+        "tenant_id": str(instance.get("tenant_id") or ""),
         "display_name": str(instance.get("display_name") or ""),
         "provider_type": provider_type,
         "provider_name": str(provider.get("name") or ""),
@@ -283,8 +319,6 @@ def _validate_runtime_config(
         raise ModelConfigError("模型 ID 不能为空")
     if not str(config.get("base_url") or "").strip():
         raise ModelConfigError("Base URL 不能为空")
-    if not str(config.get("api_key") or "").strip():
-        raise ModelConfigError("API Key 不能为空")
 
 
 def build_llm_client_from_config(
@@ -329,32 +363,97 @@ def build_llm_client_from_config(
     )
 
 
+async def get_fallback_runtime_configs(
+    tenant_id: str,
+    *,
+    capability: str = "chat",
+    primary_instance_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Ordered backup runtime configs for provider failover (007 FR-1).
+
+    Active instances of the same tenant_id + capability, sorted by
+    (priority, updated_at desc), excluding the primary instance. Each config is
+    validated so a broken backup never blocks the primary path.
+    """
+    db = get_db()
+    query = {
+        "tenant_id": tenant_id,
+        "status": "active",
+        "capabilities": _capability_query_value(capability),
+    }
+    if primary_instance_id:
+        if is_valid_backend_id(primary_instance_id):
+            query["_id"] = {"$ne": to_backend_id(primary_instance_id)}
+        else:
+            # An invalid/empty primary id simply means "no exclusion".
+            query.pop("_id", None)
+    cursor = db[INSTANCE_COLLECTION].find(query).sort([("priority", 1), ("updated_at", -1)])
+    instances = await cursor.to_list(length=50)
+    provider_ids = [item.get("provider_id") for item in instances if item.get("provider_id")]
+    provider_map: dict[str, dict[str, Any]] = {}
+    if provider_ids:
+        async for provider in db[PROVIDER_COLLECTION].find({"_id": {"$in": provider_ids}}):
+            provider_map[str(provider.get("_id"))] = provider
+    configs: list[dict[str, Any]] = []
+    for item in instances:
+        provider = provider_map.get(str(item.get("provider_id")), {})
+        try:
+            item = await _with_inherited_api_key(item, db)
+            configs.append(_to_runtime_config(item, provider, required_capability=capability))
+        except ModelConfigError:
+            continue
+    return configs
+
+
+def wrap_resilient(
+    primary: BaseLLMClient,
+    backups: list[BaseLLMClient],
+) -> BaseLLMClient:
+    """Wrap the primary client with provider failover (007 US1 / FR-9).
+
+    A single-provider list (no backups) returns the client unchanged, so the
+    single-provider behavior is a strict no-op (FR-9 backward compatibility).
+    With backups, a ``ResilientLLMClient`` tries the primary first and fails
+    over on retryable errors; non-retryable (401/403) fails immediately (FR-4);
+    per-provider calls stay wrapped in ``InstrumentedLLMClient`` so token
+    usage + failover attribution land in ``token_usage_logs`` (FR-13).
+    """
+    if not backups:
+        return primary
+    from app.llm.resilience.failover import ProviderEntry, ResilientLLMClient
+
+    entries = [ProviderEntry(name="primary", factory=lambda: primary)]
+    for index, backup in enumerate(backups, start=1):
+        entries.append(ProviderEntry(name=f"backup-{index}", factory=lambda b=backup: b))
+    return ResilientLLMClient(entries)
+
+
 async def get_llm_client_by_model_id(
     model_id: str | None,
     *,
-    main_id: str,
+    tenant_id: str,
     streaming: bool = True,
     intent: str | None = None,
     stage: str | None = None,
     node_id: str | None = None,
     output_spec: dict[str, Any] | None = None,
 ) -> BaseLLMClient:
-    config = await get_model_config(model_id, main_id) if model_id else await get_default_model_config(main_id)
+    config = await get_model_config(model_id, tenant_id) if model_id else await get_default_model_config(tenant_id)
     if config is None:
         raise ModelConfigError("没有可用的模型配置")
     
     user_id = str((output_spec or {}).get("user_id") or "").strip()
-    if user_id and ObjectId.is_valid(user_id):
-        user_doc = await get_db()["end_users"].find_one({"_id": ObjectId(user_id), "main_id": main_id})
+    if user_id and is_valid_backend_id(user_id):
+        user_doc = await get_db()["end_users"].find_one({"_id": to_backend_id(user_id), "tenant_id": tenant_id})
         if user_doc:
             from app.core.quota_policy import QuotaExceededError, assert_quota_available
 
             try:
-                await assert_quota_available(main_id, user_doc)
+                await assert_quota_available(tenant_id, user_doc)
             except QuotaExceededError as exc:
                 raise ModelConfigError(str(exc)) from exc
 
-    return build_llm_client_from_config(
+    primary = build_llm_client_from_config(
         config,
         streaming=streaming,
         intent=intent,
@@ -362,3 +461,21 @@ async def get_llm_client_by_model_id(
         node_id=node_id,
         output_spec=output_spec,
     )
+    # 007 FR-1: provider failover on the production path. Backups are the other
+    # active instances of the same tenant_id/capability in priority order. With
+    # none configured this is a no-op (FR-9); 401/403 never fail over (FR-4).
+    backups = [
+        build_llm_client_from_config(
+            backup,
+            streaming=streaming,
+            intent=intent,
+            stage=stage,
+            node_id=node_id,
+            output_spec=output_spec,
+        )
+        for backup in await get_fallback_runtime_configs(
+            tenant_id,
+            primary_instance_id=str(config.get("id") or ""),
+        )
+    ]
+    return wrap_resilient(primary, backups)

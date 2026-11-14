@@ -271,7 +271,7 @@ function requestRemove() {
 </script>
 
 <template>
-  <div class="flex flex-col h-full w-full bg-[#f8fafc]">
+  <div class="mg-page app-view-page">
     <!-- Header -->
     <header class="h-16 border-b border-gray-200 bg-white/80 backdrop-blur-sm flex items-center px-8 justify-between shrink-0 sticky top-0 z-10">
       <div class="flex items-center gap-3 min-w-0">
@@ -555,5 +555,5 @@ function requestRemove() {
 <style scoped>
 .custom-scrollbar::-webkit-scrollbar { width: 6px; }
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: var(--mg-scrollbar-thumb); border-radius: 10px; }
 </style>

@@ -1,40 +1,58 @@
 import { createServer } from 'node:http'
 
 import { validBearerToken, assertSecureHost } from './host-auth.mjs'
-import { runtimeHealth } from './host-protocol.mjs'
-import { readJson, routeParts, sendJson } from './http-utils.mjs'
+import { HOST_STATES, runtimeHealth } from './host-protocol.mjs'
+import { readBody, readJson, routeParts, sendJson } from './http-utils.mjs'
+import { createDirectory, DirectoryBrowseError, ensureWorkspaceRoot, listDirectory } from './directory-browser.mjs'
+import {
+  findOwner,
+  findOwnerByIsolation,
+  forwardRequest,
+  HOP_HEADER,
+  parsePeers,
+  shouldForward,
+} from './replica-forward.mjs'
 import { RuntimeManager } from './runtime-manager.mjs'
+import { resolveSessionSeed, sealSeed } from './session-seed.mjs'
 import { IsolatedPluginRuntimePool } from './isolated-plugin-runtime.mjs'
 import { ContainerPluginRuntimePool } from './container-plugin-runtime.mjs'
 import { admitSessionBody } from './session-admission.mjs'
 import { PluginArchiveMaterializer } from './plugin-archive-materializer.mjs'
-import { PluginHistoryMaterializer } from './plugin-history-materializer.mjs'
-import { proxyPluginUiSocket, rejectUpgrade } from './plugin-ui-websocket.mjs'
+
+const DRAIN_WAIT_MS = 30_000
 
 export class RuntimeHttpServer {
   #server
   #manager
   #isolated
   #pluginArchives
-  #pluginHistory
   #started = false
+  #state = HOST_STATES.ready
+  #draining = false
+  #peers = []
+  #selfUrl = ''
 
-  constructor({ host = '127.0.0.1', port = 0, storageRoot, authToken = '' }) {
+  constructor({ host = '127.0.0.1', port = 0, storageRoot, authToken = '', instanceId = '', peers = '', selfUrl = '' }) {
     if (!Number.isInteger(port) || port < 0 || port > 65535) throw new TypeError('port must be an integer from 0 to 65535')
     if (authToken && authToken.length < 32) throw new TypeError('authToken must contain at least 32 characters')
     assertSecureHost(host, authToken)
     this.host = host
     this.port = port
     this.authToken = authToken
+    this.instanceId = instanceId || process.env.DSH_INSTANCE_ID || ''
+    // Cross-replica hand-off (§方案 1). DSH_RUNTIME_PEERS is the pool's own
+    // membership list, used only to locate the replica that holds a runtime
+    // when the sticky LB hands us a request we cannot serve.
+    this.#selfUrl = selfUrl || process.env.DSH_RUNTIME_SELF_URL || ''
+    this.#peers = parsePeers(peers || process.env.DSH_RUNTIME_PEERS || '', this.#selfUrl)
     this.#manager = new RuntimeManager({ storageRoot })
-    this.#isolated = process.env.MOVO_SANDBOX_MANAGER_URL
+    this.#isolated = process.env.MOGO_SANDBOX_MANAGER_URL
       ? new ContainerPluginRuntimePool({
-          managerUrl: process.env.MOVO_SANDBOX_MANAGER_URL,
-          managerToken: process.env.MOVO_SANDBOX_MANAGER_TOKEN,
+          managerUrl: process.env.MOGO_SANDBOX_MANAGER_URL,
+          managerToken: process.env.MOGO_SANDBOX_MANAGER_TOKEN,
         })
       : new IsolatedPluginRuntimePool(storageRoot)
     this.#pluginArchives = new PluginArchiveMaterializer(storageRoot)
-    this.#pluginHistory = new PluginHistoryMaterializer(storageRoot)
     this.#server = createServer((request, response) => {
       if (request.url?.startsWith('/v1/sandbox-relay/')) {
         if (typeof this.#isolated.relay !== 'function') {
@@ -53,6 +71,9 @@ export class RuntimeHttpServer {
         return
       }
       this.#dispatch(request, response).catch(error => {
+        // A hand-off may have already relayed a response before a later error
+        // surfaced; writing again would trip ERR_HTTP_HEADERS_SENT and kill
+        // the process. Only answer when nothing has been sent yet.
         if (response.destroyed || response.writableEnded) return
         if (response.headersSent) { response.destroy(error); return }
         sendJson(response, 400, {
@@ -63,35 +84,21 @@ export class RuntimeHttpServer {
         })
       })
     })
-    this.#server.on('upgrade', (request, socket, head) => {
-      if (!validBearerToken(request.headers.authorization, this.authToken)) {
-        rejectUpgrade(socket, 401)
-        return
-      }
-      const match = /^\/v1\/runtimes\/([^/]+)\/plugin-ui\/([^/]+)\/api\/remote\.mux$/.exec(
-        new URL(request.url, 'http://runtime-host.local').pathname,
-      )
-      if (!match) { rejectUpgrade(socket); return }
-      const [, runtimeId, pluginId] = match
-      const isolated = this.#isolated.get(runtimeId)
-      if (isolated) {
-        const target = this.#isolated.upgradeTarget(isolated, request.url)
-        proxyPluginUiSocket(request, socket, head, target)
-        return
-      }
-      try {
-        const runtime = this.#manager.get(runtimeId)
-        // The route is already authorized here; the native plugin bridge expects its local path.
-        request.url = '/api/remote.mux'
-        runtime.proxyPluginUiUpgrade(pluginId, request, socket, head)
-          .catch(() => rejectUpgrade(socket))
-      } catch { rejectUpgrade(socket) }
-    })
   }
 
   async start() {
     if (this.#started) return this.address()
     await this.#manager.probe()
+    // Bring up the browsable workspace root early: a misconfigured
+    // MOGO_WORKSPACE_ROOT (e.g. on the read-only root filesystem) then shows up
+    // in the startup logs instead of only when the first browser request fails.
+    // Non-fatal — the rest of the host must keep serving even if browsing is down.
+    try {
+      const root = await ensureWorkspaceRoot()
+      console.log(`[directory-browser] workspace root ready at ${root}`)
+    } catch (error) {
+      console.warn(`[directory-browser] workspace root unavailable: ${error instanceof Error ? error.message : String(error)}`)
+    }
     await new Promise((resolvePromise, reject) => {
       const onError = error => reject(error)
       this.#server.once('error', onError)
@@ -113,6 +120,10 @@ export class RuntimeHttpServer {
   async stop() {
     if (!this.#started) return
     this.#started = false
+    // R1 two-phase shutdown: first drain (stop accepting new work, let
+    // in-flight turns finish up to a bound) so a rolling upgrade no longer
+    // force-cancels active sessions; then close connections and dispose.
+    await this.#drain()
     const closed = new Promise(resolvePromise => this.#server.close(() => resolvePromise()))
     await this.#isolated.disposeAll()
     await this.#manager.disposeAll()
@@ -120,28 +131,203 @@ export class RuntimeHttpServer {
     await closed
   }
 
+  // Phase 1 of shutdown: reject new work, wait for in-flight turns to settle.
+  async #drain() {
+    if (this.#draining) return
+    this.#draining = true
+    this.#state = HOST_STATES.draining
+    await this.#manager.whenSessionsIdle({ intervalMs: 200, timeoutMs: DRAIN_WAIT_MS })
+    // Any session still busy after the timeout is disposed in phase 2; its
+    // state is persisted so a later resume can recover it.
+  }
+
+  // Explicit drain trigger (R1): operations or the container's preStop hook
+  // can call POST /drain to start draining without killing the process,
+  // e.g. to let an active turn finish before a planned restart.
+  async #drainNow() {
+    await this.#drain()
+  }
+
+  get state() {
+    return this.#state
+  }
+
+  /**
+   * Relay a runtime-scoped request this replica cannot serve to the replica
+   * that holds the runtime. Returns the response, or null when no peer holds
+   * it (caller then falls through to the local "runtime not found" error, so
+   * a genuinely unknown runtime still fails honestly).
+   */
+  async #handOff({ request, response, runtimeId, parts, query, body }) {
+    const path = `/${parts.join('/')}`
+    if (!shouldForward({ request, selfUrl: this.#selfUrl, path })) return null
+    if (this.#peers.length === 0) return null
+
+    const authorization = request.headers.authorization ?? ''
+    let targetParts = parts
+    // Prefer the isolation key: it is carried on every runtime/session call
+    // and stays valid after a replica restart, whereas the runtime id changes
+    // when chat-api rebuilds the binding.
+    const isolationKey = request.headers['x-isolation-key']
+    let target = null
+    if (typeof isolationKey === 'string' && isolationKey !== '') {
+      target = await findOwnerByIsolation({
+        peers: this.#peers,
+        isolationKey,
+        authorization,
+        instanceId: this.instanceId,
+        selfUrl: this.#selfUrl,
+      })
+      if (target && target.runtimeId !== runtimeId) {
+        // The owning replica minted its own runtime id; rewrite the path so
+        // the peer serves its own runtime rather than the stale id.
+        targetParts = parts.slice()
+        targetParts[2] = target.runtimeId
+      }
+    }
+    if (target === null) {
+      target = await findOwner({
+        peers: this.#peers,
+        runtimeId,
+        authorization,
+        instanceId: this.instanceId,
+        selfUrl: this.#selfUrl,
+      })
+    }
+    if (target === null) return null
+
+    const search = query.toString() === '' ? '' : `?${query.toString()}`
+    const hops = Number.parseInt(request.headers[HOP_HEADER] ?? '0', 10) || 0
+    // A peer that is draining refuses new sessions (R1 drain guard). That is
+    // correct for the peer, but relaying its 503 to the caller would fail a
+    // request another replica could still serve — so try the next owner.
+    const attempted = new Set()
+    while (target !== null) {
+      attempted.add(target.url)
+      let targetTargetParts = targetParts
+      if (target.runtimeId && target.runtimeId !== runtimeId) {
+        targetTargetParts = parts.slice()
+        targetTargetParts[2] = target.runtimeId
+      }
+      const result = await forwardRequest({
+        targetUrl: target.url,
+        request,
+        path: `/${targetTargetParts.join('/')}`,
+        search,
+        hops,
+        body,
+      })
+      const draining = result.status === 503
+        && result.body?.error?.code === 'service_draining'
+      if (!draining || result.forwarded === false) {
+        if (result.forwarded) {
+          response.setHeader('x-dsh-forwarded-to', target.instanceId ?? target.url)
+        }
+        return sendJson(response, result.status, result.body)
+      }
+      target = await this.#nextTarget({ peers: this.#peers, attempted, isolationKey, runtimeId, authorization })
+    }
+    return null
+  }
+
+  /** Find another peer that holds the runtime, skipping already-tried ones. */
+  async #nextTarget({ peers, attempted, isolationKey, runtimeId, authorization }) {
+    const remaining = peers.filter(peer => !attempted.has(peer))
+    if (remaining.length === 0) return null
+    if (typeof isolationKey === 'string' && isolationKey !== '') {
+      const byKey = await findOwnerByIsolation({
+        peers: remaining,
+        isolationKey,
+        authorization,
+        instanceId: this.instanceId,
+        selfUrl: this.#selfUrl,
+      })
+      if (byKey) return byKey
+    }
+    return findOwner({
+      peers: remaining,
+      runtimeId,
+      authorization,
+      instanceId: this.instanceId,
+      selfUrl: this.#selfUrl,
+    })
+  }
+
   async #dispatch(request, response) {
     const { parts, query } = routeParts(request)
     if (request.method === 'GET' && parts.join('/') === 'health') {
-      return sendJson(response, 200, runtimeHealth([...this.#manager.inventory(), ...this.#isolated.inventory()]))
+      // /health stays 200 while draining so the sticky LB does not evict the
+      // replica mid-turn; the state field is the signal for operators and for
+      // chat-api's aggregation to treat the replica as unavailable for new
+      // work.
+      return sendJson(response, 200, runtimeHealth(
+        [...this.#manager.inventory(), ...this.#isolated.inventory()],
+        this.instanceId, this.#state,
+      ))
+    }
+    if (request.method === 'POST' && parts.join('/') === 'drain') {
+      await this.#drainNow()
+      return sendJson(response, 200, {
+        state: this.#state,
+        activeSessions: this.#manager.activeSessionCount(),
+      })
+    }
+    // Drain guard: once the host is draining it must not take on new work.
+    // Existing sessions keep their in-flight turns (send/resume/cancel/
+    // events) so a rolling upgrade never force-cancels them; only new
+    // runtimes, new sessions and new workspaces are refused.
+    if (this.#state === HOST_STATES.draining && request.method === 'POST') {
+      const path = parts.join('/')
+      if (path === 'v1/runtimes'
+        || /^v1\/runtimes\/[^/]+\/sessions$/.test(path)
+        || /^v1\/runtimes\/[^/]+\/workspaces$/.test(path)) {
+        return sendJson(response, 503, {
+          error: { code: 'service_draining', message: `host is draining; new work is not accepted on ${path}` },
+          instanceId: this.instanceId,
+        })
+      }
     }
     if (request.method === 'POST' && parts.join('/') === 'v1/plugin-archives/materialize') {
       const body = await readJson(request)
       const spec = await this.#pluginArchives.materialize(body)
       return sendJson(response, 200, { spec })
     }
+    // Directory browsing for the pure-web client: it lists one level of the
+    // browsable workspace root so the browser can drive a directory picker
+    // the way the DSH desktop drives its native OS chooser.
+    if (parts[0] === 'v1' && parts[1] === 'directories') {
+      try {
+        if (request.method === 'GET' && parts.length === 2) {
+          const listing = await listDirectory(query.get('path') || undefined)
+          return sendJson(response, 200, listing)
+        }
+        if (request.method === 'POST' && parts.length === 2) {
+          const body = await readJson(request)
+          const created = await createDirectory(body.path, body.name)
+          return sendJson(response, 201, { path: created })
+        }
+      } catch (error) {
+        if (error instanceof DirectoryBrowseError) {
+          return sendJson(response, 400, {
+            error: { code: error.code, message: error.message, path: error.path },
+          })
+        }
+        throw error
+      }
+    }
     if (request.method === 'POST' && parts.join('/') === 'v1/runtimes') {
       const body = await readJson(request)
       body.modelProfile = await this.#pluginArchives.prepareProfile(body.modelProfile)
-      const needsPersonalRuntime = Boolean(body.modelProfile?.subjectUserId || body.modelProfile?.plugins?.length)
-      const runtime = needsPersonalRuntime && process.env.MOVO_DSH_PLUGIN_CHILD !== '1'
+      const runtime = body.modelProfile?.plugins?.length && process.env.MOGO_DSH_PLUGIN_CHILD !== '1'
         ? await this.#isolated.create(body)
         : await this.#manager.create(body)
-      const health = runtimeHealth([])
+      const health = runtimeHealth([], this.instanceId, this.#state)
       return sendJson(response, 201, {
         runtimeId: runtime.runtimeId,
         kernel: health.kernel,
         kernelVersion: health.version,
+        protocolVersion: health.protocolVersion,
+        instanceId: health.instanceId,
         profileVersion: runtime.profileVersion,
         isolationKey: runtime.isolationKey,
       })
@@ -168,43 +354,82 @@ export class RuntimeHttpServer {
       }
       return await this.#isolated.forward(isolated, request, response)
     }
+    // Runtime-ownership probe used by cross-replica hand-off: answers for the
+    // runtime itself (not a session), so a peer can be located before any
+    // session exists there. Always 200 so probing never stops early.
+    if (request.method === 'GET' && parts[3] === 'holds' && parts.length === 4) {
+      const local = this.#manager.findByRuntimeId(runtimeId)
+      return sendJson(response, 200, {
+        holds: local !== undefined,
+        instanceId: this.instanceId,
+        runtimeId,
+      })
+    }
     if (request.method === 'DELETE' && parts.length === 3) {
       await this.#manager.dispose(runtimeId, { purge: query.get('purge') === '1' })
       return sendJson(response, 200, { disposed: true })
     }
-    const runtime = this.#manager.get(runtimeId)
-    if (request.method === 'GET' && parts.length === 3) return sendJson(response, 200, this.#manager.describe(runtime))
-    if (request.method === 'POST' && parts[3] === 'plugin-history' && parts[4] === 'hydrate' && parts.length === 5) {
-      const body = await readJson(request)
-      if (runtime.isolationKey !== `tenant:${body.tenantId}:profile:${body.targetProfileVersion}`) {
-        throw new TypeError('plugin history target does not match runtime')
+    // Cross-replica session probes (§12.4) run *before* the runtime is
+    // resolved: a replica that does not hold the runtime must answer
+    // "owned: false" (B) or "seed: null" (A) instead of 400 "runtime not
+    // found", otherwise the pool-wide probe stops at the first replica it
+    // asks.
+    if (parts[3] === 'sessions' && parts[4] !== undefined) {
+      const sessionId = decodeURIComponent(parts[4])
+      if (request.method === 'GET' && parts[5] === 'owner' && parts.length === 6) {
+        const local = this.#manager.findByRuntimeId(runtimeId)
+        return sendJson(response, 200, {
+          owned: local !== undefined && local.ownsSession(sessionId),
+          instanceId: this.instanceId,
+          runtimeId,
+          sessionId,
+        })
       }
-      const result = await this.#pluginHistory.hydrate(body, {
-        beforeReplace: sessionId => runtime.disposeSession(sessionId),
-      })
-      let resumeFailures = 0
-      for (const sessionId of result.availableSessionIds) {
+      if (request.method === 'GET' && parts[5] === 'export-seed' && parts.length === 6) {
+        const local = this.#manager.findByRuntimeId(runtimeId)
+        if (local === undefined) {
+          return sendJson(response, 404, { seed: null, instanceId: this.instanceId })
+        }
         try {
-          await runtime.resumeSession(sessionId)
+          const seed = await local.exportCompletedSeed(sessionId)
+          return sendJson(response, 200, sealSeed(
+            this.authToken,
+            this.instanceId,
+            sessionId,
+            seed,
+          ))
         } catch (error) {
-          resumeFailures++
-          console.warn('Plugin history session resume failed', { sessionId, error: String(error) })
+          if (/session is not live/.test(String(error))) {
+            return sendJson(response, 404, { seed: null, instanceId: this.instanceId })
+          }
+          throw error
         }
       }
-      return sendJson(response, 200, { ...result, resumeFailures })
     }
-    if (parts[3] === 'plugin-ui' && parts[4] && parts.length >= 5) {
-      const url = new URL(request.url, 'http://runtime-host.local')
-      const prefix = `/v1/runtimes/${runtimeId}/plugin-ui/${parts[4]}`
-      const path = `${url.pathname.slice(prefix.length) || '/'}${url.search}`
-      return await runtime.proxyPluginUi(parts[4], path, request, response)
+    let runtime = this.#manager.findByRuntimeId(runtimeId)
+    if (runtime === undefined) {
+      // The sticky LB handed this request to a replica that does not hold the
+      // runtime. That happens when consistency-hash membership changes (most
+      // visibly while a replica restarts). Instead of failing the caller with
+      // 400 "runtime not found", locate the owning replica and relay the
+      // request — the client then sees a normal answer across the remap.
+      //
+      // The body is buffered first: the hand-off may need it, and if no owner
+      // exists the local path still has to parse it. Reading the stream twice
+      // is impossible, so both paths share one buffer.
+      const buffered = await readBody(request)
+      const handoff = await this.#handOff({ request, response, runtimeId, parts, query, body: buffered })
+      if (handoff) return handoff
+      request._bufferedBody = buffered
+      runtime = this.#manager.get(runtimeId)
     }
-    if (process.env.MOVO_DSH_PLUGIN_CHILD === '1' && request.method === 'POST' &&
+    if (request.method === 'GET' && parts.length === 3) return sendJson(response, 200, this.#manager.describe(runtime))
+    if (process.env.MOGO_DSH_PLUGIN_CHILD === '1' && request.method === 'POST' &&
         parts[3] === 'seed-export' && parts.length === 4) {
       const { sessionId } = await readJson(request)
       return sendJson(response, 200, { seed: await runtime.exportCompletedSeed(sessionId) })
     }
-    if (process.env.MOVO_DSH_PLUGIN_CHILD === '1' && request.method === 'POST' &&
+    if (process.env.MOGO_DSH_PLUGIN_CHILD === '1' && request.method === 'POST' &&
         parts[3] === 'trusted-session' && parts.length === 4) {
       const body = await admitSessionBody(await readJson(request), this.#manager, { trusted: true })
       return sendJson(response, 201, await runtime.createSession(body))
@@ -230,25 +455,24 @@ export class RuntimeHttpServer {
       return sendJson(response, 200, runtime.refreshToolCredential(await readJson(request)))
     }
     if (request.method === 'POST' && parts[3] === 'sessions' && parts.length === 4) {
-      const body = await admitSessionBody(await readJson(request), this.#seedSource())
+      let body = await readJson(request)
+      if (Object.hasOwn(body, 'cwd')) throw new Error('raw cwd is forbidden over the Runtime Host API; use workspaceId')
+      body = await resolveSessionSeed(this.#manager, body, { authToken: this.authToken })
+      if (body.presetId === 'code') {
+        if (body.workspaceId === undefined) throw new Error('Code Session requires a DSH workspaceId')
+        if (body.permissionPreset !== undefined && body.permissionPreset !== 'workspace-write') {
+          throw new Error('desktop Code Session permissionPreset exceeds MOGO policy')
+        }
+        body.permissionPreset = 'workspace-write'
+      }
       return sendJson(response, 201, await runtime.createSession(body))
     }
     if (parts[3] === 'sessions' && parts[4] !== undefined) {
       const sessionId = decodeURIComponent(parts[4])
       if (request.method === 'GET' && parts.length === 5) return sendJson(response, 200, await runtime.describeLiveSession(sessionId))
-      if (request.method === 'GET' && parts[5] === 'plugin-capabilities' && parts.length === 6) {
-        return sendJson(response, 200, await runtime.managedSessionCapabilities(sessionId))
-      }
-      if (request.method === 'POST' && parts[5] === 'resume') {
-        const body = await readJson(request)
-        return sendJson(response, 200, await runtime.resumeSession(sessionId, body.cursorFloor ?? 0))
-      }
+      if (request.method === 'POST' && parts[5] === 'resume') return sendJson(response, 200, await runtime.resumeSession(sessionId))
       if (request.method === 'POST' && parts[5] === 'send') {
         return sendJson(response, 202, await runtime.send({ sessionId, ...await readJson(request) }))
-      }
-      if (request.method === 'POST' && parts[5] === 'plugin-command' && parts.length === 6) {
-        const body = await readJson(request)
-        return sendJson(response, 200, await runtime.executePluginCommand(sessionId, body.selectedId, body.line))
       }
       if (request.method === 'POST' && parts[5] === 'cancel') {
         const body = await readJson(request)
@@ -322,9 +546,6 @@ export class RuntimeHttpServer {
       const body = await readJson(request)
       if (request.method === 'POST' && parts[4] === 'inspect' && parts.length === 5) {
         return sendJson(response, 200, await runtime.managedPluginInspect(body.spec, body.registry))
-      }
-      if (request.method === 'POST' && parts[4] === 'manifest' && parts.length === 5) {
-        return sendJson(response, 200, await runtime.managedPluginManifest(body.name))
       }
       if (request.method === 'POST' && parts[4] === 'install' && parts.length === 5) {
         return sendJson(response, 200, await runtime.managedPluginInstall(body.spec, body))

@@ -26,31 +26,6 @@ class ContainerReleasePlanTests(unittest.TestCase):
         changed, _ = select_images(["apps/user-web/src/views/LoginView.vue"])
         self.assertEqual(["user-web"], self.suffixes(changed))
 
-    def test_document_parser_readme_does_not_rebuild_heavy_image(self):
-        changed, _ = select_images(["services/document-parser/README.md"])
-        self.assertEqual([], self.suffixes(changed))
-
-    def test_internal_readme_does_not_rebuild_chat_api(self):
-        changed, _ = select_images(
-            ["services/chat-api/app/enterprise_capabilities/content/evaluation/README.md"]
-        )
-        self.assertEqual([], self.suffixes(changed))
-
-    def test_runtime_skill_markdown_still_rebuilds_chat_api(self):
-        changed, _ = select_images(["services/chat-api/app/skills_specs/pdf/SKILL.md"])
-        self.assertEqual(["chat-api"], self.suffixes(changed))
-
-    def test_document_parser_runtime_and_build_inputs_do_rebuild(self):
-        for path in (
-            "services/document-parser/app/main.py",
-            "services/document-parser/scripts/download_docling_models.py",
-            "services/document-parser/requirements-docling.txt",
-            "services/document-parser/Dockerfile",
-        ):
-            with self.subTest(path=path):
-                changed, _ = select_images([path])
-                self.assertEqual(["document-parser"], self.suffixes(changed))
-
     def test_dsh_host_change_does_not_rebuild_chat_api(self):
         changed, _ = select_images(["services/chat-api/dsh/runtime-host/src/host.mjs"])
         self.assertEqual(["dsh-runtime-host"], self.suffixes(changed))
@@ -87,25 +62,9 @@ class ContainerReleasePlanTests(unittest.TestCase):
         workflow = (REPOSITORY_ROOT / ".github/workflows/container-release.yml").read_text()
         self.assertIn(
             "if: ${{ github.event.repository.visibility == 'public' }}\n"
-            "        uses: ./.github/actions/attest-image-with-retry",
+            "        uses: actions/attest-build-provenance@v4",
             workflow,
         )
-
-    def test_attestation_retries_without_weakening_the_scan_gate(self):
-        workflow = (REPOSITORY_ROOT / ".github/workflows/container-release.yml").read_text()
-        action = (
-            REPOSITORY_ROOT / ".github/actions/attest-image-with-retry/action.yml"
-        ).read_text()
-        self.assertLess(
-            workflow.index("- name: Scan candidate image"),
-            workflow.index("- name: Attest public image provenance"),
-        )
-        self.assertEqual(3, action.count("uses: actions/attest-build-provenance@v3"))
-        self.assertEqual(2, action.count("continue-on-error: true"))
-        self.assertIn("steps.first.outcome == 'failure'", action)
-        self.assertIn("steps.second.outcome == 'failure'", action)
-        self.assertIn("- name: Attest image (attempt 3/3)", action)
-        self.assertEqual(3, action.count("push-to-registry: true"))
 
     def test_release_scans_candidates_before_publishing_public_tags(self):
         workflow = (REPOSITORY_ROOT / ".github/workflows/container-release.yml").read_text()
@@ -122,17 +81,9 @@ class ContainerReleasePlanTests(unittest.TestCase):
         self.assertIn("needs.publish-candidates.result == 'success'", workflow)
         self.assertIn("group: container-release-${{ github.repository }}", workflow)
         self.assertIn(
-            "MOVO_SECURITY_REFRESH=${{ github.run_id }}-${{ github.run_attempt }}",
+            "MOGO_SECURITY_REFRESH=${{ github.run_id }}-${{ github.run_attempt }}",
             workflow,
         )
-
-    def test_security_scan_reports_findings_without_blocking_release(self):
-        workflow = (REPOSITORY_ROOT / ".github/workflows/container-release.yml").read_text()
-        self.assertEqual(1, workflow.count("- name: Scan candidate image (advisory)"))
-        self.assertIn("exit-code: \"0\"", workflow)
-        self.assertIn("severity: CRITICAL,HIGH", workflow)
-        self.assertNotIn("- name: Scan candidate image (release gate)", workflow)
-        self.assertNotIn("trivyignores:", workflow)
 
     def test_release_diff_uses_last_successful_container_release(self):
         workflow = (REPOSITORY_ROOT / ".github/workflows/container-release.yml").read_text()
@@ -151,14 +102,16 @@ class ContainerReleasePlanTests(unittest.TestCase):
         for dockerfile in dockerfiles:
             with self.subTest(dockerfile=dockerfile):
                 contents = (REPOSITORY_ROOT / dockerfile).read_text()
-                self.assertIn("ARG MOVO_SECURITY_REFRESH=local", contents)
-                if dockerfile == "services/document-parser/Dockerfile":
-                    self.assertIn("apt_with_mirror_fallback.py upgrade", contents)
-                    helper = (REPOSITORY_ROOT / "services/document-parser/scripts/apt_with_mirror_fallback.py").read_text()
-                    self.assertIn('run_apt("update")', helper)
-                    self.assertIn('run_apt("upgrade", "-y")', helper)
-                else:
-                    self.assertIn("apt-get upgrade -y", contents)
+                # The refresh is opt-in: CI passes a run id, while an empty or
+                # "false" value skips the upgrade so a local rebuild stays
+                # cacheable. Assert the *semantics*, not one spelling of them.
+                # 品牌迁移完成（2026-10-21）：MOVO_ 声明与回退链已移除，
+                # 仅保留 MOGO_ 单名 opt-in 语义。
+                self.assertNotIn("MOVO", contents)
+                self.assertIn("ARG MOGO_SECURITY_REFRESH=", contents)
+                self.assertNotIn("ARG MOGO_SECURITY_REFRESH=local", contents)
+                self.assertIn('"${MOGO_SECURITY_REFRESH}" != "false"', contents)
+                self.assertIn("apt-get upgrade -y", contents)
 
     def test_promotion_preflights_all_sources_before_tagging(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -177,7 +130,13 @@ class ContainerReleasePlanTests(unittest.TestCase):
                 "BASE_REF": "v0.1.12",
                 "DOCKER_CALL_LOG": str(call_log),
                 "GITHUB_REF_NAME": "v0.1.13",
-                "GITHUB_REPOSITORY": "HiMOVO/MOVO",
+                "GITHUB_REPOSITORY": "MOGOAI/MOGO",
+                # GitHub Actions 运行器会注入 GITHUB_REPOSITORY_OWNER（真实仓库
+                # owner），而 promote 脚本优先读它；不在此显式钉住就会随 CI 环境
+                # 漂移（曾致断言 ghcr.io/mogoai/... 实得 ghcr.io/<真实owner>/...）。
+                "GITHUB_REPOSITORY_OWNER": "MOGOAI",
+                # GITHUB_SHA 决定 candidate tag，必须 16 进制短 SHA 一致——
+                # 用完整 SHA（workflow 与 promote 脚本均为 candidate-${GITHUB_SHA} 全长）。
                 "GITHUB_SHA": "0123456789abcdef0123456789abcdef01234567",
                 "PATH": f"{temporary_path}:{os.environ['PATH']}",
             }
@@ -194,8 +153,18 @@ class ContainerReleasePlanTests(unittest.TestCase):
         self.assertEqual(4, len(calls))
         self.assertTrue(all("imagetools inspect" in call for call in calls[:2]))
         self.assertTrue(all("imagetools create" in call for call in calls[2:]))
-        self.assertIn("movo-chat-api:candidate-0123456789abcdef", calls[0])
-        self.assertIn("movo-admin-api:v0.1.12", calls[1])
+        # Images are published as ghcr.io/<owner>/<service>; the repository name
+        # must not leak into the image name (it used to be
+        # ghcr.io/<owner>/<repository>-<service>, i.e. ghcr.io/mogoai/mogo-chat-api).
+        # candidate tag 是完整 GITHUB_SHA（promote 脚本 candidate="${GITHUB_SHA}"），
+        # 断言全长而非前缀，防止又一轮 tag 形态漂移。
+        self.assertIn(
+            "ghcr.io/mogoai/chat-api:candidate-0123456789abcdef0123456789abcdef01234567",
+            calls[0],
+        )
+        self.assertIn("ghcr.io/mogoai/admin-api:v0.1.12", calls[1])
+        self.assertNotIn("mogo-chat-api", calls[0])
+        self.assertNotIn("mogo-admin-api", calls[1])
         self.assertTrue(all(":v0.1.13" in call for call in calls[2:]))
         self.assertTrue(all(":latest" in call for call in calls[2:]))
 

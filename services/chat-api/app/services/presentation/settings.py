@@ -8,8 +8,8 @@ from app.core.db import get_db
 COLLECTION = "admin_presentation_settings"
 
 
-async def get_presentation_generation_settings(main_id: str) -> dict[str, Any] | None:
-    doc = await get_db()[COLLECTION].find_one({"main_id": main_id})
+async def get_presentation_generation_settings(tenant_id: str) -> dict[str, Any] | None:
+    doc = await get_db()[COLLECTION].find_one({"tenant_id": tenant_id})
     if not doc:
         return None
     return {

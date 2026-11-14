@@ -1,0 +1,93 @@
+"""Audit/observability hooks (T999) for 011/014/015/016/017/018 features.
+
+Each feature's key events are funneled into a single 001-style audit sink so
+they share the same trail, retention, and compliance reporting. The helpers
+below are thin recorders: they normalise the event into a document and write
+it through the injected sink (tests use an in-memory sink; production uses
+the 001 governance audit writer).
+"""
+
+from __future__ import annotations
+
+from typing import Any, Callable, Optional
+
+# The generic audit sink: ``sink(event, document)``.
+AuditSink = Callable[[str, dict[str, Any]], Any]
+
+FEATURE_AUDIT_EVENTS: dict[str, tuple[str, ...]] = {
+    # 011's event names follow the implementation contract
+    # (``dream_cycle.evolution_audit.AUDIT_EVENT_TYPES`` and
+    # ``contracts/self-evolution.md``), which is deliberately shorter than the
+    # ``<domain>.<verb>`` style the other features use.
+    "011": ("capture", "generate", "mr", "deprecate", "restore", "scan"),
+    "012": ("a2a.outbound", "a2a.inbound", "a2a.denied"),
+    "014": ("entity.indexed", "entity.searched"),
+    "015": ("kg.mutated", "kg.conflict.resolved", "kg.audited"),
+    "016": ("skill.quality.marked", "skill.quality.restored"),
+    # 017 三范围记忆：保留既有 3 个事件（memory.decayed / memory.restored 仍被
+    # 现有调用点与测试使用），并按 design §9.4 事件契约扩充治理动作事件。
+    "017": (
+        "memory.promoted",
+        "memory.decayed",
+        "memory.restored",
+        "memory.department_write",
+        "memory.scope_demoted",
+        "memory.archived",
+        "memory.deleted",
+        "memory.policy.updated",
+    ),
+    "018": ("asset.registered", "asset.status.changed", "asset.a2a.marked"),
+    # 049 C-7 成员变更审计（017 design §9.4）：必须与 projects.patch_project 的
+    # 钩子同批上线，否则 record_feature_event 会因未知 feature/event 抛 ValueError。
+    "049": ("project.member.granted", "project.member.revoked"),
+    # 010 DAG orchestration: competitor deep-dive graph run events (FR-7).
+    "010": (
+        "dag.run_started",
+        "dag.node_start",
+        "dag.node_complete",
+        "dag.node_skip",
+        "dag.node_retry",
+        "dag.node_fail",
+        "dag.run_finished",
+    ),
+    # 005 knowledge-rag-research: progressive research run events (FR-10).
+    "005": (
+        "research.run_started",
+        "research.run_finished",
+    ),
+}
+
+
+def record_feature_event(
+    feature: str,
+    event: str,
+    document: dict[str, Any],
+    *,
+    sink: Optional[AuditSink] = None,
+) -> dict[str, Any]:
+    """Normalise one feature event and write it through the audit sink (T999).
+
+    ``feature`` must be a known feature code (011/014/015/016/017/018); an
+    unknown code raises so a mis-labelled event is not silently lost.
+    """
+    known = FEATURE_AUDIT_EVENTS.get(feature)
+    if known is None:
+        raise ValueError(f"unknown feature: {feature!r}")
+    if event not in known:
+        raise ValueError(f"unknown audit event for {feature}: {event!r}")
+    record = {"feature": feature, "event": event, **document}
+    if sink is not None:
+        sink(event, record)
+    return record
+
+
+def audit_document(event: str, feature: str, **fields: Any) -> dict[str, Any]:
+    """A pure audit document (no side effects) for in-memory / test sinks."""
+    return record_feature_event(feature, event, fields)
+
+
+__all__ = [
+    "FEATURE_AUDIT_EVENTS",
+    "audit_document",
+    "record_feature_event",
+]

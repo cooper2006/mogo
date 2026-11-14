@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import datetime
 import json
@@ -11,7 +12,7 @@ import yaml
 from app.services.workflow_browser_node import browser_node_capability
 
 from app.core.db import get_db
-from app.core.tenant import add_main_scope, resolve_main_id
+from app.core.tenant import add_tenant_scope, resolve_tenant_id
 
 logger = logging.getLogger(__name__)
 
@@ -180,7 +181,8 @@ def _split_notes_to_instructions(value: Any, *, limit: int = 8) -> List[str]:
 def _safe_int(value: Any) -> int:
     try:
         return max(0, int(float(str(value or "").strip())))
-    except Exception:
+    except Exception as exc:
+        log_print(f"[services.org_skill_adapter] silent exception caught: {exc}", flush=True)
         return 0
 
 
@@ -250,7 +252,7 @@ def _workflow_node_instruction(item: Dict[str, Any], *, title: str, business_con
     if title:
         parts.append(title)
     if output_alias:
-        parts.append(f"Output: {output_alias}")
+        parts.append(f"输出：{output_alias}")
     config_parts: List[str] = []
     for key, value in business_config.items():
         if str(key).strip() in {"pluginCode", "scriptCode", "code", "python"}:
@@ -260,7 +262,7 @@ def _workflow_node_instruction(item: Dict[str, Any], *, title: str, business_con
         if isinstance(value, (str, int, float, bool)):
             rendered = str(value)
         elif isinstance(value, list):
-            rendered = ", ".join(str(v) for v in value if str(v).strip())
+            rendered = "、".join(str(v) for v in value if str(v).strip())
         else:
             rendered = json.dumps(value, ensure_ascii=False)
         rendered = _safe_text(rendered, 240)
@@ -269,8 +271,8 @@ def _workflow_node_instruction(item: Dict[str, Any], *, title: str, business_con
         if len(config_parts) >= 8:
             break
     if config_parts:
-        parts.append("Configuration: " + "; ".join(config_parts))
-    return _safe_text("; ".join(part for part in parts if part), 1200)
+        parts.append("配置：" + "；".join(config_parts))
+    return _safe_text("；".join(part for part in parts if part), 1200)
 
 
 def _workflow_nodes(config: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -376,7 +378,7 @@ def _workflow_markdown(*, name: str, description: str, scenario: str, steps: Lis
         step_items = [
             {
                 "id": _safe_text(node.get("id"), 80) or f"node_{idx + 1}",
-                "title": _safe_text(node.get("title"), 160) or f"Business node {idx + 1}",
+                "title": _safe_text(node.get("title"), 160) or f"业务节点 {idx + 1}",
                 "instruction": _safe_text(node.get("description"), 1200),
                 "kind": _workflow_node_kind(node),
                 "node_type": str(node.get("type") or ""),
@@ -390,7 +392,7 @@ def _workflow_markdown(*, name: str, description: str, scenario: str, steps: Lis
     else:
         step_items = [
             {
-                "title": f"Business step {idx + 1}",
+                "title": f"业务步骤 {idx + 1}",
                 "instruction": step,
             }
             for idx, step in enumerate(steps)
@@ -408,7 +410,7 @@ def _workflow_markdown(*, name: str, description: str, scenario: str, steps: Lis
         frontmatter,
         [
             ("Purpose", description or name),
-            ("When To Use", scenario or "Use when the user's request matches this organization workflow Skill's business goal."),
+            ("When To Use", scenario or "当用户请求与该组织级工作流 Skill 的业务目标一致时使用。"),
             ("Business Logic", "\n".join(f"{idx + 1}. {step}" for idx, step in enumerate(steps))),
         ],
     )
@@ -491,8 +493,8 @@ def _style_markdown(*, name: str, description: str, scenario: str, config: Dict[
         frontmatter,
         [
             ("Purpose", description or name),
-            ("When To Use", scenario or "Use when the user's request matches the applicable scenario of this organization writing style Skill."),
-            ("Style Guidance", guidance or "Control the writing style according to this Skill's name, description, and applicable scenario."),
+            ("When To Use", scenario or "当用户请求与该组织级写作规范 Skill 的适用场景一致时使用。"),
+            ("Style Guidance", guidance or "按照该 Skill 的名称、描述和适用场景控制表达风格。"),
         ],
     )
 
@@ -578,8 +580,8 @@ def _style_markdown_from_contract(*, name: str, description: str, scenario: str,
     }
     guidance_sections = [
         ("Purpose", description or name),
-        ("When To Use", scenario or "Use when the user's request matches the applicable scenario of this organization writing style Skill."),
-        ("Style Guidance", _safe_text(contract_json.get("notes"), 3000) or "Use this Skill's configuration to control structure, writing style, and content boundaries."),
+        ("When To Use", scenario or "当用户请求与该组织级写作规范 Skill 的适用场景一致时使用。"),
+        ("Style Guidance", _safe_text(contract_json.get("notes"), 3000) or "按照该 Skill 的配置控制结构、表达风格与内容边界。"),
     ]
     return _frontmatter_markdown(frontmatter, guidance_sections)
 
@@ -595,7 +597,7 @@ def _base_payload(
     input_profile: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     org_id = _safe_text(doc.get("_id"), 80)
-    now = doc.get("updated_at") or doc.get("created_at") or datetime.datetime.utcnow()
+    now = doc.get("updated_at") or doc.get("created_at") or datetime.datetime.now(tz=datetime.timezone.utc)
     name = _safe_text(doc.get("name"), 120) or "组织级 Skill"
     description = _safe_text(doc.get("description"), 1200)
     scenario = _safe_text(doc.get("scenario"), 1500)
@@ -609,7 +611,7 @@ def _base_payload(
     return {
         "id": f"org_skill:{org_id}",
         "user_id": "organization",
-        "main_id": resolve_main_id(doc.get("main_id")),
+        "tenant_id": resolve_tenant_id(doc.get("tenant_id")),
         "name": name,
         "description": description,
         "summary": description or scenario,
@@ -783,9 +785,6 @@ def _adapt_ordinary(doc: Dict[str, Any]) -> Dict[str, Any] | None:
         "package_slug": str(doc.get("package_slug") or ""),
         "package_version": str(doc.get("package_version") or ""),
         "package_digest": str(doc.get("package_digest") or ""),
-        **({"pending_package": dict(doc["pending_package"])} if isinstance(doc.get("pending_package"), dict) else {}),
-        **({"package_requires_environment": bool(doc["package_requires_environment"])} if "package_requires_environment" in doc else {}),
-        **({"package_requires_execution": bool(doc["package_requires_execution"])} if "package_requires_execution" in doc else {}),
         "package_files": list(doc.get("package_files") or []),
         "package_warnings": list(doc.get("package_warnings") or []),
         "package_kind": str(doc.get("package_kind") or "ordinary"),
@@ -797,11 +796,10 @@ def _adapt_ordinary(doc: Dict[str, Any]) -> Dict[str, Any] | None:
 
 
 class OrganizationSkillAdapter:
-    async def list_runtime_skills(self, *, main_id: str, include_package_files: bool = True) -> List[Dict[str, Any]]:
+    async def list_runtime_skills(self, *, tenant_id: str) -> List[Dict[str, Any]]:
         db = get_db()
-        query = add_main_scope({}, main_id)
-        projection = None if include_package_files else {"package_files": 0}
-        cursor = db.skills.find(query, projection).sort("updated_at", -1)
+        query = add_tenant_scope({}, tenant_id)
+        cursor = db.skills.find(query).sort("updated_at", -1)
         out: List[Dict[str, Any]] = []
         async for doc in cursor:
             if not isinstance(doc, dict):

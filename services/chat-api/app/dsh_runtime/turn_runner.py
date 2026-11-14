@@ -9,6 +9,7 @@ from typing import Any
 
 from app.dsh_runtime.bindings import KernelBindingRepository
 from app.dsh_runtime.credential_lease import ActiveTurnCredentialLease
+from app.infrastructure.observability.config import log_print
 from app.dsh_runtime.contracts import ContentBlock, SendMode, SendRequest, TemporalContext
 from app.dsh_runtime.conversation import ConversationRepository
 from app.dsh_runtime.event_mapper import DshEventMapper
@@ -24,16 +25,9 @@ from app.dsh_runtime.evidence_projection import (
 )
 from app.dsh_runtime.gateway import DshAgentKernelGateway
 from app.dsh_runtime.profile.service import RuntimeProfilePublisher
-from app.dsh_runtime.plugin_management.invocation import PluginInvocationRecorder
-from app.dsh_runtime.turn_finalization import (
-    TurnAssistantProjection,
-    TurnStateFinalizer,
-)
-from app.dsh_runtime.turn_reply_buffer import classified_turn_events
+from app.dsh_runtime.turn_backpressure import TurnBackpressure
+from app.dsh_runtime.turn_finalization import TurnStateFinalizer
 from app.enterprise_capabilities.evidence import ExecutionEvidenceRepository
-from app.dsh_runtime.image_input import image_content_blocks
-from app.dsh_runtime.personal_inputs import stage_personal_inputs
-from app.knowledge_references.admission import reference_prompt
 
 
 logger = logging.getLogger(__name__)
@@ -64,8 +58,8 @@ class DshTurnRunner:
         turn_events: TurnEventRegistry | None = None,
         execution_evidence: ExecutionEvidenceRepository | None = None,
         authoritative_deliveries: DeliveryStore | None = None,
-        plugin_invocations: PluginInvocationRecorder | None = None,
         credential_refresh_interval_seconds: float = 240.0,
+        backpressure: "TurnBackpressure | None" = None,
     ) -> str:
         self._gateway = gateway
         self._conversations = conversations
@@ -75,10 +69,10 @@ class DshTurnRunner:
         self._turn_events = turn_events
         self._execution_evidence = execution_evidence
         self._authoritative_deliveries = authoritative_deliveries
-        self._plugin_invocations = plugin_invocations
         self._finalizer = TurnStateFinalizer(bindings, conversations)
         self._credential_refresh_interval_seconds = credential_refresh_interval_seconds
         self._mapper = DshEventMapper(kernel_version=kernel_version)
+        self._backpressure = backpressure or getattr(gateway, "backpressure", None)
 
     async def run(
         self,
@@ -90,7 +84,6 @@ class DshTurnRunner:
         temporal_context: TemporalContext,
         live_stream: LiveTurnStream,
         turn_context: dict[str, Any] | None = None,
-        image_owner_user_id: str | None = None,
     ) -> None:
         status = "interrupted"
         assistant_text = ""
@@ -104,8 +97,6 @@ class DshTurnRunner:
         terminal_projection: dict[str, Any] | None = None
         browser_intervention: dict[str, Any] | None = None
         writer_aborted = False
-        successful_plugin_tools: set[str] = set()
-        session_plugins: tuple[dict[str, Any], ...] = ()
         writer = DurableKernelEventWriter(
             events=self._events,
             bindings=self._bindings,
@@ -120,9 +111,12 @@ class DshTurnRunner:
             session_id=str(binding["kernel_session_id"]),
             interval_seconds=self._credential_refresh_interval_seconds,
         )
+        # L3: hold a backpressure slot for the whole turn so a slow turn
+        # blocks its slot, not just the send call.
+        if self._backpressure is not None:
+            await self._backpressure.acquire()
         try:
             profile = await self._profiles.get(str(binding["profile_version"]))
-            session_plugins = tuple(dict(item) for item in profile.plugins)
             tool_ui = tool_presentations(profile)
             delivery_guard = AuthoritativeDeliveryGuard(
                 store=self._authoritative_deliveries,
@@ -131,50 +125,20 @@ class DshTurnRunner:
                 user_id=str(binding["user_id"]),
                 message_id=message_id,
             )
-            # Re-baseline BEFORE send: after a resume the host journal is
-            # rebuilt with cursors renumbered from 1, so the durable cursor
-            # may point inside reimported history. Only post-head events flow.
-            attach_after = await self._attach_cursor(binding, message_id)
-            last_native_cursor = max(last_native_cursor, attach_after)
-            skipped_stale = 0
-            # Refresh before the first model call so a long-lived Runtime uses
-            # the current speaker-scoped credential for usage attribution.
-            await credential_lease.refresh_now()
-            if turn_context:
-                documents = list(turn_context.get("documents") or [])
-                images = list(turn_context.get("images") or [])
-                if documents or images:
-                    staged = await stage_personal_inputs(binding, message_id, documents + images)
-                    turn_context = {
-                        **turn_context,
-                        "documents": staged[:len(documents)],
-                        "images": staged[len(documents):],
-                    }
-            image_blocks = await image_content_blocks(
-                list((turn_context or {}).get("images") or []),
-                user_id=image_owner_user_id or str(binding["user_id"]),
-            )
             await self._gateway.send(
                 SendRequest(
                     session_id=str(binding["kernel_session_id"]),
                     request_id=request_id,
                     mode=SendMode.FOLLOWUP,
-                    content=[ContentBlock(type="text", data={"text": text + reference_prompt((turn_context or {}).get("knowledge_references") or [])}), *image_blocks],
+                    content=[ContentBlock(type="text", data={"text": text})],
                     temporal_context=temporal_context,
                     turn_context=kernel_turn_context(turn_context),
                 )
             )
             credential_lease.start()
-            async for event, assistant_kind in classified_turn_events(
-                self._gateway.subscribe(str(binding["kernel_session_id"]), attach_after),
-                attach_after,
+            async for event in self._gateway.subscribe(
+                str(binding["kernel_session_id"]), int(binding.get("event_cursor") or 0)
             ):
-                if event.cursor <= attach_after:
-                    # Pre-attach history: never project/persist/deliver it
-                    # and never let its terminal close this turn's stream.
-                    last_native_cursor = max(last_native_cursor, event.cursor)
-                    skipped_stale += 1
-                    continue
                 native_event_count += 1
                 if event.type == "tool.approval.requested":
                     await credential_lease.refresh_now()
@@ -182,16 +146,8 @@ class DshTurnRunner:
                     event,
                     message_id=message_id,
                     tool_presentations=tool_ui,
-                    assistant_kind=assistant_kind,
                 )
                 projected = await delivery_guard.apply(event, projected)
-                if (
-                    projected is not None
-                    and projected.get("item_kind") == "tool"
-                    and projected.get("type") == "item.completed"
-                    and (projected.get("payload") or {}).get("ok") is True
-                ):
-                    successful_plugin_tools.add(str(projected["payload"].get("name") or ""))
                 is_terminal = event.type in {"turn.completed", "runtime.failed"}
                 if projected is not None:
                     projected = await self._publish_kernel(
@@ -236,21 +192,12 @@ class DshTurnRunner:
                         await self._turn_events.flush(message_id)
                     break
         except asyncio.CancelledError:
-            # Cancellation records intent; the durable writer is NOT aborted
-            # before the coordinator runs, so the finalizer's flush step keeps
-            # every already-queued row and the terminal state stays durable.
             await credential_lease.stop()
+            await writer.abort()
             await self._finish_side_events(message_id)
             try:
                 await self._finalizer.finalize(
-                    binding=binding,
-                    message_id=message_id,
-                    status="cancelled",
-                    flush=writer.close,
-                    assistant=TurnAssistantProjection(
-                        content=assistant_text,
-                        execution_events=list(history_events),
-                    ),
+                    binding=binding, message_id=message_id, status="cancelled"
                 )
             except Exception:
                 logger.exception(
@@ -260,6 +207,7 @@ class DshTurnRunner:
             live_stream.finish()
             return "cancelled"
         except Exception as exc:
+            log_print(f"[dsh_runtime.turn_runner.run] suppressed {type(exc).__name__}: {exc}", flush=True)
             await writer.abort()
             writer_aborted = True
             status = "failed"
@@ -284,8 +232,8 @@ class DshTurnRunner:
             if terminal_projection is not None:
                 history_events.append(terminal_projection)
         try:
-            if skipped_stale and not writer_aborted:
-                await self._advance_consumed_cursor(binding, message_id, last_native_cursor)
+            if not writer_aborted:
+                await writer.close()
             evidence_bundles: list[dict[str, Any]] = []
             if self._execution_evidence is not None:
                 evidence_bundle = await self._execution_evidence.load(
@@ -312,19 +260,19 @@ class DshTurnRunner:
             side_history = await self._finish_side_events(message_id)
             history_events.extend(side_history)
             history_events.sort(key=lambda row: int(row.get("stream_seq") or 0))
-            suspension = browser_intervention if status == "completed" else None
+            await self._conversations.update_assistant_projection(
+                message_id=message_id,
+                tenant_id=str(binding["tenant_id"]),
+                user_id=str(binding["user_id"]),
+                content=assistant_text,
+                execution_events=history_events,
+                evidence_bundles=evidence_bundles,
+            )
             await self._finalizer.finalize(
                 binding=binding,
                 message_id=message_id,
                 status=status,
-                clear_conversation=suspension is None,
-                intervention=suspension,
-                flush=None if writer_aborted else writer.close,
-                assistant=TurnAssistantProjection(
-                    content=assistant_text,
-                    execution_events=list(history_events),
-                    evidence_bundles=list(evidence_bundles),
-                ),
+                clear_conversation=browser_intervention is None,
             )
         except Exception as exc:
             status = "failed"
@@ -338,16 +286,23 @@ class DshTurnRunner:
                 await self._finalizer.finalize(
                     binding=binding, message_id=message_id, status=status
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                log_print(
+                    f"[dsh_runtime.turn_runner] finalize after kernel error "
+                    f"for message {message_id} failed: {exc}",
+                    flush=True,
+                )
         finally:
+            if self._backpressure is not None:
+                self._backpressure.release()
             await credential_lease.stop()
-            if self._plugin_invocations and successful_plugin_tools:
-                await self._plugin_invocations.record(
+            if browser_intervention is not None and status == "completed":
+                await self._conversations.suspend_active_run(
+                    conversation_id=str(binding["conversation_id"]),
                     tenant_id=str(binding["tenant_id"]),
                     user_id=str(binding["user_id"]),
-                    plugins=session_plugins,
-                    tool_names=successful_plugin_tools,
+                    message_id=message_id,
+                    intervention=browser_intervention,
                 )
             if terminal_projection is not None:
                 live_stream.publish(terminal_projection)
@@ -362,37 +317,6 @@ class DshTurnRunner:
                 delta_count=delta_count,
             )
         return status
-
-    async def _attach_cursor(self, binding: dict[str, Any], message_id: str) -> int:
-        durable = int(binding.get("event_cursor") or 0)
-        probe = getattr(self._gateway, "head_cursor", None)
-        if probe is None:
-            return durable
-        try:
-            return max(int(await probe(str(binding["kernel_session_id"]))), 0)
-        except Exception:
-            logger.warning(
-                "DSH head probe failed; attaching at the durable cursor",
-                extra={"event": "dsh.turn.head_probe_fallback", "message_id": message_id},
-            )
-            return durable
-
-    async def _advance_consumed_cursor(
-        self, binding: dict[str, Any], message_id: str, cursor: int
-    ) -> None:
-        if cursor <= 0:
-            return
-        try:
-            await self._bindings.advance_cursor(str(binding["binding_id"]), int(cursor))
-        except Exception:
-            logger.warning(
-                "failed to advance DSH binding cursor",
-                extra={
-                    "event": "dsh.turn.cursor_advance_failed",
-                    "message_id": message_id,
-                    "cursor": int(cursor),
-                },
-            )
 
     async def _publish_kernel(
         self,
@@ -452,8 +376,12 @@ class DshTurnRunner:
                 conversation_id=str(binding["conversation_id"]),
                 message_id=message_id,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log_print(
+                f"[dsh_runtime.turn_runner] persist failure event for "
+                f"message {message_id} failed: {exc}",
+                flush=True,
+            )
         return projected
 
     async def _failure_projection(

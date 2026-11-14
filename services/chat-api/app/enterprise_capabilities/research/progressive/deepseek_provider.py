@@ -1,4 +1,4 @@
-"""DeepSeek's Search JSON API as a MOVO public-web search source."""
+"""DeepSeek's Search JSON API as a MOGO public-web search source."""
 
 from __future__ import annotations
 

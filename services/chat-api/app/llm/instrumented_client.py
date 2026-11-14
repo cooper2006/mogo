@@ -8,14 +8,14 @@ from typing import Any, AsyncGenerator, Dict, List, Optional, Type
 from pydantic import BaseModel
 
 from app.core.config import get_settings
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 from app.llm.base import BaseLLMClient
+from app.llm.resilience.retry import retry_with_backoff
 from app.llm.types import LLMResponse, Message
 from app.infrastructure.observability.execution_trace import ensure_trace_id
 from app.infrastructure.observability.spans import log_span
 from app.infrastructure.request_context import get_request_context
 from app.token_usage.models import TokenUsageRecord
-from app.token_usage.model_identity import usage_model_id
 from app.token_usage.sanitize import (
     build_request_payload,
     build_request_titles,
@@ -56,7 +56,10 @@ class InstrumentedLLMClient(BaseLLMClient):
         error_text = ""
         try:
             async with log_span("llm.request", stage=self._stage or "ainvoke", model=self._model_name, method="ainvoke", slow_ms=get_settings().LLM_SLOW_MS if hasattr(get_settings(), "LLM_SLOW_MS") else None):
-                response = await self._inner.ainvoke(messages, **kwargs)
+                response = await retry_with_backoff(
+                    lambda: self._inner.ainvoke(messages, **kwargs),
+                    on_retry=self._on_retry,
+                )
             return response
         except Exception as exc:
             status = "failed"
@@ -119,7 +122,10 @@ class InstrumentedLLMClient(BaseLLMClient):
         error_text = ""
         try:
             async with log_span("llm.request", stage=self._stage or "ainvoke_structured", model=self._model_name, method="ainvoke_structured", schema=getattr(schema, "__name__", "")):
-                data = await self._inner.ainvoke_structured(messages, schema, **kwargs)
+                data = await retry_with_backoff(
+                    lambda: self._inner.ainvoke_structured(messages, schema, **kwargs),
+                    on_retry=self._on_retry,
+                )
             return data
         except Exception as exc:
             status = "failed"
@@ -138,6 +144,19 @@ class InstrumentedLLMClient(BaseLLMClient):
                 structured_output=data.model_dump() if data is not None and hasattr(data, "model_dump") else None,
                 output_spec=call_output_spec,
             )
+
+    def _on_retry(self, attempt: int, error: BaseException) -> None:
+        logger.warning(
+            "llm request retried after transient failure",
+            extra={
+                "event": "llm.retry",
+                "stage": self._stage or "unknown",
+                "intent": self._intent,
+                "model": self._model_name,
+                "attempt": attempt,
+                "error": str(error)[:240],
+            },
+        )
 
     def consume_invocation_record(self) -> Dict[str, Any] | None:
         return self._inner.consume_invocation_record()
@@ -168,19 +187,46 @@ class InstrumentedLLMClient(BaseLLMClient):
                 response_payload = {"error": error_text}
             raw_response = response.raw_response if response is not None else None
             user_request_id = str(output_spec.get("message_id") or output_spec.get("request_id") or "").strip()
+            # 007 T018/T019: estimated cost = token count x unit price (008 MODEL_PRICES, same table).
+            from app.llm.resilience.pricing import estimate_cost
+
+            provider_meta_model = str(provider_meta.get("model_name") or self._model_name)
+            cost_estimate = estimate_cost(
+                model=provider_meta_model,
+                prompt_tokens=int(usage.get("prompt_tokens") or 0),
+                completion_tokens=int(usage.get("completion_tokens") or 0),
+            )
+            # FR-7: resilience event fields land as extras on the same record
+            # (failover_from/failover_to/degradation_step), no new collection.
+            resilience_extras = {
+                key: provider_meta.get(key)
+                for key in ("failover_from", "failover_to", "degradation_step")
+                if provider_meta.get(key) is not None
+            }
             record = TokenUsageRecord(
                 request_id="llm_%s" % uuid.uuid4().hex[:20],
                 user_request_id=user_request_id,
-                main_id=resolve_main_id(output_spec.get("main_id") or output_spec.get("mainId")),
+                tenant_id=resolve_tenant_id(output_spec.get("tenant_id") or output_spec.get("tenantId")),
                 user_id=coerce_user_id(output_spec.get("user_id")),
                 session_id=str(output_spec.get("session_id") or output_spec.get("task_id") or "").strip(),
                 trace_id=ensure_trace_id(output_spec),
                 stage=self._stage or method,
                 intent=self._intent,
                 node_id=self._node_id or str(output_spec.get("current_task_node_id") or ""),
+                # 046 FR-005: workspace_id renamed project_id (primary); the
+                # legacy workspace_id is kept as a migration-period fallback.
+                agent_id=str(output_spec.get("agent_id") or "").strip(),
+                skill_id=str(output_spec.get("skill_id") or "").strip(),
+                project_id=str(
+                    output_spec.get("project_id") or output_spec.get("workspace_id") or ""
+                ).strip(),
                 status=status,
                 model_name=str(provider_meta.get("model_name") or self._model_name),
-                model_id=usage_model_id(self._model_id, provider_meta),
+                model_id=str(provider_meta.get("model_id") or self._model_id),
+                # 040 R-10: tier is resolved in ``factory`` and written back into
+                # the same output_spec this client holds; empty means "not tiered".
+                tier=str(output_spec.get("model_tier") or "").strip(),
+                tier_declared=str(output_spec.get("model_tier_declared") or "").strip(),
                 prompt=extract_prompt(messages),
                 request_title_zh=title_zh,
                 request_title_en=title_en,
@@ -191,6 +237,8 @@ class InstrumentedLLMClient(BaseLLMClient):
                 total_tokens=int(usage.get("total_tokens") or 0),
                 prompt_tokens=int(usage.get("prompt_tokens") or 0),
                 completion_tokens=int(usage.get("completion_tokens") or 0),
+                cost_estimate_usd=cost_estimate,
+                resilience_events=resilience_extras or None,
             )
             from app.infrastructure.runtime_services import token_usage_dispatcher
 

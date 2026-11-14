@@ -41,14 +41,14 @@ class WeaviateIntegrationHeaderTests(TestCase):
         return _RecordingHandler.seen_headers[-1]
 
     def test_sends_release_version(self) -> None:
-        with mock.patch.dict(os.environ, {"MOVO_VERSION": "v0.1.15"}):
+        with mock.patch.dict(os.environ, {"MOGO_VERSION": "v0.1.15"}):
             headers = self._sent_headers()
-        self.assertEqual(headers["X-Weaviate-Client-Integration"], "movo/v0.1.15")
+        self.assertEqual(headers["X-Weaviate-Client-Integration"], "mogo/v0.1.15")
 
     def test_falls_back_to_unknown_version(self) -> None:
-        with mock.patch.dict(os.environ, {"MOVO_VERSION": ""}):
+        with mock.patch.dict(os.environ, {"MOGO_VERSION": ""}):
             headers = self._sent_headers()
-        self.assertEqual(headers["X-Weaviate-Client-Integration"], "movo/unknown")
+        self.assertEqual(headers["X-Weaviate-Client-Integration"], "mogo/unknown")
 
     def test_keeps_authorization_header(self) -> None:
         headers = self._sent_headers(api_key="secret")

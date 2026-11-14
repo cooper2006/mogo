@@ -3,7 +3,7 @@ from app.services.presentation.image_native.page_utils import progress_page_labe
 
 
 def test_progress_page_label_uses_business_conclusion() -> None:
-    conclusion = "MOVO 是 DSH 进入企业生产环境的完整平台"
+    conclusion = "MOGO 是 DSH 进入企业生产环境的完整平台"
     brief = PageBrief(page_id="page_02", page_index=2, key_takeaway=conclusion)
 
     assert progress_page_label(brief, 2) == conclusion

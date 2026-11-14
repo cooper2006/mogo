@@ -20,63 +20,53 @@ router = APIRouter()
 
 
 class PresentationSettingsPayload(BaseModel):
-    enabled: bool = False
-    llmModelId: str = Field(default="", max_length=120)
-    imageModelId: str = Field(default="", max_length=120)
+    llmModelId: str = Field(min_length=1, max_length=120)
+    imageModelId: str = Field(min_length=1, max_length=120)
+    visionModelId: str = Field(min_length=1, max_length=120)
 
 
 def _serialize(doc: dict[str, Any] | None) -> dict[str, Any]:
     source = doc or {}
     return {
-        "enabled": source.get("enabled") is True,
         "configured": all(str(source.get(key) or "").strip() for key in (
             "llm_model_id",
             "image_model_id",
+            "vision_model_id",
         )),
         "llmModelId": str(source.get("llm_model_id") or ""),
         "imageModelId": str(source.get("image_model_id") or ""),
+        "visionModelId": str(source.get("vision_model_id") or ""),
         "updatedAt": utc_iso(source.get("updated_at")),
     }
 
 
-async def _require_model(main_id: str, model_id: str, capability: str, label: str) -> None:
+async def _require_model(tenant_id: str, model_id: str, capability: str, label: str) -> None:
     if not str(model_id or "").strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Presentation model unavailable: {capability}",
+            detail=f"请选择{label}",
         )
     try:
-        instance = await find_instance_by_id(model_id, main_id)
+        instance = await find_instance_by_id(model_id, tenant_id)
     except InvalidId as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Presentation model unavailable: {capability}",
+            detail=f"请选择有效的{label}",
         ) from exc
     capabilities = set(normalize_capabilities(instance.get("capabilities") or [])) if instance else set()
     if instance is None or instance.get("status") != "active" or capability not in capabilities:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Presentation model unavailable: {capability}",
+            detail=f"{label}不存在、已禁用或不支持 {capability} 能力",
         )
-
-
-async def _models_available(main_id: str, settings: dict[str, Any]) -> bool:
-    for key, capability in (("llmModelId", "chat"), ("imageModelId", "image_generation")):
-        try:
-            await _require_model(main_id, settings[key], capability, capability)
-        except HTTPException:
-            return False
-    return True
 
 
 @router.get("")
 async def get_settings(
     current_user: dict[str, Any] = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
-    result = _serialize(await get_presentation_settings(main_id))
-    result["available"] = await _models_available(main_id, result)
-    return result
+    tenant_id = str(current_user.get("tenant_id") or "default")
+    return _serialize(await get_presentation_settings(tenant_id))
 
 
 @router.put("")
@@ -84,20 +74,18 @@ async def put_settings(
     payload: PresentationSettingsPayload,
     current_user: dict[str, Any] = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
-    if payload.enabled:
-        await _require_model(main_id, payload.llmModelId, "chat", "PPT content model")
-        await _require_model(main_id, payload.imageModelId, "image_generation", "PPT image model")
+    tenant_id = str(current_user.get("tenant_id") or "default")
+    await _require_model(tenant_id, payload.llmModelId, "chat", "PPT 内容与布局模型")
+    await _require_model(tenant_id, payload.imageModelId, "image_generation", "PPT 图片生成模型")
+    await _require_model(tenant_id, payload.visionModelId, "vision", "PPT 视觉重建模型")
     saved = await save_presentation_settings(
-        main_id=main_id,
-        enabled=payload.enabled,
+        tenant_id=tenant_id,
         llm_model_id=payload.llmModelId,
         image_model_id=payload.imageModelId,
+        vision_model_id=payload.visionModelId,
         updated_by=str(current_user.get("username") or ""),
     )
-    result = _serialize(saved)
-    result["available"] = await _models_available(main_id, result)
-    return result
+    return _serialize(saved)
 
 
 __all__ = ["PresentationSettingsPayload", "router"]

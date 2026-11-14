@@ -9,7 +9,7 @@ import { strToU8, zipSync } from 'fflate'
 import { SkillBundleMaterializer } from '../src/skill-bundle-materializer.mjs'
 
 test('text reads from a large Skill archive do not materialize its resources', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'movo-skill-text-'))
+  const root = await mkdtemp(join(tmpdir(), 'mogo-skill-text-'))
   const files = { 'ppt-master/SKILL.md': strToU8('Skill instructions') }
   for (let index = 0; index < 300; index += 1) {
     files[`ppt-master/templates/layout-${index}.svg`] = strToU8(`<svg>${index}</svg>`)
@@ -33,7 +33,7 @@ test('text reads from a large Skill archive do not materialize its resources', a
 })
 
 test('archive text reader rejects binary resources', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'movo-skill-binary-'))
+  const root = await mkdtemp(join(tmpdir(), 'mogo-skill-binary-'))
   const archive = Buffer.from(zipSync({ 'skill/SKILL.md': strToU8('Body'), 'skill/image.png': new Uint8Array([0xff, 0x00]) }))
   try {
     const skill = { bundle_digest: createHash('sha256').update(archive).digest('hex'),

@@ -1,3 +1,4 @@
+from app.infrastructure.observability.config import log_print
 from abc import ABC, abstractmethod
 import json
 from typing import AsyncGenerator, Iterable, List, Type, Any
@@ -65,7 +66,8 @@ def _tool_to_openai_schema(tool: Any) -> dict[str, Any]:
                 parameters = args_schema.model_json_schema()
             elif hasattr(args_schema, "schema"):
                 parameters = args_schema.schema()
-        except Exception:
+        except Exception as exc:
+            log_print(f"[llm.base._tool_to_openai_schema] suppressed {type(exc).__name__}: {exc}", flush=True)
             parameters = {"type": "object", "properties": {}, "additionalProperties": True}
     elif isinstance(getattr(tool, "args", None), dict):
         properties = {}

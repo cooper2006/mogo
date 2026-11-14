@@ -1,0 +1,119 @@
+// apps/user-web/eslint.config.js
+// user-web 专属 ESLint 配置（QF-040）
+// 共享规则见 ../eslint.shared.config.js
+
+import pluginVue from 'eslint-plugin-vue';
+import js from '@eslint/js';
+import tseslint from 'typescript-eslint';
+import prettier from 'eslint-config-prettier';
+import { buildSharedConfig } from '../eslint.shared.config.js';
+
+// 依赖实例在本文件内解析（apps/ 不是 pnpm 项目，共享配置不能自己 import 裸包）。
+const sharedConfig = buildSharedConfig({ js, tseslint, prettier });
+
+export default [
+  ...sharedConfig,
+  ...pluginVue.configs['flat/recommended'],
+  {
+    files: ['**/*.vue'],
+    languageOptions: {
+      parser: (await import('vue-eslint-parser')).default,
+      parserOptions: {
+        parser: (await import('typescript-eslint')).parser,
+        ecmaVersion: 'latest',
+        sourceType: 'module',
+      },
+    },
+  },
+  {
+    rules: {
+      // user-web 专属规则（如有）
+    },
+    languageOptions: {
+      globals: {
+        localStorage: 'readonly',
+        window: 'readonly',
+        document: 'readonly',
+        console: 'readonly',
+        setTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearTimeout: 'readonly',
+        clearInterval: 'readonly',
+        URL: 'readonly',
+        MediaQueryList: 'readonly',
+        navigator: 'readonly',
+        location: 'readonly',
+        history: 'readonly',
+        fetch: 'readonly',
+        AbortController: 'readonly',
+        AbortSignal: 'readonly',
+        Headers: 'readonly',
+        Request: 'readonly',
+        Response: 'readonly',
+        FormData: 'readonly',
+        Blob: 'readonly',
+        FileReader: 'readonly',
+        ArrayBuffer: 'readonly',
+        Uint8Array: 'readonly',
+        TextEncoder: 'readonly',
+        TextDecoder: 'readonly',
+        crypto: 'readonly',
+        atob: 'readonly',
+        btoa: 'readonly',
+        structuredClone: 'readonly',
+        requestAnimationFrame: 'readonly',
+        cancelAnimationFrame: 'readonly',
+        IntersectionObserver: 'readonly',
+        ResizeObserver: 'readonly',
+        MutationObserver: 'readonly',
+        WebSocket: 'readonly',
+        Event: 'readonly',
+        EventTarget: 'readonly',
+        CustomEvent: 'readonly',
+        KeyboardEvent: 'readonly',
+        MouseEvent: 'readonly',
+        TouchEvent: 'readonly',
+        PointerEvent: 'readonly',
+        DragEvent: 'readonly',
+        ClipboardEvent: 'readonly',
+        ProgressEvent: 'readonly',
+        StorageEvent: 'readonly',
+        MessageEvent: 'readonly',
+        HashChangeEvent: 'readonly',
+        PopStateEvent: 'readonly',
+        ErrorEvent: 'readonly',
+        FocusEvent: 'readonly',
+        InputEvent: 'readonly',
+        ChangeEvent: 'readonly',
+        SubmitEvent: 'readonly',
+        WheelEvent: 'readonly',
+        BeforeUnloadEvent: 'readonly',
+        AnimationEvent: 'readonly',
+        TransitionEvent: 'readonly',
+        CompositionEvent: 'readonly',
+        IMECompositionEvent: 'readonly',
+        // DOM 元素类型
+        HTMLElement: 'readonly',
+        HTMLInputElement: 'readonly',
+        HTMLCanvasElement: 'readonly',
+        HTMLDivElement: 'readonly',
+        HTMLTextAreaElement: 'readonly',
+        HTMLImageElement: 'readonly',
+        HTMLScriptElement: 'readonly',
+        HTMLDetailsElement: 'readonly',
+        Element: 'readonly',
+        Node: 'readonly',
+        ParentNode: 'readonly',
+        File: 'readonly',
+        FileList: 'readonly',
+        Image: 'readonly',
+        DOMParser: 'readonly',
+        performance: 'readonly',
+        queueMicrotask: 'readonly',
+        alert: 'readonly',
+        confirm: 'readonly',
+        prompt: 'readonly',
+      },
+    },
+  },
+];

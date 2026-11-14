@@ -86,7 +86,7 @@ def add_office_image_ocr(parsed: ParsedDocument, path: Path, ext: str) -> Parsed
     parsed.raw_chunks = chunks
     if markdown_parts:
         parsed.markdown = "\n\n".join([parsed.markdown, *markdown_parts]).strip()
-    parsed.raw["movoOfficeImageOcr"] = {
+    parsed.raw["mogoOfficeImageOcr"] = {
         "embeddedImageCount": len(images),
         "recognizedImageCount": recognized,
         "unreadableImageParts": unreadable,

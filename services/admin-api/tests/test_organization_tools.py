@@ -8,7 +8,7 @@ from app.services.organization_tools import (
 
 def test_organization_query_accepts_explicit_and_legacy_organization_tools() -> None:
     assert organization_tool_query("tenant-a", status="active") == {
-        "main_id": "tenant-a",
+        "tenant_id": "tenant-a",
         "status": "active",
         **organization_scope_clause(),
     }

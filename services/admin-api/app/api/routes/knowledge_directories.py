@@ -20,8 +20,8 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _main_id(current_user: dict) -> str:
-    return str(current_user.get("main_id", "default"))
+def _tenant_id(current_user: dict) -> str:
+    return str(current_user.get("tenant_id", "default"))
 
 
 def _build_path(parent: dict | None) -> tuple[list[str], list[str]]:
@@ -34,7 +34,7 @@ def _build_path(parent: dict | None) -> tuple[list[str], list[str]]:
 
 
 async def _update_descendant_paths(
-    main_id: str,
+    tenant_id: str,
     moved_id: str,
     moved_name: str,
     new_path_ids: list[str],
@@ -42,7 +42,7 @@ async def _update_descendant_paths(
 ) -> None:
     db = get_db()
     cursor = db[KNOWLEDGE_DIR_COLLECTION].find({
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "path_ids": moved_id,
         "deleted_at": None
     })
@@ -82,12 +82,12 @@ class DirectoryMovePayload(BaseModel):
 
 @router.get("/tree")
 async def get_directory_tree(current_user: dict = Depends(get_current_admin_user)) -> list[dict[str, Any]]:
-    main_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     
     # Find all directories that are not deleted.
     cursor = db[KNOWLEDGE_DIR_COLLECTION].find({
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "deleted_at": None
     }).sort("created_at", 1)
     dirs = await cursor.to_list(length=5000)
@@ -97,7 +97,7 @@ async def get_directory_tree(current_user: dict = Depends(get_current_admin_user
     doc_cursor = db[KNOWLEDGE_DOC_COLLECTION].aggregate([
         {
             "$match": {
-                "main_id": main_id,
+                "tenant_id": tenant_id,
                 "deleted_at": None,
                 "$or": [{"scope": "organization"}, {"scope": {"$exists": False}}]
             }
@@ -155,7 +155,7 @@ async def create_directory(
     payload: DirectoryCreatePayload,
     current_user: dict = Depends(get_current_admin_user)
 ) -> dict[str, Any]:
-    main_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     
     name = payload.name.strip()
@@ -163,7 +163,7 @@ async def create_directory(
     
     # Enforce unique names among active sibling directories.
     duplicate = await db[KNOWLEDGE_DIR_COLLECTION].find_one({
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "parent_id": parent_id,
         "name": name,
         "deleted_at": None
@@ -178,7 +178,7 @@ async def create_directory(
     if parent_id:
         parent = await db[KNOWLEDGE_DIR_COLLECTION].find_one({
             "_id": parent_id,
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "deleted_at": None
         })
         if parent is None:
@@ -193,7 +193,7 @@ async def create_directory(
     
     await db[KNOWLEDGE_DIR_COLLECTION].insert_one({
         "_id": directory_id,
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "name": name,
         "parent_id": parent_id,
         "path_ids": path_ids,
@@ -216,14 +216,14 @@ async def update_directory(
     payload: DirectoryUpdatePayload,
     current_user: dict = Depends(get_current_admin_user)
 ) -> dict[str, Any]:
-    main_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     
     name = payload.name.strip()
     
     existing = await db[KNOWLEDGE_DIR_COLLECTION].find_one({
         "_id": directory_id,
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "deleted_at": None
     })
     if existing is None:
@@ -238,7 +238,7 @@ async def update_directory(
     old_name = existing.get("name", "")
     if name != old_name:
         duplicate = await db[KNOWLEDGE_DIR_COLLECTION].find_one({
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "parent_id": parent_id,
             "name": name,
             "deleted_at": None
@@ -259,7 +259,7 @@ async def update_directory(
         
         # Cascade path_names updates to descendants.
         cursor = db[KNOWLEDGE_DIR_COLLECTION].find({
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "path_ids": directory_id,
             "deleted_at": None
         })
@@ -293,12 +293,12 @@ async def move_directory(
     payload: DirectoryMovePayload,
     current_user: dict = Depends(get_current_admin_user)
 ) -> dict[str, bool]:
-    main_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     
     directory = await db[KNOWLEDGE_DIR_COLLECTION].find_one({
         "_id": directory_id,
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "deleted_at": None
     })
     if directory is None:
@@ -327,7 +327,7 @@ async def move_directory(
             
         parent = await db[KNOWLEDGE_DIR_COLLECTION].find_one({
             "_id": parent_id,
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "deleted_at": None
         })
         if parent is None:
@@ -344,7 +344,7 @@ async def move_directory(
             
     # Check for a duplicate name under the destination parent.
     duplicate = await db[KNOWLEDGE_DIR_COLLECTION].find_one({
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "parent_id": parent_id,
         "name": directory.get("name"),
         "deleted_at": None
@@ -369,7 +369,7 @@ async def move_directory(
     
     # Cascade updates to descendants.
     await _update_descendant_paths(
-        main_id=main_id,
+        tenant_id=tenant_id,
         moved_id=directory_id,
         moved_name=directory.get("name", ""),
         new_path_ids=new_path_ids,
@@ -384,12 +384,12 @@ async def delete_directory(
     directory_id: str,
     current_user: dict = Depends(get_current_admin_user)
 ) -> dict[str, bool]:
-    main_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     
     existing = await db[KNOWLEDGE_DIR_COLLECTION].find_one({
         "_id": directory_id,
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "deleted_at": None
     })
     if existing is None:
@@ -400,7 +400,7 @@ async def delete_directory(
 
     descendant_cursor = db[KNOWLEDGE_DIR_COLLECTION].find(
         {
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "path_ids": directory_id,
             "deleted_at": None
         },
@@ -414,7 +414,7 @@ async def delete_directory(
 
     # Check for active documents in this directory or its descendants.
     doc_count = await db[KNOWLEDGE_DOC_COLLECTION].count_documents({
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "knowledge_base_id": {"$in": directory_ids},
         "deleted_at": None,
         "$or": [{"scope": "organization"}, {"scope": {"$exists": False}}]
@@ -427,7 +427,7 @@ async def delete_directory(
 
     # Block deletion while child directories exist.
     child_count = await db[KNOWLEDGE_DIR_COLLECTION].count_documents({
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "parent_id": directory_id,
         "deleted_at": None
     })
@@ -453,17 +453,17 @@ async def ensure_indexes() -> None:
     db = get_db()
     # 1. Parent hierarchy lookup index.
     await db[KNOWLEDGE_DIR_COLLECTION].create_index(
-        [("main_id", 1), ("parent_id", 1), ("deleted_at", 1)],
+        [("tenant_id", 1), ("parent_id", 1), ("deleted_at", 1)],
         name="idx_knowledge_dirs_parent"
     )
     # 2. Path tree lookup index.
     await db[KNOWLEDGE_DIR_COLLECTION].create_index(
-        [("main_id", 1), ("path_ids", 1)],
+        [("tenant_id", 1), ("path_ids", 1)],
         name="idx_knowledge_dirs_path"
     )
     # 3. Partial unique index for active sibling names.
     await db[KNOWLEDGE_DIR_COLLECTION].create_index(
-        [("main_id", 1), ("parent_id", 1), ("name", 1)],
+        [("tenant_id", 1), ("parent_id", 1), ("name", 1)],
         unique=True,
         partialFilterExpression={"deleted_at": None},
         name="uniq_knowledge_dirs_parent_name"

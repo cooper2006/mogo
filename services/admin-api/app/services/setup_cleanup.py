@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+import re
+
 from app.core.db import get_db
+from app.core.tenant_identity import is_reserved_tenant_id
 
-
+# T053: only the collections the setup/provisioning pipeline actually writes.
+# Kept deliberately separate from the purge path (app/services/tenant_purge.py)
+# which sweeps every tenant_id-partitioned collection.
+#
+# "departments" was renamed to "org_units" (directory_repository.DEPARTMENT_COLLECTION);
+# the old name is kept in the tuple so any legacy rows are removed too.
 SETUP_SCOPED_COLLECTIONS = (
     "admin_account_groups",
     "admin_accounts",
     "admin_model_instances",
-    "departments",
+    "org_units",
     "end_users",
     "end_user_org_relations",
     "end_user_position_roles",
@@ -17,16 +25,45 @@ SETUP_SCOPED_COLLECTIONS = (
     "org_quota_policies",
     "user_quota_policies",
     "user_token_allocation_logs",
+    # The model-connectivity probe during setup writes a usage log per attempt
+    # (stage="model_connectivity_test"). ``tenant_purge`` already treats this as
+    # tenant-scoped; it was missing here, so those rows outlived the cleanup.
+    "token_usage_logs",
     "external_search_configs",
     "knowledge_document_settings",
     "organizations",
+    "tenants",
 )
 
+# A freshly generated tenant_id looks like ``slug-hex`` (24 hex chars).
+# The slug may itself contain hyphens: ``tenant_provisioning._slug`` rewrites
+# every run of non-alphanumerics to "-", so an org named "My Test Org" yields
+# ``my-test-org-<hex>``. The previous pattern (``^[a-z0-9]+-[0-9a-f]{24}$``)
+# allowed only a single hyphen-free segment, so it rejected both those legal
+# ids and the ``setup-test-*`` probe tenants — which is why failed model
+# connectivity probes left rows behind instead of being cleaned up.
+_TENANT_ID_SHAPE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-f]{24}$")
 
-async def cleanup_failed_setup(main_id: str) -> None:
+
+def _assert_cleanup_target(tenant_id: str) -> None:
+    """T053: refuse anything that is not a freshly generated tenant id.
+
+    The old check (``len(tenant_id) >= 20``) accepted reserved identifiers like
+    ``default`` / ``__platform__`` if padded — that must not be possible here
+    because setup cleanup must never touch the platform tenant.
+    """
+    normalized = str(tenant_id or "").strip()
+    if not normalized:
+        raise ValueError("refusing to clean an empty tenant id")
+    if is_reserved_tenant_id(normalized):
+        raise ValueError("refusing to clean a reserved tenant identifier")
+    if not _TENANT_ID_SHAPE.match(normalized):
+        raise ValueError("refusing to clean a tenant id that does not match the freshly-generated shape")
+
+
+async def cleanup_failed_setup(tenant_id: str) -> None:
     """Compensate a failed first-time setup for its newly generated tenant only."""
-    if not main_id or len(main_id) < 20:
-        raise ValueError("refusing to clean an invalid setup tenant id")
+    _assert_cleanup_target(tenant_id)
     db = get_db()
     for collection_name in SETUP_SCOPED_COLLECTIONS:
-        await db[collection_name].delete_many({"main_id": main_id})
+        await db[collection_name].delete_many({"tenant_id": tenant_id})

@@ -1,0 +1,1136 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "${ROOT_DIR}"
+DOCKER_BIN="${DOCKER_BIN:-docker}"
+
+case "${1:-}" in
+  --lang)
+    if [[ -z "${2:-}" ]]; then
+      printf 'Error: --lang requires zh-CN or en.\n' >&2
+      exit 2
+    fi
+    MOGO_LANG="$2"
+    shift 2
+    ;;
+  --lang=*)
+    MOGO_LANG="${1#*=}"
+    shift
+    ;;
+esac
+
+# 环境 profile（dev / test / prod）允许出现在任意位置：
+#   ./mogo --profile dev up      ./mogo up --profile dev
+# 这里先把它从参数序列里摘出来，其余参数原样保留给下面的命令分发。
+if [[ $# -gt 0 ]]; then
+  profile_args=()
+  while [[ $# -gt 0 ]]; do
+    case "${1}" in
+      --profile)
+        if [[ -z "${2:-}" ]]; then
+          printf 'Error: --profile requires one of dev, test, prod.\n' >&2
+          exit 2
+        fi
+        MOGO_PROFILE="${2}"
+        shift 2
+        ;;
+      --profile=*)
+        MOGO_PROFILE="${1#*=}"
+        shift
+        ;;
+      --json)
+        # JSON 输出模式：抑制人读的 profile 诊断行，保证 stdout 是纯 JSON。
+        MOGO_SUPPRESS_PROFILE_BANNER=1
+        profile_args+=("${1}")
+        shift
+        ;;
+      *)
+        profile_args+=("${1}")
+        shift
+        ;;
+    esac
+  done
+  set -- ${profile_args[@]+"${profile_args[@]}"}
+fi
+export MOGO_PROFILE="${MOGO_PROFILE:-}"
+export MOGO_SUPPRESS_PROFILE_BANNER="${MOGO_SUPPRESS_PROFILE_BANNER:-}"
+
+# shellcheck source=deploy/cli/i18n.sh
+source "${ROOT_DIR}/deploy/cli/i18n.sh"
+
+# shellcheck source=deploy/cli/sandbox.sh
+source "${ROOT_DIR}/deploy/cli/sandbox.sh"
+mogo_detect_locale
+# shellcheck source=deploy/cli/dsh-version.sh
+source "${ROOT_DIR}/deploy/cli/dsh-version.sh"
+# shellcheck source=deploy/cli/images.sh
+source "${ROOT_DIR}/deploy/cli/images.sh"
+# shellcheck source=deploy/cli/env-profiles.sh
+source "${ROOT_DIR}/deploy/cli/env-profiles.sh"
+# shellcheck source=deploy/cli/pull.sh
+source "${ROOT_DIR}/deploy/cli/pull.sh"
+# shellcheck source=deploy/cli/base-images.sh
+source "${ROOT_DIR}/deploy/cli/base-images.sh"
+# shellcheck source=deploy/cli/backup.sh
+source "${ROOT_DIR}/deploy/cli/backup.sh"
+# shellcheck source=deploy/cli/backup-schedule.sh
+source "${ROOT_DIR}/deploy/cli/backup-schedule.sh"
+# shellcheck source=deploy/cli/failover.sh
+source "${ROOT_DIR}/deploy/cli/failover.sh"
+# shellcheck source=deploy/cli/cert-check.sh
+source "${ROOT_DIR}/deploy/cli/cert-check.sh"
+# shellcheck source=deploy/cli/watermark-check.sh
+source "${ROOT_DIR}/deploy/cli/watermark-check.sh"
+
+print_logo() {
+  printf '\n'
+  printf '  ███╗   ███╗ ██████╗ ██╗   ██╗ ██████╗\n'
+  printf '  ████╗ ████║██╔═══██╗██║   ██║██╔═══██╗\n'
+  printf '  ██╔████╔██║██║   ██║██║   ██║██║   ██║\n'
+  printf '  ██║╚██╔╝██║██║   ██║╚██╗ ██╔╝██║   ██║\n'
+  printf '  ██║ ╚═╝ ██║╚██████╔╝ ╚████╔╝ ╚██████╔╝\n'
+  printf '  ╚═╝     ╚═╝ ╚═════╝   ╚═══╝   ╚═════╝\n'
+  printf '              SELF-HOSTED\n\n'
+}
+
+require_docker() {
+  local docker_desktop_bin="/Applications/Docker.app/Contents/Resources/bin"
+  if [[ -d "${docker_desktop_bin}" ]]; then
+    case ":${PATH}:" in
+      *":${docker_desktop_bin}:"*) ;;
+      *) export PATH="${docker_desktop_bin}:${PATH}" ;;
+    esac
+  fi
+  if ! command -v "${DOCKER_BIN}" >/dev/null 2>&1; then
+    if [[ -x "${docker_desktop_bin}/docker" ]]; then
+      DOCKER_BIN="${docker_desktop_bin}/docker"
+    fi
+  fi
+  if ! command -v "${DOCKER_BIN}" >/dev/null 2>&1; then
+    mogo_msg docker_missing >&2
+    exit 1
+  fi
+  if ! "${DOCKER_BIN}" compose version >/dev/null 2>&1; then
+    mogo_msg compose_missing >&2
+    exit 1
+  fi
+  if ! "${DOCKER_BIN}" info >/dev/null 2>&1; then
+    mogo_msg docker_stopped >&2
+    exit 1
+  fi
+}
+
+retire_legacy_compose_project() {
+  if [[ "${MOGO_MIGRATE_LEGACY_PROJECT:-false}" != "true" ]]; then
+    return 0
+  fi
+  local legacy_containers=""
+  legacy_containers="$("${DOCKER_BIN}" compose -p askai ps -q 2>/dev/null || true)"
+  if [[ -n "${legacy_containers}" ]]; then
+    mogo_msg migrating_project
+    "${DOCKER_BIN}" compose -p askai down --remove-orphans
+  fi
+}
+
+refresh_gateway_resolution() {
+  local gateway_id=""
+  gateway_id="$(mogo_compose ps -q gateway 2>/dev/null || true)"
+  if [[ -z "${gateway_id}" ]]; then
+    return 0
+  fi
+  # The stock Nginx image resolves Compose service names when it starts, and a
+  # `resolver` directive does NOT re-resolve servers inside a static `upstream`
+  # block — so both proxies below keep the IPs they saw at startup.
+  # Rebuilt upstream containers may receive new IPs while a proxy is kept,
+  # so restart the gateway (stateless, restart is fine) before probing
+  # deployment readiness.
+  mogo_compose restart gateway
+  refresh_dsh_lb_resolution
+}
+
+refresh_dsh_lb_resolution() {
+  local lb_id=""
+  lb_id="$(mogo_compose ps -q dsh-runtime-host-lb 2>/dev/null || true)"
+  if [[ -z "${lb_id}" ]]; then
+    return 0
+  fi
+  # The DSH load balancer pins each kernel session to one replica with
+  # `hash $dsh_sticky_key consistent`, so it must NOT be restarted here: a
+  # restart drops the long-lived SSE event streams (`proxy_read_timeout 3600s`)
+  # that active sessions are reading from. A plain `nginx -s reload` re-reads
+  # the config and re-resolves the upstream names through a graceful worker
+  # handover, which is what we need after replicas are recreated with new IPs.
+  #
+  # Best-effort: the LB ships a `nginx -t` healthcheck and `proxy_next_upstream`
+  # covers a stale IP, so a failed reload must not abort the deploy.
+  if ! mogo_compose exec -T dsh-runtime-host-lb nginx -s reload >/dev/null 2>&1; then
+    mogo_msg dsh_lb_reload_failed >&2 || true
+  fi
+}
+
+dotenv_value() {
+  local key="$1"
+  local env_file="${ROOT_DIR}/.env"
+  local line=""
+  if [[ -f "${env_file}" ]]; then
+    line="$(grep -E "^[[:space:]]*${key}=" "${env_file}" | tail -n 1 || true)"
+  fi
+  line="${line#*=}"
+  line="${line%$'\r'}"
+  line="${line#\"}"
+  line="${line%\"}"
+  line="${line#\'}"
+  line="${line%\'}"
+  printf '%s' "${line}"
+}
+
+deployment_urls() {
+  local configured_port configured_base
+  configured_port="${MOGO_PORT:-$(dotenv_value MOGO_PORT)}"
+  if [[ -z "${configured_port}" ]]; then
+    configured_port="${ASKAI_PORT:-$(dotenv_value ASKAI_PORT)}"
+  fi
+  configured_base="${PUBLIC_BASE_URL:-$(dotenv_value PUBLIC_BASE_URL)}"
+  MOGO_PORT="${configured_port:-3000}"
+  export MOGO_PORT
+
+  # Resolve the same gateway switch the compose file reads, so the address we
+  # print matches the scheme the gateway actually serves. TLS is the default and
+  # plain HTTP answers 301 to HTTPS for everything except /healthz, so printing
+  # an `http://` URL on a TLS deployment just sends the user through a redirect
+  # that lands on the wrong port. `PUBLIC_BASE_URL` still wins outright.
+  if mogo_tls_is_enabled; then
+    MOGO_LOCAL_BASE="https://localhost"
+    MOGO_PUBLIC_BASE="${configured_base%/}"
+    if [[ -z "${MOGO_PUBLIC_BASE}" ]]; then
+      MOGO_PUBLIC_BASE="https://localhost"
+    fi
+  else
+    MOGO_LOCAL_BASE="http://127.0.0.1:${MOGO_PORT}"
+    MOGO_PUBLIC_BASE="${configured_base%/}"
+    if [[ -z "${MOGO_PUBLIC_BASE}" ]]; then
+      MOGO_PUBLIC_BASE="http://localhost:${MOGO_PORT}"
+    fi
+  fi
+}
+
+status_is_ready() {
+  # 经网关的路径带 /admin-api 前缀（由 nginx 路由剥掉），容器内直连 admin-api 则没有。
+  local status_path="/admin-api/api/setup/status"
+  local direct_path="/api/setup/status"
+  local status_url="${MOGO_LOCAL_BASE}${status_path}"
+  local response=""
+
+  # 网关启用 TLS（MOGO_NGINX_CONF 指向 deploy/nginx/nginx.conf）后，除 /healthz 之外的
+  # HTTP 路径都会 301 到 HTTPS，所以探针必须能跟随跳转；证书是 deploy/tls 里的自签名
+  # 证书，故加 -k（loopback 就绪探针，不做证书链校验）。
+  if command -v curl >/dev/null 2>&1; then
+    response="$(curl -fsS --max-time 5 "${status_url}" 2>/dev/null || true)"
+    if [[ "${response}" != *'"ready":true'* ]]; then
+      response="$(curl -fsSLk --max-time 5 "${status_url}" 2>/dev/null || true)"
+    fi
+  elif command -v wget >/dev/null 2>&1; then
+    # wget 默认跟随跳转，--no-check-certificate 对应上面的 -k
+    response="$(wget -qO- -T 5 --no-check-certificate "${status_url}" 2>/dev/null || true)"
+  fi
+
+  # 兜底：容器内直连 admin-api。宿主侧探针依赖网关的 80/443 端口映射，而宿主端口可能
+  # 被别的进程占用（实测 443 被第三方代理占用时，HTTP→HTTPS 的跳转目标打不通），
+  # 这条路径完全不经过宿主端口。
+  if [[ "${response}" != *'"ready":true'* ]]; then
+    response="$(mogo_compose exec -T gateway wget -qO- \
+      "http://admin-api:8100${direct_path}" 2>/dev/null || true)"
+  fi
+
+  [[ "${response}" == *'"ready":true'* ]]
+}
+
+wait_until_ready() {
+  local attempt
+  mogo_msg waiting
+  for attempt in $(seq 1 90); do
+    if status_is_ready; then
+      mogo_msg done
+      return 0
+    fi
+    printf '.'
+    sleep 2
+  done
+  mogo_msg timeout >&2
+  return 1
+}
+
+show_ready_message() {
+  mogo_msg ready_title
+  printf '  %s/admin/setup\n\n' "${MOGO_PUBLIC_BASE}"
+}
+
+# Default build tag when `MOGO_VERSION` is not set in the environment.
+#
+# The tag is the **abbreviated commit hash** of HEAD (`a0a6a08`): a local build
+# is named after exactly the commit it ships, so the images on disk map 1:1 to
+# a git revision and every rebuild retags all services to a fresh, unambiguous
+# tag. A short hash says which commit, which is all a local build can claim;
+# `git describe` release tags would instead name a build after the last release
+# it sits *past* (`v0.2.5-133-ga0a6a08`), which is not the commit being shipped.
+#
+# `--dirty` is deliberately NOT used: this workspace routinely carries
+# uncommitted work from parallel sessions, which would pin every local build to
+# a `-dirty` tag and make the tag useless for matching a release.
+#
+# An explicit `MOGO_VERSION` in the environment still wins -- that is how the
+# release pipeline pins a version and how a developer builds an arbitrary ref.
+mogo_default_version() {
+  git -C "${ROOT_DIR}" rev-parse --short HEAD 2>/dev/null \
+    || printf 'latest'
+}
+
+# Does the gateway terminate TLS?
+#
+# Priority order:
+#   1. MOGO_TLS env var (1/true/yes/on → TLS, 0/false/no/off → HTTP)
+#   2. MOGO_NGINX_CONF path (deploy/docker/nginx.conf → HTTP, else → TLS)
+#   3. default → HTTP (off)
+# TLS is off by default; set MOGO_TLS=1 to enable.
+mogo_tls_is_enabled() {
+  local nginx_conf tls_switch
+  # Explicit MOGO_TLS switch takes precedence over the nginx conf path.
+  tls_switch="${MOGO_TLS:-$(dotenv_value MOGO_TLS)}"
+  case "${tls_switch:-0}" in
+    0|false|no|off) return 1 ;;
+  esac
+  # Fall back to the nginx conf path for backward compatibility.
+  nginx_conf="${MOGO_NGINX_CONF:-$(dotenv_value MOGO_NGINX_CONF)}"
+  if [[ -z "${nginx_conf}" ]]; then
+    nginx_conf="./deploy/nginx/nginx.conf"
+  fi
+  case "${nginx_conf#./}" in
+    deploy/docker/nginx.conf) return 1 ;;
+  esac
+  return 0
+}
+
+# Make sure the gateway has a certificate pair whenever TLS is enabled.
+#
+# The gateway now loads the **TLS side** nginx config by default
+# (`docker-compose.yml` mounts `${MOGO_NGINX_CONF:-./deploy/nginx/nginx.conf}`).
+# Certificates are deliberately not committed (`deploy/tls/.gitignore`), so a
+# fresh clone has none -- and the gateway container is `read_only` and runs as
+# non-root (UID 10001), so nginx cannot create anything at runtime. The result
+# used to be
+#
+#   nginx: [emerg] cannot load certificate key "/etc/nginx/certs/privkey.pem"
+#               (13: Permission denied)
+#
+# which only surfaced much later as "services did not become ready in time",
+# with nothing pointing at a missing certificate.
+#
+# So resolve the same two variables docker-compose resolves and, when the pair
+# is missing, try to make one:
+#   * `openssl` available -> generate a self-signed pair (CN=localhost plus a
+#     localhost/127.0.0.1 SAN) and say so loudly. Browsers will warn; replace it
+#     with a CA-issued pair for anything real.
+#   * no `openssl`        -> fail fast with the exact commands to run.
+#
+# An existing pair is never touched, nothing is generated when the gateway is
+# pointed at the HTTP side config, and a freshly generated pair is picked up by
+# restarting an already-running gateway (nginx reads the key only at startup,
+# and `compose up -d` will not recreate a container whose spec did not change).
+mogo_ensure_tls_certs() {
+  local certs_dir fullchain privkey
+  certs_dir="${MOGO_TLS_CERTS_DIR:-$(dotenv_value MOGO_TLS_CERTS_DIR)}"
+
+  # Mirror the compose default so a bare `./mogo up` is covered too.
+  if [[ -z "${certs_dir}" ]]; then
+    certs_dir="./deploy/tls"
+  fi
+
+  # Only the HTTP side config runs without certificates.
+  if ! mogo_tls_is_enabled; then
+    return 0
+  fi
+
+  fullchain="${certs_dir%/}/fullchain.pem"
+  privkey="${certs_dir%/}/privkey.pem"
+  if [[ -f "${fullchain}" && -f "${privkey}" ]]; then
+    return 0
+  fi
+
+  if ! command -v openssl >/dev/null 2>&1; then
+    mogo_msg tls_certs_missing_no_openssl "${certs_dir}" >&2
+    return 1
+  fi
+
+  mkdir -p "${certs_dir}"
+  mogo_msg tls_generating_certs "${certs_dir}"
+  if ! openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+      -keyout "${privkey}" -out "${fullchain}" \
+      -subj "/CN=localhost" \
+      -addext "subjectAltName = DNS:localhost,IP:127.0.0.1" \
+      >/dev/null 2>&1; then
+    # OpenSSL < 1.1.1 has no `-addext`: retry without it so the stack still
+    # comes up. Browsers then reject the certificate (no SAN) while curl -k and
+    # server-to-server calls keep working.
+    if ! openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+        -keyout "${privkey}" -out "${fullchain}" \
+        -subj "/CN=localhost" \
+        >/dev/null 2>&1; then
+      mogo_msg tls_cert_generation_failed "${certs_dir}" >&2
+      return 1
+    fi
+    mogo_msg tls_cert_generated_without_san >&2
+  fi
+  # The gateway runs as UID 10001 and the directory is a bind mount, so 0644 is
+  # what makes the key readable inside the container. See deploy/tls/README.md.
+  chmod 0644 "${fullchain}" "${privkey}"
+  mogo_msg tls_certs_generated "${certs_dir}"
+
+  if [[ -n "$(mogo_compose ps -q gateway 2>/dev/null || true)" ]]; then
+    if ! mogo_compose restart gateway >/dev/null 2>&1; then
+      mogo_msg tls_gateway_restart_failed >&2
+    fi
+  fi
+  return 0
+}
+
+# Verify the application images exist locally.
+#
+# The pure-registry deployment path is retired. The published GHCR packages are
+# named `ghcr.io/mogoai/mogo-<service>` while the reference this repository
+# generates is `ghcr.io/mogoai/<service>`, so every registry pull fails with
+# `error from registry: denied` (verified 2026-10-13) -- and
+# `mogo_pull_images_serially` retries that forever, so a plain `./mogo up` used
+# to hang for minutes before dying.
+#
+# `./mogo up` without `--build` therefore runs strictly on local images: it
+# resolves the same <registry>/<service>:<tag> references a source build
+# produced (see mogo_configure_images), checks they are present, and names the
+# missing ones instead of pretending a pull will work.
+#
+# Base images (mongo / redis / weaviate / nginx / alpine) are a separate, working
+# path and stay with `mogo_prepare_base_images`, which honours
+# `MOGO_BASE_IMAGE_POLICY` for fully offline setups.
+mogo_require_local_images() {
+  local entry var reference
+  local -a missing=()
+
+  for entry in "${MOGO_IMAGE_SERVICES[@]}"; do
+    var="${entry%%:*}"
+    reference="${!var:-}"
+    [[ -z "${reference}" ]] && continue
+    if ! "${DOCKER_BIN}" image inspect "${reference}" >/dev/null 2>&1; then
+      missing+=("${reference}")
+    fi
+  done
+  # document-parser is shared by document-api and document-worker; only the
+  # first carries the variable.
+  reference="${MOGO_DOCUMENT_API_IMAGE:-}"
+  if [[ -n "${reference}" ]] \
+      && ! "${DOCKER_BIN}" image inspect "${reference}" >/dev/null 2>&1; then
+    missing+=("${reference}")
+  fi
+
+  if [[ "${#missing[@]}" -eq 0 ]]; then
+    return 0
+  fi
+  mogo_msg local_images_missing "${#missing[@]}" >&2
+  printf '  %s\n' "${missing[@]}" >&2
+  mogo_msg local_images_missing_hint >&2
+  return 1
+}
+
+# Fail fast when the PanWeiDB backend is selected but its image is unavailable.
+#
+# `MOGO_DATA_BACKEND=panweidb` both points the services at PanWeiDB and turns on
+# the `panweidb` compose profile (see mogo_compose in deploy/cli/images.sh), so
+# one switch is all an operator needs. The image is not published to any registry
+# -- it is arm64/openEuler and ships through
+# base-images/images/<arch>/panweidb_3.2.0.tar -- and docker-compose.yml declares
+# `pull_policy: never`, so a missing image would otherwise surface late: the apps
+# sit behind `depends_on: panweidb: service_healthy` and time out with no message
+# pointing at the actual cause.
+#
+# Same shape as mogo_ensure_tls_certs: check the precondition the compose file
+# really needs, before starting anything expensive.
+mogo_ensure_panweidb_image() {
+  # Gated on the *intent* switch, not on mogo_panweidb_enabled: a leftover
+  # panweidb container must not turn a mongo deployment into a hard failure over
+  # an image it never asked for.
+  if ! mogo_panweidb_backend_selected; then
+    return 0
+  fi
+  local image="${MOGO_PANWEIDB_IMAGE:-panweidb:3.2.0}"
+  if "${DOCKER_BIN}" image inspect "${image}" >/dev/null 2>&1; then
+    mogo_msg panweidb_profile_enabled
+    return 0
+  fi
+  mogo_msg panweidb_image_missing "${image}" >&2
+  mogo_msg panweidb_image_missing_hint >&2
+  return 1
+}
+
+# External-database mode has no stack-internal mongo/redis/panweidb to fall back
+# on: a leftover stack-internal hostname in .env only surfaces as a crash-loop
+# after the whole stack is up. Validate the connection info (and probe the
+# external MongoDB version) before starting anything expensive.
+mogo_check_external_db() {
+  if [[ "${MOGO_USE_EXTERNAL_DB:-$(dotenv_value MOGO_USE_EXTERNAL_DB)}" != "1" ]]; then
+    return 0
+  fi
+  mogo_msg external_db_checking
+  # 探测容器要挂应用连外部库的那张网（backend 是 internal，出不去）
+  local net rc
+  net="$(mogo_compose config 2>/dev/null | awk '/^networks:/{n=1} n&&/^  public:/{p=1} p&&/name:/{print $2; exit}')"
+  "${ROOT_DIR}/scripts/check_external_db.sh" "${ROOT_DIR}" "${net:-mogo_public}"
+  rc=$?
+  if [[ ${rc} -ne 0 ]]; then
+    mogo_msg external_db_check_failed >&2
+    return 1
+  fi
+  return 0
+}
+
+command_up() {
+  print_logo
+  require_docker
+  deployment_urls
+  # Before anything expensive: a missing certificate used to surface only as a
+  # gateway crash-loop after the whole stack had already been built/started.
+  mogo_ensure_tls_certs
+  # Same idea for the optional PanWeiDB backend: the profile is turned on by
+  # MOGO_DATA_BACKEND, so verify the image it needs before starting the stack.
+  mogo_ensure_panweidb_image || return 1
+  # Same idea for external-database mode: no internal container to fall back on,
+  # so validate the .env connection info before starting the stack.
+  mogo_check_external_db || return 1
+  if mogo_has_build_flag "$@"; then
+    # Same rule as `./mogo build`: default the tag to the release tag so a bare
+    # `./mogo up --build` never falls back to `latest`. An explicit
+    # `MOGO_VERSION` in the environment still wins.
+    export MOGO_VERSION="${MOGO_VERSION:-$(mogo_default_version)}"
+    mogo_configure_images true
+  else
+    # No registry pull any more (see mogo_require_local_images): the GHCR
+    # reference this repository builds does not exist, and retrying it only
+    # hangs. Use the same bare local names a source build produced, and resolve
+    # the tag the same way so a bare `./mogo up` finds what `up --build` made.
+    export MOGO_VERSION="${MOGO_VERSION:-$(mogo_default_version)}"
+    mogo_configure_images true
+    mogo_require_local_images || return 1
+  fi
+  retire_legacy_compose_project
+  if mogo_has_build_flag "$@"; then
+    mogo_msg starting
+    mogo_print_dsh_build_target
+    # $@ already carries --build here; only the pull policy is added. Base
+    # images are resolved locally first so the build never re-downloads them.
+    # `up --pull` takes a string policy (never), unlike `build --pull`.
+    mogo_prepare_base_images || return 1
+    if ! mogo_compose up -d --pull never "$@"; then
+      mogo_msg start_failed >&2
+      mogo_compose ps >&2 || true
+      mogo_msg logs_hint >&2
+      return 1
+    fi
+  else
+    # Base images are the only thing still pulled, and only the working
+    # Docker Hub path: MOGO_BASE_IMAGE_POLICY=local turns that off too.
+    mogo_prepare_base_images || return 1
+    mogo_msg starting
+    if ! mogo_compose up -d --pull never "$@"; then
+      mogo_msg start_failed >&2
+      mogo_compose ps >&2 || true
+      mogo_msg logs_hint >&2
+      return 1
+    fi
+  fi
+  refresh_gateway_resolution
+  wait_until_ready
+  mogo_print_running_dsh_version
+  # Housekeeping only after the new deployment is up and healthy: a failed
+  # start must keep the previous release's images so it can still be rolled
+  # back. `./mogo build` already does the same after a successful build.
+  if mogo_has_build_flag "$@"; then
+    prune_previous_release_images
+    prune_dangling_images
+  fi
+  show_ready_message
+}
+
+# Remove image layers that lost their tag (typically the previous build of the
+# same service names). Safe: tagged images and anything a container references
+# are never touched. Failures are non-fatal, so a build is never reported as
+# broken because of housekeeping.
+# Reclaimable image bytes as an integer. ``docker system df`` only reports
+# human-readable sizes ("5.232GB (18%)"), so the unit suffix is converted here
+# with integer arithmetic (no bc dependency). An unparsable value yields 0,
+# which makes the caller skip the report instead of failing the build.
+docker_reclaimable_bytes() {
+  local raw whole frac digits unit
+  raw="$("${DOCKER_BIN}" system df --format '{{.Type}}|{{.Reclaimable}}' 2>/dev/null \
+    | awk -F'|' '/^Images/ {print $2; exit}')"
+  digits="$(printf '%s' "${raw}" | awk '{print $1}')"
+  whole="${digits%%.*}"
+  frac="${digits#*.}"
+  [[ "${frac}" == "${digits}" ]] && frac="0"
+  frac="$(printf '%s' "${frac}" | tr -cd '0-9' | cut -c1-3)"
+  while [[ ${#frac} -lt 3 ]]; do frac="${frac}0"; done
+  unit="$(printf '%s' "${raw}" | grep -oE '[A-Za-z]+' | head -1)"
+  # ``docker system df`` only prints a decimal when it has one to print, so the
+  # integer part still carries the unit suffix for values like "11GB" (while
+  # "5.232GB" splits cleanly). Left as-is the arithmetic below dies with
+  # ``10#11GB: value too great for base``, and under ``set -e`` that aborts the
+  # whole command -- before any previous-release image is pruned. Strip the
+  # suffix here instead.
+  whole="$(printf '%s' "${whole}" | tr -cd '0-9')"
+  whole="${whole:-0}"
+  case "${unit}" in
+    kB) echo $(( 10#${whole} * 1024 + 10#${frac} * 1024 / 1000 )) ;;
+    MB) echo $(( 10#${whole} * 1048576 + 10#${frac} * 1048576 / 1000 )) ;;
+    GB) echo $(( 10#${whole} * 1073741824 + 10#${frac} * 1073741824 / 1000 )) ;;
+    TB) echo $(( 10#${whole} * 1099511627776 )) ;;
+    *)  echo 0 ;;
+  esac
+}
+
+prune_dangling_images() {
+  local before after reclaimed
+  before="$(docker_reclaimable_bytes)"
+
+  # Build leftovers are not only untagged images: a build step that fails part
+  # way (for example the Docling model download) leaves a stopped anonymous
+  # container holding the layer, which pins the image and defeats
+  # ``image prune``. Release those first -- see the predicate below for the
+  # exact safety conditions.
+  remove_stopped_build_containers
+
+  if ! "${DOCKER_BIN}" image prune -f >/dev/null 2>&1; then
+    return 0
+  fi
+
+  after="$(docker_reclaimable_bytes)"
+  if [[ -n "${before}" && -n "${after}" && "${after}" -lt "${before}" ]]; then
+    reclaimed=$(( (before - after) / 1024 / 1024 ))
+    [[ "${reclaimed}" -gt 0 ]] && mogo_msg pruned_dangling "${reclaimed}"
+  fi
+}
+
+# Remove build leftovers that pin an image layer.
+#
+# A build step that fails part way (for example the Docling model download)
+# leaves an exited anonymous container holding a layer, which defeats
+# ``docker image prune``.
+#
+# Safety is the priority here, so the predicate is deliberately narrow. A
+# container is only removed when ALL of the following hold:
+#   * it is stopped (exited or created), never running;
+#   * it has no Compose service label (so it is not a service container of this
+#     or any other project);
+#   * its name is an anonymous Docker-generated one (no "-" in the name, which
+#     excludes user-named containers such as "sqlserver-test");
+#   * its image is now untagged, i.e. the layer it holds is exactly the build
+#     residue we are trying to release.
+remove_stopped_build_containers() {
+  local id service name image_id dangling
+  dangling="$("${DOCKER_BIN}" images -f dangling=true -q 2>/dev/null)"
+  [[ -z "${dangling}" ]] && return 0
+
+  while IFS= read -r id; do
+    [[ -z "${id}" ]] && continue
+
+    service="$("${DOCKER_BIN}" inspect "${id}" \
+      --format '{{index .Config.Labels "com.docker.compose.service"}}' 2>/dev/null)"
+    [[ -n "${service}" && "${service}" != "<no value>" ]] && continue
+
+    # Anonymous names have no separator; anything hyphenated was named by a user.
+    name="$("${DOCKER_BIN}" inspect "${id}" --format '{{.Name}}' 2>/dev/null)"
+    [[ "${name}" == *-* ]] && continue
+
+    # Only touch containers whose image lost its tag (the build residue).
+    # Compare on the short id: ``images -q`` prints short ids while a container
+    # reports the full ``sha256:`` digest.
+    image_id="$("${DOCKER_BIN}" inspect "${id}" --format '{{.Image}}' 2>/dev/null)"
+    image_id="${image_id#sha256:}"
+    image_short="${image_id:0:12}"
+    printf '%s\n' "${dangling}" | grep -qx "${image_short}" || continue
+
+    "${DOCKER_BIN}" rm "${id}" >/dev/null 2>&1 || true
+  done < <("${DOCKER_BIN}" ps -aq --filter "status=exited" --filter "status=created" 2>/dev/null)
+}
+
+# Remove the image tags left behind by the previous release.
+#
+# ``docker compose up --build`` retags every service with the current
+# ``MOGO_VERSION``. The image built for an earlier version keeps its old tag,
+# so it is *not* dangling and ``image prune`` ignores it -- a full set of seven
+# images therefore stays on disk for every release and eventually fills the
+# disk. ``prune_dangling_images`` cannot help here: it only sees untagged
+# layers.
+#
+# Safety rules, in order of importance:
+#   * only this project's own service repositories are considered;
+#   * the tag currently deployed (``MOGO_VERSION``) is never removed;
+#   * an image that any container still references -- running or stopped, e.g.
+#     one kept around for a rollback -- is skipped;
+#   * everything is best effort, so housekeeping can never fail a deployment.
+prune_previous_release_images() {
+  local before after reclaimed removed entry service repo tag reference image_id
+  local repos=""
+  before="$(docker_reclaimable_bytes)"
+  removed=0
+
+  # Both naming modes are swept: the current scheme prefixes the service name
+  # (ghcr.io/mogoai/chat-api:5aab407), and builds made before the naming was
+  # unified left bare tags behind (chat-api:5aab407). Stale tags of either kind
+  # are residue and should be reclaimed.
+  for entry in "${MOGO_IMAGE_SERVICES[@]}"; do
+    service="${entry##*:}"
+    repos="${repos}${MOGO_EXPORTED_IMAGE_PREFIX:-}${service}"$'\n'
+    repos="${repos}${service}"$'\n'
+  done
+  # document-parser is shared by two services and lives outside the array.
+  repos="${repos}${MOGO_EXPORTED_IMAGE_PREFIX:-}document-parser"$'\n'
+  repos="${repos}document-parser"$'\n'
+
+  while IFS= read -r repo; do
+    while IFS= read -r tag; do
+      [[ -z "${tag}" || "${tag}" == "<none>" ]] && continue
+      [[ "${tag}" == "${MOGO_VERSION:-}" ]] && continue
+
+      reference="${repo}:${tag}"
+      image_id="$("${DOCKER_BIN}" images -q --no-trunc "${reference}" 2>/dev/null | head -n 1)"
+      [[ -z "${image_id}" ]] && continue
+      image_id="${image_id#sha256:}"
+
+      # ``ancestor`` only matches the bare id, not the ``sha256:`` form.
+      if [[ -n "$("${DOCKER_BIN}" ps -aq --filter "ancestor=${image_id}" 2>/dev/null)" ]]; then
+        continue
+      fi
+
+      if "${DOCKER_BIN}" rmi "${reference}" >/dev/null 2>&1; then
+        removed=$((removed + 1))
+      fi
+    done < <("${DOCKER_BIN}" images --filter "reference=${repo}:*" --format '{{.Tag}}' 2>/dev/null)
+  done < <(printf '%s' "${repos}" | awk 'NF && !seen[$0]++')
+
+  if [[ "${removed}" -gt 0 ]]; then
+    after="$(docker_reclaimable_bytes)"
+    reclaimed=$(( (before - after) / 1024 / 1024 ))
+    [[ "${reclaimed}" -lt 0 ]] && reclaimed=0
+    mogo_msg pruned_previous_release "${removed}" "${reclaimed}"
+  fi
+}
+
+command_build() {
+  print_logo
+  require_docker
+  # Default the image tag to the current commit's short hash so a bare
+  # `./mogo build` is traceable to exactly the revision it ships (an explicit
+  # `MOGO_VERSION` in the environment still wins).
+  export MOGO_VERSION="${MOGO_VERSION:-$(mogo_default_version)}"
+  mogo_configure_images true
+  mogo_msg building
+  mogo_print_dsh_build_target
+  # Reuse base images that Kiri already holds and pull only what is truly
+  # missing. `--pull` is deliberately omitted: it would force BuildKit to
+  # re-resolve every base image upstream, which is what made each rebuild wait
+  # on the network.
+  mogo_prepare_base_images || return 1
+  mogo_compose build "$@"
+  # Rebuilding retags the same service names, which leaves the previous image
+  # layers unreferenced (dangling). Left alone they accumulate on every build
+  # and eventually fill the disk, so reclaim them when the build succeeds.
+  prune_dangling_images
+}
+
+command_update() {
+  print_logo
+  require_docker
+  deployment_urls
+  mogo_ensure_tls_certs
+  # `update` was the pure-registry path: pull the newest published images and
+  # roll the running containers onto them. That path is retired -- the GHCR
+  # reference this repository generates (`ghcr.io/mogoai/<service>`) does not
+  # exist, so the pull fails and `mogo_pull_images_serially` retries forever.
+  # Rebuilding locally is the supported upgrade route now.
+  mogo_msg update_registry_retired >&2
+  return 2
+}
+
+# `./mogo check`: run the external-database preflight on its own, without
+# starting anything. Useful while wiring up an external MongoDB/Redis before the
+# first `./mogo up`.
+command_check() {
+  require_docker
+  deployment_urls
+  if [[ "${MOGO_USE_EXTERNAL_DB:-$(dotenv_value MOGO_USE_EXTERNAL_DB)}" != "1" ]]; then
+    mogo_msg external_db_disabled
+    return 0
+  fi
+  mogo_check_external_db
+}
+
+# 只读检查命令（baseline / drift / verify）也要走和 command_up 完全相同的镜像
+# 解析。不导出时，子脚本的 `docker compose config` 读到的声明永远是 .env 默认值
+# （dsh 钉在 release-train tag），和运行态的版本 tag 一比就是假漂移、假 image-present。
+mogo_configure_check_images() {
+  export MOGO_VERSION="${MOGO_VERSION:-$(mogo_default_version)}"
+  mogo_configure_images true
+}
+
+command_baseline() {
+  local baseline_script="${ROOT_DIR}/deploy/cli/baseline-check.sh"
+  if [[ ! -x "${baseline_script}" ]]; then
+    mogo_msg baseline_script_missing >&2
+    exit 2
+  fi
+  mogo_configure_check_images
+  bash "${baseline_script}" "$@"
+}
+
+# 024 T027 (FR-013)：把配置治理/漂移检查暴露为 mogo 子命令，统一入口。
+command_config() {
+  local lint_script="${ROOT_DIR}/deploy/cli/config-lint.sh"
+  if [[ ! -f "${lint_script}" ]]; then
+    mogo_msg config_script_missing >&2
+    exit 2
+  fi
+  bash "${lint_script}" "$@"
+}
+
+command_canary() {
+  local canary_script="${ROOT_DIR}/deploy/cli/canary.sh"
+  if [[ ! -f "${canary_script}" ]]; then
+    mogo_msg canary_script_missing >&2
+    exit 2
+  fi
+  bash "${canary_script}" "$@"
+}
+
+command_drift() {
+  require_docker
+  local drift_script="${ROOT_DIR}/deploy/cli/drift-check.sh"
+  if [[ ! -f "${drift_script}" ]]; then
+    mogo_msg drift_script_missing >&2
+    exit 2
+  fi
+  mogo_configure_check_images
+  bash "${drift_script}" "$@"
+}
+
+# 024 T034 (FR-012/FR-016)：部署预审 dry-run 与制品一致性校验。
+command_deploy_dry_run() {
+  local script="${ROOT_DIR}/deploy/cli/deploy-dry-run.sh"
+  if [[ ! -f "${script}" ]]; then
+    mogo_msg deploy_dryrun_script_missing >&2
+    exit 2
+  fi
+  bash "${script}" "$@"
+}
+
+command_verify() {
+  local script="${ROOT_DIR}/deploy/cli/verify-artifact.sh"
+  if [[ ! -f "${script}" ]]; then
+    mogo_msg verify_script_missing >&2
+    exit 2
+  fi
+  mogo_configure_check_images
+  bash "${script}" "$@"
+}
+
+# 024 T024 (FR-009)：deploy/config/ 按 git commit 回滚，并触发 mogo up -d 重建。
+command_config_rollback() {
+  if [[ $# -lt 1 ]]; then
+    mogo_msg usage_config_rollback >&2
+    exit 2
+  fi
+  local ref="$1"
+  shift
+  confirmed=false
+  for argument in "$@"; do
+    [[ "${argument}" == "--yes" ]] && confirmed=true
+  done
+  if ! git rev-parse --verify --quiet "${ref}^{commit}" >/dev/null 2>&1; then
+    mogo_msg bad_ref "${ref}" >&2
+    exit 2
+  fi
+  local dirty prev
+  dirty="$(git status --porcelain -- deploy/config 2>/dev/null || true)"
+  if [[ -n "${dirty}" && "${confirmed}" != "true" ]]; then
+    mogo_msg rollback_dirty >&2
+    exit 2
+  fi
+  prev="$(git rev-parse --short HEAD)"
+  git checkout "${ref}" -- deploy/config/
+  if ! bash "${ROOT_DIR}/deploy/cli/config-lint.sh" --env all >/dev/null 2>&1; then
+    mogo_msg rollback_lint_failed >&2
+    exit 1
+  fi
+  require_docker
+  deployment_urls
+  mogo_configure_images false
+  mogo_msg rollback_done "${prev}" "${ref}"
+  mogo_compose up -d --pull never
+  wait_until_ready
+  show_ready_message
+}
+
+command="${1:-up}"
+if [[ $# -gt 0 ]]; then
+  shift
+fi
+
+# 环境 profile：把 dev/test/prod 归一化成 compose profile 组合并按需导出
+# MOGO_DATA_BACKEND / MOGO_PLATFORM / COMPOSE_PROFILES。参数冲突（例如
+# --profile dev 撞上 MOGO_DATA_BACKEND=panweidb）直接中止，不要带着半截
+# 配置去启动容器。不碰 compose 的命令（help 等）只导出、不打印。
+profile_announce=false
+case "${command}" in
+  up|build|update|restart|down|stop|status|logs|ps|verify|drift|canary|deploy|baseline|backup|restore|check|failover|monitor)
+    profile_announce=true
+    ;;
+esac
+# 只有真正创建 / 拉取容器的命令才要求"架构先写明"（mogo_apply_profile 的第二个
+# 参数）。否则架构与宿主不符时连 `./mogo down`、`./mogo status` 都会被挡住——
+# 而收拾现场、看状态恰恰是用户最需要它们能跑的时候。
+profile_pin_platform=false
+case "${command}" in
+  up|build|update|restart|deploy|canary|failover|restore)
+    profile_pin_platform=true
+    ;;
+esac
+if [[ "${profile_announce}" == "true" ]]; then
+  mogo_apply_profile true "${profile_pin_platform}" || exit $?
+fi
+
+case "${command}" in
+  up)
+    command_up "$@"
+    ;;
+  build)
+    command_build "$@"
+    ;;
+  update)
+    command_update
+    ;;
+  backup)
+    require_docker
+    deployment_urls
+    mogo_configure_images false
+    mogo_backup "${1:-}"
+    ;;
+  restore)
+    require_docker
+    if [[ -z "${1:-}" ]]; then
+      mogo_usage >&2
+      exit 2
+    fi
+    restore_confirmed=false
+    restore_verify=false
+    for argument in "${@:2}"; do
+      [[ "${argument}" == "--yes" ]] && restore_confirmed=true
+      [[ "${argument}" == "--verify" ]] && restore_verify=true
+    done
+    deployment_urls
+    mogo_configure_images false
+    mogo_restore "$1" "${restore_confirmed}" "${restore_verify}"
+    ;;
+  backup-schedule)
+    case "${1:-}" in
+      install|cron)
+        mogo_backup_schedule_install_cron
+        ;;
+      systemd)
+        mogo_backup_schedule_install_systemd
+        ;;
+      uninstall)
+        mogo_backup_schedule_uninstall
+        ;;
+      status)
+        mogo_backup_schedule_status
+        ;;
+      prune)
+        mogo_backup_schedule_prune
+        ;;
+      *)
+        printf '用法: ./mogo backup-schedule install|systemd|uninstall|status|prune\n' >&2
+        exit 2
+        ;;
+    esac
+    ;;
+  failover)
+    case "${1:-}" in
+      prepare)
+        shift
+        mogo_failover_prepare "$@"
+        ;;
+      execute)
+        shift
+        mogo_failover_execute "$@"
+        ;;
+      verify)
+        shift
+        mogo_failover_verify "$@"
+        ;;
+      back)
+        shift
+        mogo_failover_back "$@"
+        ;;
+      status)
+        mogo_failover_status
+        ;;
+      *)
+        printf '用法: ./mogo failover prepare|execute|verify|back|status\n' >&2
+        exit 2
+        ;;
+    esac
+    ;;
+  status)
+    require_docker
+    mogo_compose ps
+    ;;
+  check)
+    command_check
+    ;;
+  baseline)
+    command_baseline "$@"
+    ;;
+  config)
+    if [[ "${1:-}" == "rollback" ]]; then
+      shift
+      command_config_rollback "$@"
+    else
+      command_config "$@"
+    fi
+    ;;
+  canary)
+    require_docker
+    command_canary "$@"
+    ;;
+  drift)
+    command_drift "$@"
+    ;;
+  cert)
+    # 024 T095：证书到期检查 / 外部拨测（委托 deploy/cli/cert-check.sh）
+    case "${1:-}" in
+      list)
+        shift
+        mogo_cert_list "$@"
+        ;;
+      check)
+        shift
+        mogo_cert_check "$@"
+        ;;
+      renew)
+        # 024 T095：触发 certbot 容器续期（profiles: ["acme"]，见 deploy/docker/certbot/README.md）
+        require_docker
+        docker compose --profile acme up certbot
+        ;;
+      *)
+        printf '用法: ./mogo cert list|check|renew [--port 443] [--write-probe-status] [--resolver 1.1.1.1] [--json]\n' >&2
+        exit 2
+        ;;
+    esac
+    ;;
+  monitor)
+    # 024 T103/T104 (FR-049)：容量水位检查 / 阈值定义查看
+    #   ./mogo monitor check        运行容量水位检查（委托 watermark-check.sh）
+    #   ./mogo monitor watermarks   列出水位定义与容量换算文档
+    case "${1:-}" in
+      watermarks)
+        mogo_watermark_list
+        ;;
+      check)
+        shift
+        mogo_watermark_check "$@"
+        ;;
+      *)
+        mogo_watermark_check "$@"
+        ;;
+    esac
+    ;;
+  deploy)
+    require_docker
+    # ./mogo deploy --dry-run：预审计划 diff（--dry-run 即本命令默认语义）
+    dry_args=()
+    for argument in "$@"; do
+      [[ "${argument}" == "--dry-run" ]] && continue
+      dry_args+=("${argument}")
+    done
+    if [[ "${#dry_args[@]}" -gt 0 ]]; then
+      command_deploy_dry_run "${dry_args[@]}"
+    else
+      command_deploy_dry_run
+    fi
+    ;;
+  verify)
+    command_verify "$@"
+    ;;
+  logs)
+    require_docker
+    mogo_compose logs --tail=200 "$@"
+    ;;
+  restart)
+    print_logo
+    require_docker
+    deployment_urls
+    mogo_ensure_tls_certs
+    mogo_compose restart
+    wait_until_ready
+    show_ready_message
+    ;;
+  down)
+    require_docker
+    # 只带当前 profile 时，compose 会漏掉别的环境起的数据库容器；down 之前
+    # 把 dev / test / prod 三个 profile 一起并进来，保证一次收拾干净。
+    mogo_profile_cover_all_environments
+    remove_volumes=false
+    confirmed=false
+    compose_down_args=()
+    for argument in "$@"; do
+      case "${argument}" in
+        -v|--volumes) remove_volumes=true ;;
+        --yes) confirmed=true ;;
+        *) compose_down_args+=("${argument}") ;;
+      esac
+    done
+    if [[ "${remove_volumes}" == "true" ]]; then
+      compose_down_args+=(--volumes)
+      if [[ "${confirmed}" != "true" ]]; then
+        confirmation=""
+        if [[ -t 0 ]]; then
+          mogo_msg remove_confirm
+          read -r confirmation
+        fi
+        if [[ "${confirmation}" != "MOGO" ]]; then
+          mogo_msg remove_aborted >&2
+          exit 2
+        fi
+      fi
+    fi
+    # bash 3.2 (the version macOS ships) treats `"${empty_array[@]}"` under
+    # `set -u` as an unbound variable, so a bare `./mogo down` -- with no extra
+    # arguments, which is the common case -- died before it ever reached docker.
+    # Expand the array only when it actually holds something.
+    if [[ "${#compose_down_args[@]}" -gt 0 ]]; then
+      mogo_compose down "${compose_down_args[@]}"
+    else
+      mogo_compose down
+    fi
+    retire_legacy_compose_project
+    if [[ "${remove_volumes}" == "true" ]]; then
+      mogo_msg stopped_removed
+    else
+      mogo_msg stopped
+    fi
+    ;;
+  help|-h|--help)
+    mogo_usage
+    ;;
+  *)
+    mogo_msg unknown "${command}" >&2
+    mogo_usage >&2
+    exit 2
+    ;;
+esac

@@ -5,6 +5,8 @@ import { t } from '../../composables/i18n'
 
 const props = defineProps<{
   suggestedUsername?: string
+  challengeToken?: string
+  tenantCandidates?: TenantCandidate[]
 }>()
 
 const emit = defineEmits<{
@@ -15,15 +17,36 @@ const username = ref('')
 const password = ref('')
 const errorMessage = ref('')
 const isSubmitting = ref(false)
-const challengeToken = ref('')
-const tenantCandidates = ref<TenantCandidate[]>([])
-const selectedMainId = ref('')
-const pendingSelection = computed(() => Boolean(challengeToken.value) && tenantCandidates.value.length > 0)
+const activeChallengeToken = ref('')
+const activeTenantCandidates = ref<TenantCandidate[]>([])
+const selectedTenantId = ref('')
+const pendingSelection = computed(() => Boolean(activeChallengeToken.value) && activeTenantCandidates.value.length > 0)
 
 watch(
   () => props.suggestedUsername,
   (value) => {
     if (!username.value) username.value = value || ''
+  },
+  { immediate: true },
+)
+
+// 029：门户 SSO 多租户——外部传入选租户挑战时，直接进入"只选组织"状态
+// （免二次输密码）。挑战被清空（弹窗关闭 / 登录成功后）时同步复位，避免污染下次普通登录。
+watch(
+  () => [props.challengeToken, props.tenantCandidates] as const,
+  () => {
+    const token = props.challengeToken
+    const candidates = props.tenantCandidates
+    if (token && (candidates?.length ?? 0) > 0) {
+      activeChallengeToken.value = token
+      activeTenantCandidates.value = candidates || []
+      selectedTenantId.value = activeTenantCandidates.value[0]?.tenantId || ''
+      errorMessage.value = ''
+    } else {
+      activeChallengeToken.value = ''
+      activeTenantCandidates.value = []
+      selectedTenantId.value = ''
+    }
   },
   { immediate: true },
 )
@@ -45,38 +68,32 @@ async function submit() {
   }
 
   isSubmitting.value = true
-  try {
-    const result = pendingSelection.value
-      ? await selectTenantAndLogin(challengeToken.value, selectedMainId.value)
-      : await loginWithPassword(normalizedUsername, password.value)
+  const result = pendingSelection.value
+    ? await selectTenantAndLogin(activeChallengeToken.value, selectedTenantId.value)
+    : await loginWithPassword(normalizedUsername, password.value)
+  isSubmitting.value = false
 
-    if (result.requiresTenantSelection) {
-      challengeToken.value = result.challengeToken || ''
-      tenantCandidates.value = result.tenantCandidates || []
-      selectedMainId.value = tenantCandidates.value[0]?.mainId || ''
-      errorMessage.value = result.message || t('api.auth.select_org')
-      return
-    }
-    if (!result.ok || !result.token) {
-      errorMessage.value = result.message || t('api.auth.login_failed')
-      return
-    }
-    emit('login-success', { token: result.token, username: normalizedUsername, profile: result.profile })
-  } catch (error: any) {
-    console.error('[auth] password login completion failed', error)
-    errorMessage.value = error?.message || t('api.auth.login_failed')
-  } finally {
-    isSubmitting.value = false
+  if (result.requiresTenantSelection) {
+    activeChallengeToken.value = result.challengeToken || ''
+    activeTenantCandidates.value = result.tenantCandidates || []
+    selectedTenantId.value = activeTenantCandidates.value[0]?.tenantId || ''
+    errorMessage.value = result.message || t('api.auth.select_org')
+    return
   }
+  if (!result.ok || !result.token) {
+    errorMessage.value = result.message || t('api.auth.login_failed')
+    return
+  }
+  emit('login-success', { token: result.token, username: normalizedUsername, profile: result.profile })
 }
 </script>
 
 <template>
   <form class="space-y-4" @submit.prevent="submit">
     <div class="space-y-2">
-      <label for="movo-login-username" class="text-sm font-medium text-slate-700">{{ t('login.username_label') }}</label>
+      <label for="mogo-login-username" class="text-sm font-medium text-slate-700">{{ t('login.username_label') }}</label>
       <input
-        id="movo-login-username"
+        id="mogo-login-username"
         v-model="username"
         type="text"
         autocomplete="username"
@@ -88,9 +105,9 @@ async function submit() {
     </div>
 
     <div class="space-y-2">
-      <label for="movo-login-password" class="text-sm font-medium text-slate-700">{{ t('login.password_label') }}</label>
+      <label for="mogo-login-password" class="text-sm font-medium text-slate-700">{{ t('login.password_label') }}</label>
       <input
-        id="movo-login-password"
+        id="mogo-login-password"
         v-model="password"
         type="password"
         autocomplete="current-password"
@@ -102,15 +119,15 @@ async function submit() {
     </div>
 
     <div v-if="pendingSelection" class="space-y-2">
-      <label for="movo-login-tenant" class="text-sm font-medium text-slate-700">{{ t('login.select_org_label') }}</label>
+      <label for="mogo-login-tenant" class="text-sm font-medium text-slate-700">{{ t('login.select_org_label') }}</label>
       <select
-        id="movo-login-tenant"
-        v-model="selectedMainId"
+        id="mogo-login-tenant"
+        v-model="selectedTenantId"
         class="min-h-[44px] w-full rounded-2xl border border-slate-200 px-4 text-slate-900 outline-none focus:border-slate-400 focus-visible:ring-2 focus-visible:ring-slate-200"
         @change="resetError"
       >
-        <option v-for="tenant in tenantCandidates" :key="tenant.mainId" :value="tenant.mainId">
-          {{ tenant.orgName || tenant.mainId }}
+        <option v-for="tenant in activeTenantCandidates" :key="tenant.tenantId" :value="tenant.tenantId">
+          {{ tenant.orgName || tenant.tenantId }}
         </option>
       </select>
     </div>
@@ -122,7 +139,7 @@ async function submit() {
     <button
       type="submit"
       class="min-h-[44px] w-full rounded-2xl bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70"
-      :disabled="isSubmitting || (pendingSelection && !selectedMainId)"
+      :disabled="isSubmitting || (pendingSelection && !selectedTenantId)"
     >
       {{ isSubmitting ? t('phase.verifying') : pendingSelection ? t('login.btn_enter_org') : t('login.password_submit') }}
     </button>

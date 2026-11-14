@@ -95,14 +95,14 @@ async function run() {
 </template>
 
 <style scoped>
-.group-test-pane { display: flex; flex-direction: column; gap: 14px; min-width: 0; min-height: 0; overflow-y: auto; padding: 20px; border-left: 1px solid #e4eaf3; background: #f8faff; }
+.group-test-pane { display: flex; flex-direction: column; gap: 14px; min-width: 0; min-height: 0; overflow-y: auto; padding: 20px; border-left: 1px solid var(--mg-border); background: var(--mg-bg-surface-hover); }
 h3 { margin: 0; font-size: 16px; }
-.test-title { display: flex; align-items: center; gap: 8px; color: #253a61; }.test-title .n-icon { color: #4774cb; }
-.helper { margin: 0; color: #697789; font-size: 12px; }
-.model-summary { display: flex; justify-content: space-between; gap: 12px; color: #65758b; font-size: 12px; }
-.model-summary strong { color: #263954; text-align: right; overflow-wrap: anywhere; }
-.test-result { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; border-radius: 8px; background: #eef2fa; }
-.test-result.success { background: #eaf7ee; }.test-result.failed { color: #af3131; background: #fff0f0; }
+.test-title { display: flex; align-items: center; gap: 8px; color: var(--mg-text-1); }.test-title .n-icon { color: var(--mg-brand); }
+.helper { margin: 0; color: var(--mg-text-3); font-size: 12px; }
+.model-summary { display: flex; justify-content: space-between; gap: 12px; color: var(--mg-text-3); font-size: 12px; }
+.model-summary strong { color: var(--mg-text-1); text-align: right; overflow-wrap: anywhere; }
+.test-result { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; border-radius: 8px; background: var(--mg-bg-subtle); }
+.test-result.success { background: var(--mg-success-bg); }.test-result.failed { color: var(--mg-danger-text); background: var(--mg-danger-bg); }
 .test-image { display: block; max-width: 100%; border-radius: 8px; }
-@media (max-width: 900px) { .group-test-pane { overflow: visible; border-left: 0; border-top: 1px solid #e4eaf3; } }
+@media (max-width: 900px) { .group-test-pane { overflow: visible; border-left: 0; border-top: 1px solid var(--mg-border); } }
 </style>

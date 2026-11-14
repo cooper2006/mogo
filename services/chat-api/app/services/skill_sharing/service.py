@@ -7,7 +7,7 @@ import uuid
 from typing import Any
 
 from app.core.db import get_db
-from app.core.tenant import add_main_scope, resolve_main_id
+from app.core.tenant import add_tenant_scope, resolve_tenant_id
 from app.services.skill_packages import SkillPackageInstaller, validate_skill_package
 from app.services.skill_packages.archive_store import archive_fields, read_archive, delete_archive
 
@@ -45,11 +45,11 @@ class SkillShareService:
         self._distribution = SkillDistributionService()
 
     async def create(
-        self, *, main_id: str, owner_user_id: str, skill_id: str, expires_in_days: int | None = 30,
+        self, *, tenant_id: str, owner_user_id: str, skill_id: str, expires_in_days: int | None = 30,
     ) -> dict[str, Any]:
         db = get_db()
-        tenant_id = resolve_main_id(main_id)
-        skill = await db.user_skills.find_one(add_main_scope({
+        tenant_id = resolve_tenant_id(tenant_id)
+        skill = await db.user_skills.find_one(add_tenant_scope({
             "_id": skill_id, "user_id": str(owner_user_id),
         }, tenant_id))
         if skill is None:
@@ -58,7 +58,7 @@ class SkillShareService:
             raise SkillShareError("skill_publish_required", "Publish this Skill before sharing it", status_code=409)
         snapshot = await self._exporter.export(db, skill)
         distribution = await self._distribution.ensure(
-            main_id=tenant_id, owner_user_id=owner_user_id, source_skill_id=skill_id,
+            tenant_id=tenant_id, owner_user_id=owner_user_id, source_skill_id=skill_id,
         )
         release = await self._distribution.ensure_release(
             distribution=distribution,
@@ -72,7 +72,7 @@ class SkillShareService:
         share_id = uuid.uuid4().hex
         row = {
             "_id": share_id,
-            "main_id": tenant_id,
+            "tenant_id": tenant_id,
             "owner_user_id": str(owner_user_id),
             "source_skill_id": skill_id,
             "distribution_id": distribution["_id"],
@@ -96,15 +96,15 @@ class SkillShareService:
             raise
         return {"shareId": share_id, "token": token, **self._preview(row)}
 
-    async def preview(self, *, main_id: str, recipient_user_id: str, token: str) -> dict[str, Any]:
-        row = await self._active_share(main_id=main_id, token=token)
+    async def preview(self, *, tenant_id: str, recipient_user_id: str, token: str) -> dict[str, Any]:
+        row = await self._active_share(tenant_id=tenant_id, token=token)
         return await self.preview_snapshot(row=row, recipient_user_id=recipient_user_id)
 
     async def install(
-        self, *, main_id: str, recipient_user_id: str, token: str, replace_existing: bool = False,
+        self, *, tenant_id: str, recipient_user_id: str, token: str, replace_existing: bool = False,
     ) -> dict[str, Any]:
         db = get_db()
-        row = await self._active_share(main_id=main_id, token=token)
+        row = await self._active_share(tenant_id=tenant_id, token=token)
         return await self.install_snapshot(
             row=row, recipient_user_id=recipient_user_id, replace_existing=replace_existing,
         )
@@ -120,7 +120,7 @@ class SkillShareService:
         conflict = await self._conflict(row=row, recipient_user_id=recipient_user_id)
         if conflict["alreadyInstalled"]:
             existing = await db.user_skills.find_one({
-                "_id": conflict["existingSkillId"], "main_id": row["main_id"], "user_id": recipient_user_id,
+                "_id": conflict["existingSkillId"], "tenant_id": row["tenant_id"], "user_id": recipient_user_id,
             })
             installed_result = self._installed_result(existing or {}, row, duplicate=True)
             await self._record_distribution_accept(row, recipient_user_id, installed_result)
@@ -135,7 +135,7 @@ class SkillShareService:
         result = await self._installer.install(
             package,
             scope="personal",
-            main_id=row["main_id"],
+            tenant_id=row["tenant_id"],
             user_id=recipient_user_id,
             package_source=self._package_source(row),
         )
@@ -143,11 +143,11 @@ class SkillShareService:
         if profile:
             profile.update({"visibility": "private", "locally_modified": False, "updated_at": _utcnow()})
             await db.user_skills.update_one(
-                {"_id": result["id"], "main_id": row["main_id"], "user_id": recipient_user_id},
+                {"_id": result["id"], "tenant_id": row["tenant_id"], "user_id": recipient_user_id},
                 {"$set": profile},
             )
         installed = await db.user_skills.find_one({
-            "_id": result["id"], "main_id": row["main_id"], "user_id": recipient_user_id,
+            "_id": result["id"], "tenant_id": row["tenant_id"], "user_id": recipient_user_id,
         })
         installed_result = self._installed_result(installed or {}, row, duplicate=bool(result.get("duplicate")))
         await self._record_distribution_accept(row, recipient_user_id, installed_result)
@@ -169,12 +169,12 @@ class SkillShareService:
             installed_skill_id=str(installed_result.get("id") or ""),
         )
 
-    async def revoke(self, *, main_id: str, owner_user_id: str, skill_id: str, share_id: str) -> None:
+    async def revoke(self, *, tenant_id: str, owner_user_id: str, skill_id: str, share_id: str) -> None:
         db = get_db()
         result = await db[SHARE_COLLECTION].update_one(
             {
                 "_id": share_id,
-                "main_id": resolve_main_id(main_id),
+                "tenant_id": resolve_tenant_id(tenant_id),
                 "owner_user_id": str(owner_user_id),
                 "source_skill_id": skill_id,
                 "status": "active",
@@ -184,10 +184,10 @@ class SkillShareService:
         if not result.matched_count:
             raise SkillShareError("skill_share_not_found", "Active Skill share not found", status_code=404)
 
-    async def _active_share(self, *, main_id: str, token: str) -> dict[str, Any]:
+    async def _active_share(self, *, tenant_id: str, token: str) -> dict[str, Any]:
         db = get_db()
         row = await db[SHARE_COLLECTION].find_one({
-            "main_id": resolve_main_id(main_id), "token_hash": self._token_hash(token),
+            "tenant_id": resolve_tenant_id(tenant_id), "token_hash": self._token_hash(token),
         })
         if row is None or row.get("status") != "active":
             raise SkillShareError("skill_share_unavailable", "This Skill share is unavailable", status_code=404)
@@ -203,7 +203,7 @@ class SkillShareService:
         db = get_db()
         package = dict(row.get("package") or {})
         existing = await db.user_skills.find_one({
-            "main_id": row["main_id"],
+            "tenant_id": row["tenant_id"],
             "user_id": str(recipient_user_id),
             "package_slug": str(package.get("slug") or ""),
         })
@@ -247,7 +247,7 @@ class SkillShareService:
     @staticmethod
     def _package_source(row: dict[str, Any]) -> dict[str, Any]:
         source = {
-            "kind": "movo_share",
+            "kind": "mogo_share",
             "mode": str(row.get("mode") or "link"),
             "shareId": str(row["_id"]),
             "sourceSkillId": str(row["source_skill_id"]),

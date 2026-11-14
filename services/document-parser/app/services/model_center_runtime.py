@@ -2,10 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from bson import ObjectId
-from bson.errors import InvalidId
-
 from app.core.db import get_db
+from app.core.ids import is_valid_backend_id, to_backend_id
 from app.services.secret_codec import decrypt_admin_secret
 
 
@@ -18,17 +16,16 @@ class ModelCenterConfigError(RuntimeError):
     pass
 
 
-def resolve_model_instance(main_id: str, instance_id: str, capability: str) -> dict[str, str]:
-    if not main_id:
+def resolve_model_instance(tenant_id: str, instance_id: str, capability: str) -> dict[str, str]:
+    if not tenant_id:
         raise ModelCenterConfigError("模型配置缺少租户标识")
     if not instance_id:
         raise ModelCenterConfigError(f"知识库尚未选择 {capability} 模型")
-    try:
-        object_id = ObjectId(instance_id)
-    except (InvalidId, TypeError) as exc:
-        raise ModelCenterConfigError(f"{capability} 模型实例 ID 无效") from exc
+    if not is_valid_backend_id(instance_id):
+        raise ModelCenterConfigError(f"{capability} 模型实例 ID 无效")
+    object_id = to_backend_id(instance_id)
     db = get_db()
-    instance = db[INSTANCE_COLLECTION].find_one({"_id": object_id, "main_id": main_id, "status": "active"})
+    instance = db[INSTANCE_COLLECTION].find_one({"_id": object_id, "tenant_id": tenant_id, "status": "active"})
     if not instance:
         raise ModelCenterConfigError(f"未找到可用的 {capability} 模型配置")
     capabilities = {str(item) for item in instance.get("capabilities") or []}
@@ -38,13 +35,13 @@ def resolve_model_instance(main_id: str, instance_id: str, capability: str) -> d
     connection = instance
     if instance.get("group_id"):
         group_id = str(instance["group_id"])
-        if not ObjectId.is_valid(group_id):
+        if not is_valid_backend_id(group_id):
             raise ModelCenterConfigError("模型组 ID 无效")
-        group = db[GROUP_COLLECTION].find_one({"_id": ObjectId(group_id), "main_id": main_id, "status": "active"})
+        group = db[GROUP_COLLECTION].find_one({"_id": to_backend_id(group_id), "tenant_id": tenant_id, "status": "active"})
         if not group or str(group.get("provider_id")) != str(instance.get("provider_id")):
             raise ModelCenterConfigError("模型组不可用")
         connection = group
-    api_key = decrypt_admin_secret(str(connection.get("api_key_encrypted") or ""))
+    api_key = decrypt_admin_secret(str(connection.get("api_key_encrypted") or ""))  # pragma: allowlist secret
     if not api_key:
         raise ModelCenterConfigError(f"{capability} 模型 API Key 无法解密或为空")
     return {

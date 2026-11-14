@@ -1,17 +1,18 @@
 [tool.poetry]
-name = "movo-chat-api"
-version = "0.1.0"
-description = "Backend for the MOVO agent platform"
-authors = ["MOVO Team"]
+name = "mogo-chat-api"
+version = "0.2.8"
+description = "Backend for the MOGO agent platform"
+authors = ["MOGO Team"]
+license = "Apache-2.0"
+readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.10"
+python = "^3.13"
 # Compatibility metadata only. backend/requirements.txt is the canonical
 # runtime dependency source used by Docker and deployment.
 fastapi = "^0.109.0"
 firecrawl-py = ">=4.6.0"
 uvicorn = {extras = ["standard"], version = "^0.27.0"}
-websockets = "^13.1"
 pydantic = "^2.6.0"
 pydantic-settings = "^2.1.0"
 httpx = "^0.26.0"
@@ -46,11 +47,47 @@ tavily-python = ">=0.5.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"
+pytest-cov = "^7.0.0"
+# Required by the suite: most async tests are bare ``async def`` (no marker), so
+# pytest-asyncio must run in auto mode; ``addopts`` already passes --timeout.
+pytest-asyncio = ">=0.23.0"
+pytest-timeout = ">=2.3.0"
 black = "^24.1.0"
 isort = "^5.13.0"
 
 [tool.pytest.ini_options]
-addopts = "--import-mode=importlib"
+testpaths = ["tests"]
+addopts = "-q --timeout=120"
+# The async suite is written as bare ``async def`` functions with no
+# ``@pytest.mark.asyncio`` markers. Without auto mode every one of them fails
+# with "async def functions are not natively supported" — which is exactly what
+# the CI gate did before R3 (2026-10-06): prior "all green" runs passed
+# ``--asyncio-mode=auto`` ad hoc, but neither this file nor the workflow set it.
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["app"]
+omit = [
+    "*/__init__.py",
+    "*/migrations/*",
+    "*/main.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+# Whole-app floor. The repo is large and legacy-heavy; a single global number is
+# the coarse gate. Newer subsystems (017 memory, 021 context space, 009 hooks)
+# are held to a much higher bar by `scripts/check_module_coverage.py`, wired into
+# CI, because they are small enough to test thoroughly and are the parts we
+# actually change.
+fail_under = 55
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
 
 [build-system]
 requires = ["poetry-core"]

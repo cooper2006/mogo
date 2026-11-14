@@ -43,10 +43,7 @@ class PublishAssembler:
 
     @staticmethod
     def _log(message: str) -> None:
-        try:
-            log_print(f"[publish_assembly] {message}", flush=True)
-        except Exception:
-            pass
+        log_print(f"[publish_assembly] {message}", flush=True)
 
     @staticmethod
     def _requests_pptx(output_spec: Dict[str, Any] | None) -> bool:
@@ -330,6 +327,7 @@ class PublishAssembler:
                 if "429" in err:
                     await asyncio.sleep(min(2.0 * idx, 8.0))
             except Exception as exc:
+                log_print(f"[enterprise_capabilities.content.publish_assembly.assembler] silent exception caught: {exc}", flush=True)
                 last_error = f"{label}:{str(exc)[:120]}"
                 self._log(
                     "slot retry exception | attempt=%s role=%s section=%s size=%s error=%s"
@@ -704,6 +702,7 @@ class PublishAssembler:
                 return True, "llm_visual_slot_approved"
             return False, f"llm_visual_slot_rejected:{reason or 'not_concrete'}"
         except Exception as exc:
+            log_print(f"[enterprise_capabilities.content.publish_assembly.assembler._judge_visual_slot_generation] suppressed {type(exc).__name__}: {exc}", flush=True)
             self._log(
                 "slot llm_gate_failed | role=%s section=%s error=%s"
                 % (role or "visual", section_title or "-", str(exc)[:160])

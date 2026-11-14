@@ -49,7 +49,7 @@ class SkillHubInstallService:
         result = await self._installer.install(
             package,
             scope="personal",
-            main_id=tenant_id,
+            tenant_id=tenant_id,
             user_id=user_id,
             package_source=source,
         )

@@ -8,8 +8,8 @@ from app.core.product_edition import (
 
 def test_community_edition_has_no_member_or_billing_limit() -> None:
     org = community_organization_fields(
-        main_id="tenant-community",
-        org_name="MOVO Team",
+        tenant_id="tenant-community",
+        org_name="MOGO Team",
         owner_user_id="owner-1",
         total_points=2_000_000,
     )

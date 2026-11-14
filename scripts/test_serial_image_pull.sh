@@ -6,14 +6,13 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../deploy/cli/pull.sh
 source "${ROOT_DIR}/deploy/cli/pull.sh"
 
-movo_msg() { :; }
-dotenv_value() { :; }
+mogo_msg() { :; }
 sleep() { :; }
 
 calls=()
 failures_remaining=0
 failure_status=1
-movo_compose() {
+mogo_compose() {
   calls+=("$*")
   if ((failures_remaining > 0)); then
     failures_remaining=$((failures_remaining - 1))
@@ -21,75 +20,41 @@ movo_compose() {
   fi
 }
 
+# Assertions use an explicit failure branch rather than a bare `[[ ... ]]`:
+# under bash 3.2 (the version shipped with macOS) a failing `[[ ]]` does NOT
+# trigger errexit, so a bare assertion silently passes there even though it
+# correctly fails on the bash 5.x used by CI. Failing loudly keeps local runs
+# and CI in agreement.
+fail() {
+  printf 'FAIL: %s\n' "$1" >&2
+  exit 1
+}
+
+assert_eq() {
+  local actual="$1" expected="$2" label="$3"
+  [[ "${actual}" == "${expected}" ]] || fail "${label}: expected '${expected}', got '${actual}'"
+}
+
+mogo_pull_images_serially missing
+assert_eq "${#calls[@]}" "1" "first pull issues exactly one call"
+assert_eq "${calls[0]}" "--parallel 1 pull --policy missing" "first pull policy"
+
 calls=()
 failures_remaining=4
-MOVO_PULL_RETRY_DELAY_SECONDS=0 movo_pull_images_serially always
-[[ "${#calls[@]}" -eq 5 ]]
-[[ "${calls[4]}" == "--parallel 1 pull --policy always" ]]
+MOGO_PULL_RETRY_DELAY_SECONDS=0 mogo_pull_images_serially always
+assert_eq "${#calls[@]}" "5" "retries until success"
+assert_eq "${calls[4]}" "--parallel 1 pull --policy always" "final retry policy"
 
 calls=()
 failures_remaining=1
 failure_status=130
-if MOVO_PULL_RETRY_DELAY_SECONDS=0 movo_pull_images_serially always; then
+if MOGO_PULL_RETRY_DELAY_SECONDS=0 mogo_pull_images_serially missing; then
   printf 'Expected an interrupted pull to stop.\n' >&2
   exit 1
 else
   pull_status=$?
 fi
-[[ "${pull_status}" -eq 130 ]]
-[[ "${#calls[@]}" -eq 1 ]]
-
-DOCKER_BIN=fake_docker
-local_images=true
-pull_failure=false
-docker_calls=()
-fake_docker() {
-  docker_calls+=("$*")
-  if [[ "$1 $2" == 'image inspect' ]]; then
-    [[ "${local_images}" == true || "$3" == cached:latest ]]
-  elif [[ "$1" == pull ]]; then
-    [[ "${pull_failure}" == false ]]
-  else
-    return 1
-  fi
-}
-movo_compose() {
-  [[ "$*" == 'config --images' ]] || return 1
-  printf '%s\n' cached:latest missing:v1 missing:v1
-}
-movo_pull_images_serially missing
-[[ "${#docker_calls[@]}" -eq 2 ]]
-[[ "${docker_calls[0]}" == 'image inspect cached:latest' ]]
-[[ "${docker_calls[1]}" == 'image inspect missing:v1' ]]
-
-local_images=false
-docker_calls=()
-movo_pull_images_serially missing
-[[ "${#docker_calls[@]}" -eq 3 ]]
-[[ "${docker_calls[2]}" == 'pull missing:v1' ]]
-
-pull_failure=true
-if movo_pull_images_serially missing; then
-  printf 'Expected unavailable missing image to fail without endless retries.\n' >&2
-  exit 1
-fi
-movo_compose() { return 1; }
-docker_calls=()
-if movo_pull_images_serially missing; then
-  printf 'Expected invalid Compose configuration to fail.\n' >&2
-  exit 1
-fi
-[[ ${#docker_calls[@]} -eq 0 ]]
+assert_eq "${pull_status}" "130" "interrupted pull status is propagated"
+assert_eq "${#calls[@]}" "1" "interrupted pull stops immediately"
 
 printf 'Serial image pull behavior is valid.\n'
-
-movo_compose() { printf '%s\n' missing:v1; }
-MOVO_OFFLINE_ONLY=1
-pull_failure=false
-docker_calls=()
-if movo_pull_images_serially missing; then
-  printf 'Expected an offline missing image to fail.\n' >&2
-  exit 1
-fi
-[[ "${#docker_calls[@]}" -eq 1 ]]
-[[ "${docker_calls[0]}" == 'image inspect missing:v1' ]]

@@ -25,7 +25,7 @@ function latestUserText(messages) {
 
 class AskaiDeterministicAdapter extends LlmAdapter {
   async listModels(provider) {
-    return [{ id: 'deterministic-v1', name: 'MOVO deterministic v1', provider }]
+    return [{ id: 'deterministic-v1', name: 'MOGO deterministic v1', provider }]
   }
 
   async resolveModel(provider, model) {

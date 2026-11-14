@@ -16,7 +16,7 @@ class EngineFake:
     def find_compose_service(self, project, service):
         return "proxy-id"
 
-    def create_outbound_network(self, name):
+    def create_internal_network(self, name):
         return "network-id"
 
     def connect_network(self, network_id, container_id, aliases):
@@ -51,24 +51,24 @@ def test_job_is_scoped_to_one_volume_subpath_and_cleaned(tmp_path: Path, monkeyp
     job.mkdir()
     for name in ("runner.py", "plugin.py", "stdin.json"):
         (job / name).write_text("{}")
-    monkeypatch.setenv("MOVO_SANDBOX_WORKSPACE_ROOT", str(tmp_path))
-    monkeypatch.setenv("MOVO_SANDBOX_WORKSPACE_VOLUME", "test-workspaces")
-    monkeypatch.setenv("MOVO_SANDBOX_SCRIPT_IMAGE", "test-script:1")
+    monkeypatch.setenv("MOGO_SANDBOX_WORKSPACE_ROOT", str(tmp_path))
+    monkeypatch.setenv("MOGO_SANDBOX_WORKSPACE_VOLUME", "test-workspaces")
+    monkeypatch.setenv("MOGO_SANDBOX_SCRIPT_IMAGE", "test-script:1")
     engine = EngineFake()
     result = ScriptJobs(engine).execute(job_id)
     assert result == {"exit_code": 0, "stdout": "ok\n", "stderr": ""}
     assert engine.created["HostConfig"]["Mounts"][0]["VolumeOptions"]["Subpath"] == job_id
     assert engine.created["HostConfig"]["ReadonlyRootfs"] is True
     assert engine.created["HostConfig"]["NetworkMode"] == "network-id"
-    assert any(item.startswith("NODE_PATH=/opt/movo-skill-node-modules") for item in engine.created["Env"])
-    assert any(item.startswith("PATH=/opt/movo-skill-node-modules/.bin:") for item in engine.created["Env"])
+    assert any(item.startswith("NODE_PATH=/opt/mogo-skill-node-modules") for item in engine.created["Env"])
+    assert any(item.startswith("PATH=/opt/mogo-skill-node-modules/.bin:") for item in engine.created["Env"])
     assert engine.cleaned == ["container", "proxy", "network"]
 
 
 def test_unprepared_job_does_not_start_container(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("MOVO_SANDBOX_WORKSPACE_ROOT", str(tmp_path))
-    monkeypatch.setenv("MOVO_SANDBOX_WORKSPACE_VOLUME", "test-workspaces")
-    monkeypatch.setenv("MOVO_SANDBOX_SCRIPT_IMAGE", "test-script:1")
+    monkeypatch.setenv("MOGO_SANDBOX_WORKSPACE_ROOT", str(tmp_path))
+    monkeypatch.setenv("MOGO_SANDBOX_WORKSPACE_VOLUME", "test-workspaces")
+    monkeypatch.setenv("MOGO_SANDBOX_SCRIPT_IMAGE", "test-script:1")
     engine = EngineFake()
     with pytest.raises(ValueError):
         ScriptJobs(engine).execute("b" * 32)
@@ -81,10 +81,10 @@ def test_second_job_waits_without_sharing_the_first_slot(tmp_path: Path, monkeyp
         job.mkdir()
         for name in ("runner.py", "plugin.py", "stdin.json"):
             (job / name).write_text("{}")
-    monkeypatch.setenv("MOVO_SANDBOX_WORKSPACE_ROOT", str(tmp_path))
-    monkeypatch.setenv("MOVO_SANDBOX_WORKSPACE_VOLUME", "test-workspaces")
-    monkeypatch.setenv("MOVO_SANDBOX_SCRIPT_IMAGE", "test-script:1")
-    monkeypatch.setenv("MOVO_SANDBOX_MAX_CONCURRENT", "1")
+    monkeypatch.setenv("MOGO_SANDBOX_WORKSPACE_ROOT", str(tmp_path))
+    monkeypatch.setenv("MOGO_SANDBOX_WORKSPACE_VOLUME", "test-workspaces")
+    monkeypatch.setenv("MOGO_SANDBOX_SCRIPT_IMAGE", "test-script:1")
+    monkeypatch.setenv("MOGO_SANDBOX_MAX_CONCURRENT", "1")
     entered = Event()
     release = Event()
 
@@ -109,10 +109,10 @@ def test_second_job_waits_without_sharing_the_first_slot(tmp_path: Path, monkeyp
 
 
 def test_queue_setting_persists_across_manager_restart(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("MOVO_SANDBOX_RUNTIME_ROOT", str(tmp_path))
-    monkeypatch.setenv("MOVO_SANDBOX_WORKSPACE_ROOT", str(tmp_path / "workspaces"))
-    monkeypatch.setenv("MOVO_SANDBOX_WORKSPACE_VOLUME", "test-workspaces")
-    monkeypatch.setenv("MOVO_SANDBOX_SCRIPT_IMAGE", "test-script:1")
+    monkeypatch.setenv("MOGO_SANDBOX_RUNTIME_ROOT", str(tmp_path))
+    monkeypatch.setenv("MOGO_SANDBOX_WORKSPACE_ROOT", str(tmp_path / "workspaces"))
+    monkeypatch.setenv("MOGO_SANDBOX_WORKSPACE_VOLUME", "test-workspaces")
+    monkeypatch.setenv("MOGO_SANDBOX_SCRIPT_IMAGE", "test-script:1")
     first = ScriptJobs(EngineFake())
     assert first.set_max_pending(3)["max_pending"] == 3
     assert ScriptJobs(EngineFake()).status()["max_pending"] == 3
@@ -129,9 +129,9 @@ def test_selected_skill_is_mounted_read_only_from_immutable_cache(tmp_path: Path
     (job / "skill-digest").write_text(digest)
     (tmp_path / "skill-cache" / digest).mkdir(parents=True)
     (tmp_path / "skill-cache" / digest / "SKILL.md").write_text("---\nname: sample\n---\n")
-    monkeypatch.setenv("MOVO_SANDBOX_WORKSPACE_ROOT", str(tmp_path))
-    monkeypatch.setenv("MOVO_SANDBOX_WORKSPACE_VOLUME", "test-workspaces")
-    monkeypatch.setenv("MOVO_SANDBOX_SCRIPT_IMAGE", "test-script:1")
+    monkeypatch.setenv("MOGO_SANDBOX_WORKSPACE_ROOT", str(tmp_path))
+    monkeypatch.setenv("MOGO_SANDBOX_WORKSPACE_VOLUME", "test-workspaces")
+    monkeypatch.setenv("MOGO_SANDBOX_SCRIPT_IMAGE", "test-script:1")
     engine = EngineFake()
     ScriptJobs(engine).execute(job_id)
     skill_mount = engine.created["HostConfig"]["Mounts"][1]

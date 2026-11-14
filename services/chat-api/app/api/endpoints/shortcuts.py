@@ -3,12 +3,11 @@ from __future__ import annotations
 import re
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field, field_validator
 
 from app.api.principal import ApiPrincipal, require_end_user_principal
 from app.services.shortcuts import ShortcutService
-from app.services.shortcut_locale import english_requested, translate_plan, translate_preferences
 
 
 router = APIRouter(dependencies=[Depends(require_end_user_principal)])
@@ -63,17 +62,10 @@ class ShortcutPreferencePayload(BaseModel):
 
 
 @router.get("/shortcuts")
-async def get_shortcuts(principal: ApiPrincipal = Depends(require_end_user_principal), accept_language: str | None = Header(default=None)):
-    data = await service.effective(principal.main_id, principal.user_id)
-    localized = translate_plan(data, english=english_requested(accept_language))
-    localized["preferences"] = translate_preferences(data.get("preferences") or {}, english=english_requested(accept_language))
-    return {"code": 0, "data": localized}
+async def get_shortcuts(principal: ApiPrincipal = Depends(require_end_user_principal)):
+    return {"code": 0, "data": await service.effective(principal.tenant_id, principal.user_id)}
 
 
 @router.put("/shortcuts/preferences")
-async def save_shortcut_preferences(payload: ShortcutPreferencePayload, principal: ApiPrincipal = Depends(require_end_user_principal), accept_language: str | None = Header(default=None)):
-    canonical = translate_preferences(payload.model_dump(), english=False)
-    data = await service.save_preferences(principal.main_id, principal.user_id, canonical)
-    localized = translate_plan(data, english=english_requested(accept_language))
-    localized["preferences"] = translate_preferences(data.get("preferences") or {}, english=english_requested(accept_language))
-    return {"code": 0, "data": localized}
+async def save_shortcut_preferences(payload: ShortcutPreferencePayload, principal: ApiPrincipal = Depends(require_end_user_principal)):
+    return {"code": 0, "data": await service.save_preferences(principal.tenant_id, principal.user_id, payload.model_dump())}

@@ -1,0 +1,77 @@
+# 026 T052 — 性能配置单一来源清单（FR-10/FR-28/FR-30）
+#
+# 连接池 / 超时 / 缓存 TTL / 限流 / 并发上限 全部配置驱动。
+# 运行时可被环境变量覆盖（键名见每项 `env` 注释）；`tools/perf/config_loader.py`
+# 读取本文件并对照各服务默认值做一致性校验（CI 可调用）。
+#
+# 注意：本文件是**声明清单**，非服务启动时自动读取（各服务仍读各自 env/pydantic
+# settings）；改此处后需同步 env 或由 config_loader 输出 diff。
+
+version: 1
+
+database:
+  mongodb:
+    # env: MONGODB_MAX_POOL_SIZE / MONGODB_MIN_POOL_SIZE / MONGODB_MAX_IDLE_TIME_MS
+    max_pool_size: 100
+    min_pool_size: 10
+    max_idle_time_ms: 30000
+    # env: MONGODB_SERVER_SELECTION_TIMEOUT_MS / MONGODB_CONNECT_TIMEOUT_MS / MONGODB_SOCKET_TIMEOUT_MS
+    server_selection_timeout_ms: 5000
+    connect_timeout_ms: 5000
+    socket_timeout_ms: 10000
+    # 慢查询阈值（T015 自动登记 explain）
+    slow_query_threshold_ms: 100
+
+cache:
+  # env: MOGO_CACHE_DEFAULT_TTL / MOGO_CACHE_TTL_SESSION / MOGO_CACHE_TTL_CONFIG / MOGO_CACHE_TTL_PERMISSION / MOGO_CACHE_TTL_TOKEN
+  default_ttl_seconds: 300
+  tags:
+    session: 600
+    configuration: 300
+    permission: 120
+    token: 60
+  redis:
+    # env: REDIS_MAXMEMORY / REDIS_MAXMEMORY_POLICY（T031 校验）
+    maxmemory: "256mb"
+    eviction_policy: allkeys-lru
+
+rate_limit:
+  # 令牌桶（T042，FR-28）—— 默认 1000 rps/实例
+  # env: RATE_LIMIT_RPS / RATE_LIMIT_BURST / RATE_LIMIT_MAX_CONCURRENT
+  default_rps: 1000
+  default_burst: 2000
+  max_concurrent: 500
+
+backpressure:
+  # 背压（T043，FR-28）—— 队列满返回 503
+  # env: BACKPRESSURE_MAX_DEPTH
+  max_depth: 1000
+
+resilience:
+  # 熔断与并发池（T022/T026，FR-28）
+  # env: RESILIENCE_MAX_FAILURES / RESILIENCE_RECOVERY_SECONDS / RESILIENCE_FAILURE_RATIO / RESILIENCE_MAX_CONCURRENCY / RESILIENCE_QUEUED_MAX
+  circuit_breaker:
+    max_failures: 5
+    recovery_time_seconds: 30
+    failure_ratio: 0.5
+  pool:
+    max_concurrency: 50
+    queued_max: 100
+
+frontend:
+  # 前端 gzip 包体积预算（T040 检查脚本默认值）
+  admin_max_gzip_kb: 500
+  user_max_gzip_kb: 300
+
+baselines:
+  # 性能预算基线（对齐 benchmarks/perf_baselines/baselines.yaml）
+  p95_clarify_ms: 500
+  p95_llm_ms: 30000
+  p95_db_read_ms: 300
+  p95_db_write_ms: 500
+  p95_doc_parse_ms: 5000
+  db_connectivity_max_pool_ms: 150
+  memory_max_utilization: 0.8
+  cpu_max_utilization: 0.7
+  peak_connections_max_utilization: 0.8
+  throughput_max_rps_per_instance: 1000

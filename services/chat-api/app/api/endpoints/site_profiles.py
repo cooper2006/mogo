@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, ConfigDict
 
 from app.services.site_profiles import site_profile_service
 from app.api.principal import ApiPrincipal, require_end_user_principal
@@ -18,8 +18,9 @@ class ApiResponse(BaseModel):
 
 
 class SiteProfileCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     user_id: str = Field(..., description="Owner user id")
-    main_id: Optional[str] = Field(None, validation_alias=AliasChoices("main_id", "mainId"), description="Tenant / main account ID")
+    tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("tenantId", "tenant_id"), description="Tenant / main account ID")
     name: str = Field(..., max_length=160)
     domain: Optional[str] = Field(default="", description="Bare host, e.g. oa.acme.com")
     entry_url: Optional[str] = Field(default="", description="Full login / landing URL")
@@ -29,8 +30,9 @@ class SiteProfileCreateRequest(BaseModel):
 
 
 class SiteProfileUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     user_id: str = Field(..., description="Owner user id")
-    main_id: Optional[str] = Field(None, validation_alias=AliasChoices("main_id", "mainId"), description="Tenant / main account ID")
+    tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("tenantId", "tenant_id"), description="Tenant / main account ID")
     name: Optional[str] = Field(None, max_length=160)
     domain: Optional[str] = None
     entry_url: Optional[str] = None
@@ -42,11 +44,10 @@ class SiteProfileUpdateRequest(BaseModel):
 @router.get("/site-profiles", response_model=ApiResponse)
 async def list_site_profiles(
     user_id: str = Query(..., alias="userId"),
-    main_id: str = Query("default", alias="mainId"),
-    main_id_snake: Optional[str] = Query(None, alias="main_id"),
+    tenant_id: str = Query("default", alias="tenantId"),
     principal: ApiPrincipal = Depends(require_end_user_principal),
 ) -> ApiResponse:
-    data = await site_profile_service.list_for_user(principal.user_id, main_id=principal.main_id)
+    data = await site_profile_service.list_for_user(principal.user_id, tenant_id=principal.tenant_id)
     return ApiResponse(code=0, data=data)
 
 
@@ -64,7 +65,7 @@ async def create_site_profile(
             auth_method=payload.auth_method or "",
             hints=payload.hints or "",
             visibility=payload.visibility or "private",
-            main_id=principal.main_id,
+            tenant_id=principal.tenant_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -75,11 +76,10 @@ async def create_site_profile(
 async def get_site_profile(
     profile_id: str,
     user_id: str = Query(..., alias="userId"),
-    main_id: str = Query("default", alias="mainId"),
-    main_id_snake: Optional[str] = Query(None, alias="main_id"),
+    tenant_id: str = Query("default", alias="tenantId"),
     principal: ApiPrincipal = Depends(require_end_user_principal),
 ) -> ApiResponse:
-    data = await site_profile_service.get(principal.user_id, profile_id, main_id=principal.main_id)
+    data = await site_profile_service.get(principal.user_id, profile_id, tenant_id=principal.tenant_id)
     if not data:
         raise HTTPException(status_code=404, detail="site profile not found")
     return ApiResponse(code=0, data=data)
@@ -91,12 +91,12 @@ async def update_site_profile(
     payload: SiteProfileUpdateRequest,
     principal: ApiPrincipal = Depends(require_end_user_principal),
 ) -> ApiResponse:
-    updates = payload.model_dump(exclude={"user_id", "main_id"}, exclude_unset=True)
+    updates = payload.model_dump(exclude={"user_id", "tenant_id"}, exclude_unset=True)
     data = await site_profile_service.update(
         principal.user_id,
         profile_id,
         updates,
-        main_id=principal.main_id,
+        tenant_id=principal.tenant_id,
     )
     if data is None:
         raise HTTPException(status_code=404, detail="site profile not found or not owned by user")
@@ -107,14 +107,13 @@ async def update_site_profile(
 async def delete_site_profile(
     profile_id: str,
     user_id: str = Query(..., alias="userId"),
-    main_id: str = Query("default", alias="mainId"),
-    main_id_snake: Optional[str] = Query(None, alias="main_id"),
+    tenant_id: str = Query("default", alias="tenantId"),
     principal: ApiPrincipal = Depends(require_end_user_principal),
 ) -> ApiResponse:
     ok = await site_profile_service.delete(
         principal.user_id,
         profile_id,
-        main_id=principal.main_id,
+        tenant_id=principal.tenant_id,
     )
     if not ok:
         raise HTTPException(status_code=404, detail="site profile not found or not owned by user")

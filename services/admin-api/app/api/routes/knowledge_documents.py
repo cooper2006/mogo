@@ -5,10 +5,9 @@ import json
 import mimetypes
 import re
 import tempfile
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Sequence
 from urllib.parse import quote
 import urllib.error
 import urllib.request
@@ -20,9 +19,13 @@ from pydantic import BaseModel, Field
 from starlette.responses import StreamingResponse
 
 from app.api.deps import get_current_admin_user
+from app.api.pagination import PageParams, PageResponse
 from app.api.time_utils import utc_iso
 from app.core.config import settings
 from app.core.db import get_db
+from app.core.errors import ApiErrorCode
+from app.core.ids import generate_hex32_id
+from app.core.security import constant_time_equals
 from app.api.routes.knowledge_settings import get_effective_knowledge_settings, get_effective_parse_settings
 from app.repositories.org_user_repository import find_account_by_username
 from app.services.knowledge_storage import get_storage_service
@@ -48,6 +51,41 @@ FILE_TYPE_GROUPS = {
     "markdown": ["md", "markdown"],
     "image": ["png", "jpg", "jpeg", "webp"],
 }
+
+# 025 T027 / FR-14：批量接口的请求条数上限。超过此值返回 422，绝不静默截断。
+BATCH_LIMIT = 100
+
+
+def validate_batch_size(
+    items: Sequence[Any],
+    *,
+    field: str = "items",
+    path: str = "/knowledge/documents",
+    limit: int = BATCH_LIMIT,
+) -> int:
+    """批量接口入口的统一大小校验（025 T027 / FR-14）。
+
+    - ``count > limit`` 时抛 422，``detail`` 为**结构化 dict**（非裸字符串），
+      携带 ``code`` / ``message`` / ``field`` / ``path`` / ``limit`` / ``count``，
+      与 ``app.core.errors`` 的稳定码与 RFC 9457 扩展口径一致；
+    - 空列表（``count == 0``）不在此处拦截，交由各端点的既有业务校验决定，
+      这里只负责"超限"这一条硬约束；
+    - 返回实际条数，便于调用方复用，不改动成功路径的响应结构。
+    """
+    count = len(items)
+    if count > limit:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": ApiErrorCode.VALIDATION_ERROR.value,
+                "message": f"批量请求数量超过上限：{count} > {limit}",
+                "field": field,
+                "path": path,
+                "limit": limit,
+                "count": count,
+            },
+        )
+    return count
 
 
 class DocumentUpdatePayload(BaseModel):
@@ -78,7 +116,6 @@ class ParseCallbackPayload(BaseModel):
     ragChunkCount: int = 0
     chunksKey: str = ""
     chunkCount: int = 0
-    parseQuality: dict = Field(default_factory=dict)
     error: str = ""
 
 
@@ -187,6 +224,47 @@ def _safe_filename(value: str) -> str:
     return name or "document"
 
 
+# QF-416: Content type validation based on magic bytes
+_MAGIC_BYTE_MAP: dict[str, tuple[bytes, ...]] = {
+    "pdf": (b"%PDF-",),
+    "doc": (b"\xd0\xcf\x11\xe0",),  # OLE2 header
+    "docx": (b"PK\x03\x04",),       # ZIP header (also for pptx, xlsx)
+    "ppt": (b"\xd0\xcf\x11\xe0",),  # OLE2 header
+    "pptx": (b"PK\x03\x04",),
+    "xls": (b"\xd0\xcf\x11\xe0",),  # OLE2 header
+    "xlsx": (b"PK\x03\x04",),
+    "png": (b"\x89PNG",),
+    "jpg": (b"\xff\xd8\xff",),
+    "jpeg": (b"\xff\xd8\xff",),
+    "webp": (b"RIFF",),  # RIFF header, check WEBP at offset 8
+}
+
+
+def _validate_content_type(file_bytes: bytes, file_ext: str) -> bool:
+    """QF-416: Validate file content type based on magic bytes.
+
+    Returns True if the file content matches the expected type for the extension.
+    """
+    if file_ext not in _MAGIC_BYTE_MAP:
+        # For text files (txt, md, markdown), validate as UTF-8 text
+        if file_ext in ("txt", "md", "markdown"):
+            try:
+                file_bytes.decode("utf-8")
+                return True
+            except UnicodeDecodeError:
+                return False
+        return True  # Unknown extension, allow through
+
+    prefixes = _MAGIC_BYTE_MAP[file_ext]
+    for prefix in prefixes:
+        if file_bytes.startswith(prefix):
+            # Special case for WEBP: check WEBP at offset 8
+            if file_ext == "webp":
+                return file_bytes[8:12] == b"WEBP"
+            return True
+    return False
+
+
 def _document_name(filename: str, fallback: str = "") -> str:
     if fallback.strip():
         return fallback.strip()[:180]
@@ -198,7 +276,7 @@ def _serialize(doc: dict[str, Any]) -> dict[str, Any]:
     kb_id = str(doc.get("knowledge_base_id") or "")
     return {
         "id": str(doc.get("_id") or ""),
-        "mainId": str(doc.get("main_id") or "default"),
+        "tenantId": str(doc.get("tenant_id") or "default"),
         "directoryId": kb_id,
         "knowledgeBaseId": kb_id,
         "name": str(doc.get("name") or ""),
@@ -215,7 +293,6 @@ def _serialize(doc: dict[str, Any]) -> dict[str, Any]:
         "parseStatus": str(doc.get("parse_status") or "not_started"),
         "parseJobId": str(doc.get("parse_job_id") or ""),
         "parseError": str(doc.get("parse_error") or ""),
-        "parseQuality": dict(doc.get("parse_quality") or {}),
         "parseUpdatedAt": _time_text(doc.get("parse_updated_at")),
         "parsedMarkdownKey": str(doc.get("parsed_markdown_key") or ""),
         "parsedJsonKey": str(doc.get("parsed_json_key") or ""),
@@ -258,13 +335,13 @@ async def _serialize_with_account_names(
     name_cache: dict[tuple[str, str], str] | None = None,
 ) -> dict[str, Any]:
     item = _serialize(doc)
-    main_id = str(doc.get("main_id") or "default")
+    tenant_id = str(doc.get("tenant_id") or "default")
     cache = name_cache if name_cache is not None else {}
 
     async def resolve(username: str) -> str:
-        key = (main_id, username)
+        key = (tenant_id, username)
         if key not in cache:
-            account = await find_account_by_username(username, main_id)
+            account = await find_account_by_username(username, tenant_id)
             cache[key] = str(account.get("display_name") or "") if account else ""
         return cache[key]
 
@@ -283,7 +360,7 @@ async def _serialize_with_account_names(
 
 def _build_query(
     *,
-    main_id: str,
+    tenant_id: str,
     keyword: str,
     file_type: str,
     status_value: str,
@@ -291,7 +368,7 @@ def _build_query(
     directory_id: str | None,
     include_deleted: bool,
 ) -> dict[str, Any]:
-    query: dict[str, Any] = {"main_id": main_id}
+    query: dict[str, Any] = {"tenant_id": tenant_id}
     if not include_deleted:
         query["deleted_at"] = None
     if directory_id and directory_id.strip():
@@ -326,8 +403,8 @@ def _sort_spec(sort_field: str, sort_order: str) -> list[tuple[str, int]]:
     return [(field, direction), ("_id", -1)]
 
 
-async def _find_document_or_404(document_id: str, main_id: str, include_deleted: bool = False) -> dict[str, Any]:
-    query: dict[str, Any] = {"_id": document_id, "main_id": main_id}
+async def _find_document_or_404(document_id: str, tenant_id: str, include_deleted: bool = False) -> dict[str, Any]:
+    query: dict[str, Any] = {"_id": document_id, "tenant_id": tenant_id}
     if not include_deleted:
         query["deleted_at"] = None
     doc = await get_db()[COLLECTION].find_one(query)
@@ -393,7 +470,7 @@ def _request_preview_conversion(doc: dict[str, Any]) -> str:
     callback_base = str(settings.admin_api_public_base_url or "").rstrip("/")
     payload = {
         "documentId": document_id,
-        "mainId": str(doc.get("main_id") or "default"),
+        "tenantId": str(doc.get("tenant_id") or "default"),
         "source": {
             "storageType": str(doc.get("storage_type") or "local"),
             "storageBucket": str(doc.get("storage_bucket") or ""),
@@ -438,7 +515,7 @@ def _request_preview_conversion(doc: dict[str, Any]) -> str:
 
 def _artifact_prefix(doc: dict[str, Any]) -> str:
     storage_prefix = settings.knowledge_oss_prefix.strip().strip("/") or "knowledge-documents"
-    return f"{storage_prefix}/{str(doc.get('main_id') or 'default')}/{str(doc.get('_id') or '')}/artifacts"
+    return f"{storage_prefix}/{str(doc.get('tenant_id') or 'default')}/{str(doc.get('_id') or '')}/artifacts"
 
 
 def _request_document_parse(
@@ -455,7 +532,7 @@ def _request_document_parse(
     callback_base = str(settings.admin_api_public_base_url or "").rstrip("/")
     payload = {
         "documentId": document_id,
-        "mainId": str(doc.get("main_id") or "default"),
+        "tenantId": str(doc.get("tenant_id") or "default"),
         "source": {
             "storageType": str(doc.get("storage_type") or "local"),
             "storageBucket": str(doc.get("storage_bucket") or ""),
@@ -499,8 +576,8 @@ def _request_document_parse(
     return job_id
 
 
-async def _knowledge_settings_snapshot(main_id: str) -> dict[str, Any]:
-    return await get_effective_knowledge_settings(main_id, include_secrets=True)
+async def _knowledge_settings_snapshot(tenant_id: str) -> dict[str, Any]:
+    return await get_effective_knowledge_settings(tenant_id, include_secrets=True)
 
 
 def _request_document_index(doc: dict[str, Any], config: dict[str, Any]) -> str:
@@ -511,7 +588,7 @@ def _request_document_index(doc: dict[str, Any], config: dict[str, Any]) -> str:
     callback_base = str(settings.admin_api_public_base_url or "").rstrip("/")
     payload = {
         "documentId": document_id,
-        "mainId": str(doc.get("main_id") or "default"),
+        "tenantId": str(doc.get("tenant_id") or "default"),
         "knowledgeBaseId": str(doc.get("knowledge_base_id") or ""),
         "chunkStage": "rag",
         "config": config,
@@ -550,7 +627,7 @@ def _request_document_vector_delete(doc: dict[str, Any], config: dict[str, Any])
         raise RuntimeError("document processing service url is not configured")
     payload = {
         "documentId": document_id,
-        "mainId": str(doc.get("main_id") or "default"),
+        "tenantId": str(doc.get("tenant_id") or "default"),
         "config": config,
     }
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -575,10 +652,10 @@ def _request_document_vector_delete(doc: dict[str, Any], config: dict[str, Any])
 
 @router.get("/stats")
 async def get_document_stats(current_user: dict = Depends(get_current_admin_user)) -> dict[str, int]:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
     base = {
-        "main_id": main_id, "deleted_at": None,
+        "tenant_id": tenant_id, "deleted_at": None,
         "$or": [{"scope": "organization"}, {"scope": {"$exists": False}}],
     }
     total = await db[COLLECTION].count_documents(base)
@@ -603,8 +680,7 @@ async def get_document_stats(current_user: dict = Depends(get_current_admin_user
 
 @router.get("")
 async def list_documents(
-    page: int = Query(default=1, ge=1),
-    pageSize: int = Query(default=12, ge=1, le=100),
+    params: PageParams = Depends(),
     keyword: str = "",
     fileType: str = "",
     statusValue: str = "",
@@ -615,11 +691,13 @@ async def list_documents(
     sortOrder: str = "descend",
     includeDeleted: bool = False,
     current_user: dict = Depends(get_current_admin_user),
-) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
+) -> PageResponse[dict[str, Any]]:
+    tenant_id = str(current_user.get("tenant_id") or "default")
+    page = params.resolved_page()
+    page_size = params.page_size
     db = get_db()
     query = _build_query(
-        main_id=main_id,
+        tenant_id=tenant_id,
         keyword=keyword,
         file_type=fileType,
         status_value=statusValue,
@@ -632,13 +710,13 @@ async def list_documents(
         scope_id = directoryScopeId.strip()
         scope = await db[DIRECTORY_COLLECTION].find_one({
             "_id": scope_id,
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "deleted_at": None,
         })
         if scope is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="搜索目录不存在")
         descendants = await db[DIRECTORY_COLLECTION].find({
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "path_ids": scope_id,
             "deleted_at": None,
         }, {"_id": 1}).to_list(length=5000)
@@ -649,12 +727,12 @@ async def list_documents(
         db[COLLECTION]
         .find(query)
         .sort(_sort_spec(sortField, sortOrder))
-        .skip((page - 1) * pageSize)
-        .limit(pageSize)
+        .skip((page - 1) * page_size)
+        .limit(page_size)
     )
     name_cache: dict[tuple[str, str], str] = {}
     items = [await _serialize_with_account_names(doc, name_cache) async for doc in cursor]
-    return {"items": items, "total": total, "page": page, "pageSize": pageSize}
+    return PageResponse[dict[str, Any]].build(items, total, page, page_size)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -671,7 +749,7 @@ async def upload_document(
     resourceId: str = Form(default=""),
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     original_filename = _safe_filename(file.filename or "document")
     file_ext = Path(original_filename).suffix.lower().lstrip(".")
     if file_ext not in _allowed_extensions():
@@ -680,7 +758,7 @@ async def upload_document(
     actual_dir_id = (directoryId or knowledgeBaseId or "").strip()
     document_scope = "personal" if documentScope == "personal" else "organization"
     duplicate_query = {
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "original_filename": {"$regex": f"^{re.escape(original_filename)}$", "$options": "i"},
         "deleted_at": None,
     }
@@ -708,6 +786,7 @@ async def upload_document(
     size = 0
     suffix = f".{file_ext}" if file_ext else ""
     temp_path = ""
+    header_bytes = b""
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp:
             temp_path = temp.name
@@ -720,10 +799,17 @@ async def upload_document(
                     raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="文件超过大小限制")
                 checksum.update(chunk)
                 temp.write(chunk)
+                # QF-416: Read first 16 bytes for magic byte validation
+                if not header_bytes:
+                    header_bytes = chunk[:16]
 
-        document_id = uuid.uuid4().hex
+        # QF-416: Validate content type based on magic bytes
+        if header_bytes and not _validate_content_type(header_bytes, file_ext):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="文件内容与扩展名不匹配")
+
+        document_id = generate_hex32_id()
         storage_prefix = settings.knowledge_oss_prefix.strip().strip("/") or "knowledge-documents"
-        storage_key = f"{storage_prefix}/{main_id}/{document_id}/{original_filename}"
+        storage_key = f"{storage_prefix}/{tenant_id}/{document_id}/{original_filename}"
         storage = get_storage_service()
         with open(temp_path, "rb") as source:
             stored = storage.put_file(source, storage_key)
@@ -731,7 +817,7 @@ async def upload_document(
         needs_preview_conversion = _needs_preview_conversion(file_ext)
         doc = {
             "_id": document_id,
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "scope": document_scope,
             "owner_user_id": str(ownerUserId or "") if document_scope == "personal" else "",
             "resource_id": str(resourceId or "") if document_scope == "personal" else "",
@@ -792,7 +878,7 @@ async def upload_document(
         if document_scope == "personal":
             await get_db().knowledge_resources.update_one(
                 {
-                    "_id": str(resourceId or ""), "main_id": main_id,
+                    "_id": str(resourceId or ""), "tenant_id": tenant_id,
                     "owner_user_id": str(ownerUserId or ""), "deleted_at": None,
                 },
                 {"$set": {
@@ -804,14 +890,14 @@ async def upload_document(
             for existing in existing_documents:
                 await _soft_delete_document(
                     existing,
-                    main_id=main_id,
+                    tenant_id=tenant_id,
                     updated_by=_user_login_name(current_user),
                 )
         if needs_preview_conversion:
             try:
                 job_id = _request_preview_conversion(doc)
                 await get_db()[COLLECTION].update_one(
-                    {"_id": document_id, "main_id": main_id},
+                    {"_id": document_id, "tenant_id": tenant_id},
                     {
                         "$set": {
                             "preview_status": "queued",
@@ -828,7 +914,7 @@ async def upload_document(
             except Exception as exc:
                 message = str(exc)[:2000]
                 await get_db()[COLLECTION].update_one(
-                    {"_id": document_id, "main_id": main_id},
+                    {"_id": document_id, "tenant_id": tenant_id},
                     {
                         "$set": {
                             "preview_status": "failed",
@@ -842,7 +928,7 @@ async def upload_document(
                 doc["preview_error"] = message
                 doc["preview_updated_at"] = _now()
         try:
-            parse_settings = await get_effective_parse_settings(main_id)
+            parse_settings = await get_effective_parse_settings(tenant_id)
             parse_job_id = _request_document_parse(
                 doc,
                 min_chunk_size=parse_settings["minChunkSize"],
@@ -850,7 +936,7 @@ async def upload_document(
                 chunk_overlap=parse_settings["chunkOverlap"],
             )
             await get_db()[COLLECTION].update_one(
-                {"_id": document_id, "main_id": main_id},
+                {"_id": document_id, "tenant_id": tenant_id},
                 {
                     "$set": {
                         "status": "pending_parse",
@@ -874,7 +960,7 @@ async def upload_document(
         except Exception as exc:
             message = str(exc)[:2000]
             await get_db()[COLLECTION].update_one(
-                {"_id": document_id, "main_id": main_id},
+                {"_id": document_id, "tenant_id": tenant_id},
                 {
                     "$set": {
                         "status": "failed",
@@ -903,22 +989,22 @@ async def upload_document(
 
 @router.get("/{document_id}")
 async def get_document(document_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
-    doc = await _find_document_or_404(document_id, main_id)
+    tenant_id = str(current_user.get("tenant_id") or "default")
+    doc = await _find_document_or_404(document_id, tenant_id)
     return await _serialize_with_account_names(doc)
 
 
 @router.post("/{document_id}/retry-parse")
 async def retry_document_parse(document_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
-    doc = await _find_document_or_404(document_id, main_id)
+    doc = await _find_document_or_404(document_id, tenant_id)
     if str(doc.get("parse_status") or "") in {"queued", "running"}:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="文档正在学习中，请勿重复提交")
 
     now = _now()
     try:
-        parse_settings = await get_effective_parse_settings(main_id)
+        parse_settings = await get_effective_parse_settings(tenant_id)
         parse_job_id = _request_document_parse(
             doc,
             min_chunk_size=parse_settings["minChunkSize"],
@@ -928,7 +1014,7 @@ async def retry_document_parse(document_id: str, current_user: dict = Depends(ge
     except Exception as exc:
         message = str(exc)[:2000]
         await db[COLLECTION].update_one(
-            {"_id": document_id, "main_id": main_id, "deleted_at": None},
+            {"_id": document_id, "tenant_id": tenant_id, "deleted_at": None},
             {
                 "$set": {
                     "status": "failed",
@@ -945,7 +1031,7 @@ async def retry_document_parse(document_id: str, current_user: dict = Depends(ge
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=message) from exc
 
     await db[COLLECTION].update_one(
-        {"_id": document_id, "main_id": main_id, "deleted_at": None},
+        {"_id": document_id, "tenant_id": tenant_id, "deleted_at": None},
         {
             "$set": {
                 "status": "pending_parse",
@@ -958,7 +1044,6 @@ async def retry_document_parse(document_id: str, current_user: dict = Depends(ge
                 "indexed_at": None,
                 "parse_job_id": parse_job_id,
                 "parse_error": "",
-                "parse_quality": {},
                 "parse_updated_at": now,
                 "updated_at": now,
                 "updated_by": _user_login_name(current_user),
@@ -966,15 +1051,15 @@ async def retry_document_parse(document_id: str, current_user: dict = Depends(ge
             }
         },
     )
-    updated = await _find_document_or_404(document_id, main_id)
+    updated = await _find_document_or_404(document_id, tenant_id)
     return await _serialize_with_account_names(updated)
 
 
 @router.post("/{document_id}/retry-preview")
 async def retry_document_preview(document_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
-    doc = await _find_document_or_404(document_id, main_id)
+    doc = await _find_document_or_404(document_id, tenant_id)
     if not _needs_preview_conversion(str(doc.get("file_ext") or "")):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="该文档类型无需生成预览")
     if str(doc.get("preview_status") or "") in {"queued", "running"}:
@@ -986,7 +1071,7 @@ async def retry_document_preview(document_id: str, current_user: dict = Depends(
     except Exception as exc:
         message = str(exc)[:2000]
         await db[COLLECTION].update_one(
-            {"_id": document_id, "main_id": main_id, "deleted_at": None},
+            {"_id": document_id, "tenant_id": tenant_id, "deleted_at": None},
             {
                 "$set": {
                     "preview_status": "failed",
@@ -1001,7 +1086,7 @@ async def retry_document_preview(document_id: str, current_user: dict = Depends(
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=message) from exc
 
     await db[COLLECTION].update_one(
-        {"_id": document_id, "main_id": main_id, "deleted_at": None},
+        {"_id": document_id, "tenant_id": tenant_id, "deleted_at": None},
         {
             "$set": {
                 "preview_status": "queued",
@@ -1014,23 +1099,24 @@ async def retry_document_preview(document_id: str, current_user: dict = Depends(
             }
         },
     )
-    updated = await _find_document_or_404(document_id, main_id)
+    updated = await _find_document_or_404(document_id, tenant_id)
     return await _serialize_with_account_names(updated)
 
 
 @router.get("/{document_id}/chunks")
 async def list_document_chunks(
     document_id: str,
-    page: int = Query(default=1, ge=1),
-    pageSize: int = Query(default=20, ge=1, le=100),
+    params: PageParams = Depends(),
     keyword: str = "",
     contentType: str = "",
     chunkStage: str = Query(default="rag", pattern=r"^(raw|rag|all)$"),
     current_user: dict = Depends(get_current_admin_user),
-) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
-    await _find_document_or_404(document_id, main_id)
-    filters: list[dict[str, Any]] = [{"main_id": main_id, "document_id": document_id}]
+) -> PageResponse[dict[str, Any]]:
+    tenant_id = str(current_user.get("tenant_id") or "default")
+    page = params.resolved_page()
+    page_size = params.page_size
+    await _find_document_or_404(document_id, tenant_id)
+    filters: list[dict[str, Any]] = [{"tenant_id": tenant_id, "document_id": document_id}]
     if chunkStage == "rag":
         filters.append({"$or": [{"chunk_stage": "rag"}, {"chunk_stage": {"$exists": False}}]})
     elif chunkStage == "raw":
@@ -1055,11 +1141,11 @@ async def list_document_chunks(
         db[CHUNK_COLLECTION]
         .find(query)
         .sort([("ordinal", 1), ("_id", 1)])
-        .skip((page - 1) * pageSize)
-        .limit(pageSize)
+        .skip((page - 1) * page_size)
+        .limit(page_size)
     )
     items = [_serialize_chunk(chunk) async for chunk in cursor]
-    return {"items": items, "total": total, "page": page, "pageSize": pageSize}
+    return PageResponse[dict[str, Any]].build(items, total, page, page_size)
 
 
 @router.get("/{document_id}/chunks/{chunk_id}")
@@ -1069,10 +1155,10 @@ async def get_document_chunk(
     chunkStage: str = Query(default="rag", pattern=r"^(raw|rag|all)$"),
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
-    await _find_document_or_404(document_id, main_id)
+    tenant_id = str(current_user.get("tenant_id") or "default")
+    await _find_document_or_404(document_id, tenant_id)
     filters: list[dict[str, Any]] = [
-        {"main_id": main_id, "document_id": document_id, "chunk_id": chunk_id}
+        {"tenant_id": tenant_id, "document_id": document_id, "chunk_id": chunk_id}
     ]
     if chunkStage == "rag":
         filters.append({"$or": [{"chunk_stage": "rag"}, {"chunk_stage": {"$exists": False}}]})
@@ -1091,7 +1177,7 @@ async def update_document(
     payload: DocumentUpdatePayload,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     if payload.status not in STATUS_VALUES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="文档状态无效")
     actual_dir_id = (payload.directoryId or payload.knowledgeBaseId or "").strip()
@@ -1106,21 +1192,21 @@ async def update_document(
         "updated_at": _now(),
     }
     result = await get_db()[COLLECTION].update_one(
-        {"_id": document_id, "main_id": main_id, "deleted_at": None},
+        {"_id": document_id, "tenant_id": tenant_id, "deleted_at": None},
         {"$set": patch},
     )
     if not result.matched_count:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在")
-    doc = await _find_document_or_404(document_id, main_id)
+    doc = await _find_document_or_404(document_id, tenant_id)
     return await _serialize_with_account_names(doc)
 
 
-async def _soft_delete_document(doc: dict[str, Any], *, main_id: str, updated_by: str) -> None:
+async def _soft_delete_document(doc: dict[str, Any], *, tenant_id: str, updated_by: str) -> None:
     db = get_db()
     document_id = str(doc.get("_id") or "")
     now = _now()
     result = await db[COLLECTION].update_one(
-        {"_id": document_id, "main_id": main_id, "deleted_at": None},
+        {"_id": document_id, "tenant_id": tenant_id, "deleted_at": None},
         {
             "$set": {
                 "deleted_at": now,
@@ -1134,7 +1220,7 @@ async def _soft_delete_document(doc: dict[str, Any], *, main_id: str, updated_by
     if not result.matched_count:
         return
     await db[CHUNK_COLLECTION].update_many(
-        {"document_id": document_id, "main_id": main_id},
+        {"document_id": document_id, "tenant_id": tenant_id},
         {
             "$set": {
                 "deleted_at": now,
@@ -1146,10 +1232,10 @@ async def _soft_delete_document(doc: dict[str, Any], *, main_id: str, updated_by
         },
     )
     try:
-        config = await _knowledge_settings_snapshot(main_id)
+        config = await _knowledge_settings_snapshot(tenant_id)
         vector_result = _request_document_vector_delete(doc, config)
         await db[COLLECTION].update_one(
-            {"_id": document_id, "main_id": main_id},
+            {"_id": document_id, "tenant_id": tenant_id},
             {
                 "$set": {
                     "vector_delete_status": "succeeded",
@@ -1163,7 +1249,7 @@ async def _soft_delete_document(doc: dict[str, Any], *, main_id: str, updated_by
         )
     except Exception as exc:
         await db[COLLECTION].update_one(
-            {"_id": document_id, "main_id": main_id},
+            {"_id": document_id, "tenant_id": tenant_id},
             {
                 "$set": {
                     "vector_delete_status": "failed",
@@ -1176,11 +1262,11 @@ async def _soft_delete_document(doc: dict[str, Any], *, main_id: str, updated_by
 
 @router.delete("/{document_id}")
 async def delete_document(document_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, bool]:
-    main_id = str(current_user.get("main_id") or "default")
-    doc = await _find_document_or_404(document_id, main_id)
+    tenant_id = str(current_user.get("tenant_id") or "default")
+    doc = await _find_document_or_404(document_id, tenant_id)
     await _soft_delete_document(
         doc,
-        main_id=main_id,
+        tenant_id=tenant_id,
         updated_by=_user_login_name(current_user),
     )
     return {"success": True}
@@ -1188,16 +1274,16 @@ async def delete_document(document_id: str, current_user: dict = Depends(get_cur
 
 @router.post("/{document_id}/restore")
 async def restore_document(document_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
     result = await db[COLLECTION].update_one(
-        {"_id": document_id, "main_id": main_id, "deleted_at": {"$ne": None}},
+        {"_id": document_id, "tenant_id": tenant_id, "deleted_at": {"$ne": None}},
         {"$set": {"deleted_at": None, "updated_at": _now(), "updated_by": str(current_user.get("username") or "")}},
     )
     if not result.matched_count:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在或未删除")
     await db[CHUNK_COLLECTION].update_many(
-        {"document_id": document_id, "main_id": main_id},
+        {"document_id": document_id, "tenant_id": tenant_id},
         {
             "$set": {
                 "updated_at": _now(),
@@ -1208,7 +1294,7 @@ async def restore_document(document_id: str, current_user: dict = Depends(get_cu
             },
         },
     )
-    doc = await _find_document_or_404(document_id, main_id)
+    doc = await _find_document_or_404(document_id, tenant_id)
     return await _serialize_with_account_names(doc)
 
 
@@ -1221,7 +1307,7 @@ async def preview_conversion_callback(
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing callback token")
     token = authorization.replace("Bearer ", "", 1).strip()
-    if token != settings.document_processing_callback_token:
+    if not constant_time_equals(token, settings.document_processing_callback_token):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid callback token")
 
     now = _now()
@@ -1259,7 +1345,7 @@ async def document_parse_callback(
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing callback token")
     token = authorization.replace("Bearer ", "", 1).strip()
-    if token != settings.document_processing_callback_token:
+    if not constant_time_equals(token, settings.document_processing_callback_token):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid callback token")
 
     db = get_db()
@@ -1302,7 +1388,7 @@ async def document_parse_callback(
     if not raw_chunks and rag_chunks_key == raw_chunks_key:
         raw_chunks = rag_chunks
 
-    await db[CHUNK_COLLECTION].delete_many({"document_id": document_id, "main_id": str(doc.get("main_id") or "default")})
+    await db[CHUNK_COLLECTION].delete_many({"document_id": document_id, "tenant_id": str(doc.get("tenant_id") or "default")})
     rows: list[dict[str, Any]] = []
 
     def append_rows(chunks: list[Any], stage: str) -> None:
@@ -1324,7 +1410,7 @@ async def document_parse_callback(
             rows.append(
                 {
                     "_id": f"{document_id}:{stage}:{chunk_id}",
-                    "main_id": str(doc.get("main_id") or "default"),
+                    "tenant_id": str(doc.get("tenant_id") or "default"),
                     "knowledge_base_id": str(doc.get("knowledge_base_id") or ""),
                     "document_id": document_id,
                     "chunk_id": chunk_id,
@@ -1332,7 +1418,6 @@ async def document_parse_callback(
                     "ordinal": int(chunk.get("ordinal") or index),
                     "text": text,
                     "contextual_text": str(chunk.get("contextualText") or text),
-                    "search_identifiers": [str(item) for item in chunk.get("searchIdentifiers") or []],
                     "title_path": list(chunk.get("titlePath") or []),
                     "page_no": chunk.get("pageNo"),
                     "content_type": str(chunk.get("contentType") or "text"),
@@ -1362,7 +1447,6 @@ async def document_parse_callback(
                 "parse_updated_at": now,
                 "parsed_markdown_key": payload.markdownKey,
                 "parsed_json_key": payload.jsonKey,
-                "parse_quality": _mongo_safe(payload.parseQuality),
                 "raw_chunks_key": raw_chunks_key,
                 "raw_chunk_count": raw_count,
                 "rag_chunks_key": rag_chunks_key,
@@ -1381,7 +1465,7 @@ async def document_parse_callback(
     await update_current_resource(
         db, doc, {"status": "parsed", "error": "", "updated_at": now},
     )
-    config = await _knowledge_settings_snapshot(str(doc.get("main_id") or "default"))
+    config = await _knowledge_settings_snapshot(str(doc.get("tenant_id") or "default"))
     if bool((config.get("index") or {}).get("autoIndexAfterParse", True)) and rag_count > 0:
         index_doc = {
             **doc,
@@ -1428,7 +1512,7 @@ async def document_index_callback(
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing callback token")
     token = authorization.replace("Bearer ", "", 1).strip()
-    if token != settings.document_processing_callback_token:
+    if not constant_time_equals(token, settings.document_processing_callback_token):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid callback token")
 
     db = get_db()
@@ -1474,21 +1558,21 @@ async def document_index_callback(
         if not activated:
             current = await db.knowledge_resources.find_one({
                 "_id": str(doc.get("resource_id") or ""),
-                "main_id": str(doc.get("main_id") or "default"),
+                "tenant_id": str(doc.get("tenant_id") or "default"),
                 "deleted_at": None,
             }) or {}
             if str(current.get("active_document_id") or "") != document_id:
                 await _soft_delete_document(
-                    doc, main_id=str(doc.get("main_id") or "default"),
+                    doc, tenant_id=str(doc.get("tenant_id") or "default"),
                     updated_by=str(doc.get("owner_user_id") or ""),
                 )
         elif previous_document_id and previous_document_id != document_id:
             previous = await db[COLLECTION].find_one({
-                "_id": previous_document_id, "main_id": str(doc.get("main_id") or "default"), "deleted_at": None,
+                "_id": previous_document_id, "tenant_id": str(doc.get("tenant_id") or "default"), "deleted_at": None,
             })
             if previous:
                 await _soft_delete_document(
-                    previous, main_id=str(doc.get("main_id") or "default"),
+                    previous, tenant_id=str(doc.get("tenant_id") or "default"),
                     updated_by=str(doc.get("owner_user_id") or ""),
                 )
     return {"success": True}
@@ -1496,21 +1580,21 @@ async def document_index_callback(
 
 @router.post("/{document_id}/retry-index")
 async def retry_document_index(document_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
-    doc = await _find_document_or_404(document_id, main_id)
+    doc = await _find_document_or_404(document_id, tenant_id)
     if str(doc.get("index_status") or "") in {"queued", "running"}:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="文档正在索引中，请勿重复提交")
     if str(doc.get("chunk_status") or "") != "succeeded" or int(doc.get("rag_chunk_count") or doc.get("chunk_count") or 0) <= 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="文档尚未完成分段，无法索引")
 
-    config = await _knowledge_settings_snapshot(main_id)
+    config = await _knowledge_settings_snapshot(tenant_id)
     try:
         index_job_id = _request_document_index(doc, config)
     except Exception as exc:
         message = str(exc)[:2000]
         await db[COLLECTION].update_one(
-            {"_id": document_id, "main_id": main_id, "deleted_at": None},
+            {"_id": document_id, "tenant_id": tenant_id, "deleted_at": None},
             {
                 "$set": {
                     "index_status": "failed",
@@ -1524,7 +1608,7 @@ async def retry_document_index(document_id: str, current_user: dict = Depends(ge
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=message) from exc
 
     await db[COLLECTION].update_one(
-        {"_id": document_id, "main_id": main_id, "deleted_at": None},
+        {"_id": document_id, "tenant_id": tenant_id, "deleted_at": None},
         {
             "$set": {
                 "index_status": "queued",
@@ -1536,14 +1620,14 @@ async def retry_document_index(document_id: str, current_user: dict = Depends(ge
             }
         },
     )
-    updated = await _find_document_or_404(document_id, main_id)
+    updated = await _find_document_or_404(document_id, tenant_id)
     return await _serialize_with_account_names(updated)
 
 
 @router.get("/{document_id}/content")
 async def get_document_content(document_id: str, current_user: dict = Depends(get_current_admin_user)) -> StreamingResponse:
-    main_id = str(current_user.get("main_id") or "default")
-    doc = await _find_document_or_404(document_id, main_id)
+    tenant_id = str(current_user.get("tenant_id") or "default")
+    doc = await _find_document_or_404(document_id, tenant_id)
     storage = get_storage_service(str(doc.get("storage_type") or "local"))
     fileobj = storage.open_file(str(doc.get("storage_key") or ""))
     media_type = str(doc.get("mime_type") or "") or "application/octet-stream"
@@ -1560,8 +1644,8 @@ async def get_document_preview(
     request: Request,
     current_user: dict = Depends(get_current_admin_user),
 ):
-    main_id = str(current_user.get("main_id") or "default")
-    doc = await _find_document_or_404(document_id, main_id)
+    tenant_id = str(current_user.get("tenant_id") or "default")
+    doc = await _find_document_or_404(document_id, tenant_id)
     storage = get_storage_service(str(doc.get("storage_type") or "local"))
     preview_status = str(doc.get("preview_status") or "not_required")
     preview_key = str(doc.get("preview_key") or "")
@@ -1586,18 +1670,17 @@ async def get_document_preview(
 
 async def ensure_indexes() -> None:
     db = get_db()
-    await db[COLLECTION].create_index([("main_id", 1), ("deleted_at", 1), ("updated_at", -1)], name="knowledge_docs_main_updated")
-    await db[COLLECTION].create_index([("main_id", 1), ("file_ext", 1), ("updated_at", -1)], name="knowledge_docs_file_ext")
-    await db[COLLECTION].create_index([("main_id", 1), ("status", 1), ("updated_at", -1)], name="knowledge_docs_status")
-    await db[COLLECTION].create_index([("main_id", 1), ("storage_type", 1)], name="knowledge_docs_storage_type")
-    await db[COLLECTION].create_index([("main_id", 1), ("checksum", 1)], name="knowledge_docs_checksum")
+    await db[COLLECTION].create_index([("tenant_id", 1), ("deleted_at", 1), ("updated_at", -1)], name="knowledge_docs_tenant_updated")
+    await db[COLLECTION].create_index([("tenant_id", 1), ("file_ext", 1), ("updated_at", -1)], name="knowledge_docs_file_ext")
+    await db[COLLECTION].create_index([("tenant_id", 1), ("status", 1), ("updated_at", -1)], name="knowledge_docs_status")
+    await db[COLLECTION].create_index([("tenant_id", 1), ("storage_type", 1)], name="knowledge_docs_storage_type")
+    await db[COLLECTION].create_index([("tenant_id", 1), ("checksum", 1)], name="knowledge_docs_checksum")
     await db[COLLECTION].create_index([("preview_job_id", 1)], name="knowledge_docs_preview_job")
     await db[COLLECTION].create_index([("parse_job_id", 1)], name="knowledge_docs_parse_job")
-    await db[COLLECTION].create_index([("main_id", 1), ("knowledge_base_id", 1), ("deleted_at", 1), ("updated_at", -1)], name="knowledge_docs_dir_updated")
+    await db[COLLECTION].create_index([("tenant_id", 1), ("knowledge_base_id", 1), ("deleted_at", 1), ("updated_at", -1)], name="knowledge_docs_dir_updated")
     await db[COLLECTION].create_index(
-        [("main_id", 1), ("scope", 1), ("owner_user_id", 1), ("resource_id", 1), ("deleted_at", 1), ("updated_at", -1)],
+        [("tenant_id", 1), ("scope", 1), ("owner_user_id", 1), ("resource_id", 1), ("deleted_at", 1), ("updated_at", -1)],
         name="knowledge_docs_personal_resource",
     )
-    await db[CHUNK_COLLECTION].create_index([("main_id", 1), ("document_id", 1), ("chunk_stage", 1), ("ordinal", 1)], name="knowledge_chunks_doc_stage_order")
-    await db[CHUNK_COLLECTION].create_index([("main_id", 1), ("knowledge_base_id", 1), ("chunk_stage", 1), ("document_id", 1)], name="knowledge_chunks_kb_stage_doc")
-    await db[CHUNK_COLLECTION].create_index([("main_id", 1), ("chunk_stage", 1), ("search_identifiers", 1), ("knowledge_base_id", 1)], name="knowledge_chunks_exact_identifier")
+    await db[CHUNK_COLLECTION].create_index([("tenant_id", 1), ("document_id", 1), ("chunk_stage", 1), ("ordinal", 1)], name="knowledge_chunks_doc_stage_order")
+    await db[CHUNK_COLLECTION].create_index([("tenant_id", 1), ("knowledge_base_id", 1), ("chunk_stage", 1), ("document_id", 1)], name="knowledge_chunks_kb_stage_doc")

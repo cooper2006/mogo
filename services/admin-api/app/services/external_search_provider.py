@@ -64,6 +64,14 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "model": "",
         "priority": 50,
     },
+    "claw_search": {
+        "label": "Claw Search",
+        "description": "免费开源、无需 API Key 的搜索服务，兼容 Brave Search 返回格式。",
+        "endpoint": "https://www.claw-search.com/api/search",
+        "base_url": "",
+        "model": "",
+        "priority": 60,
+    },
 }
 
 
@@ -76,6 +84,22 @@ def provider_or_error(provider: str) -> str:
     if token not in PROVIDERS:
         raise ExternalSearchConfigError("搜索源不存在")
     return token
+
+
+def _reject_unencodable(value: str, codec: str, label: str, *, hint: str) -> None:
+    """拦截无法放进 HTTP 请求的字符，换成可读提示。
+
+    HTTP 请求头只能承载 latin-1，请求行只能承载 ascii。``urllib`` 要等到真正发
+    请求时才抛 ``UnicodeEncodeError: 'latin-1' codec can't encode characters in
+    position 7-8``——典型触发是把中文内容误粘贴进 API Key，报错信息完全看不懂。
+    这里在发请求前拦截，直接说清楚是哪个字段、哪个字符有问题。
+    """
+    try:
+        value.encode(codec)
+    except UnicodeEncodeError as exc:
+        raise ExternalSearchConfigError(
+            f"{label} 含非法字符「{value[exc.start:exc.end]}」：{hint}，请检查是否误粘贴了中文内容"
+        ) from exc
 
 
 def normalized_config(
@@ -94,6 +118,15 @@ def normalized_config(
         "base_url": str(base_url or "").strip() or str(meta["base_url"]),
         "model": str(model or "").strip() or str(meta["model"]),
     }
+    # 请求头（latin-1）与请求行（ascii）各自能承载的字符集不同，分别校验；
+    # model 走 JSON body，不受此限。
+    _reject_unencodable(config["api_key"], "latin-1", "API Key", hint="HTTP 请求头无法携带该字符")
+    _reject_unencodable(config["endpoint"], "ascii", "Endpoint", hint="URL 只能使用 ASCII 字符（中文域名需转 Punycode）")
+    _reject_unencodable(config["base_url"], "ascii", "Base URL", hint="URL 只能使用 ASCII 字符（中文域名需转 Punycode）")
+    if token == "claw_search":
+        if not config["endpoint"]:
+            raise ExternalSearchConfigError("请填写 Endpoint")
+        return config
     if not config["api_key"]:
         raise ExternalSearchConfigError("请填写 API Key")
     if token == "baidu_qianfan" and not config["endpoint"]:
@@ -183,7 +216,7 @@ def _extract_answer(value: dict[str, Any]) -> str:
 
 async def test_provider(provider: str, config: dict[str, str], query: str) -> list[dict[str, str]]:
     token = provider_or_error(provider)
-    search_query = str(query or "").strip() or "MOVO enterprise AI"
+    search_query = str(query or "").strip() or "MOGO enterprise AI"
 
     def run() -> list[dict[str, str]]:
         if token == "deepseek":
@@ -229,6 +262,14 @@ async def test_provider(provider: str, config: dict[str, str], query: str) -> li
                 },
             )
             return _reference_rows(data.get("references"))
+
+        if token == "claw_search":
+            data = _get_json(
+                config["endpoint"],
+                {"q": search_query},
+            )
+            web = data.get("web") if isinstance(data.get("web"), dict) else {}
+            return _reference_rows(web.get("results"))
 
         data = _post_json(
             f"{config['base_url'].rstrip('/')}/chat/completions",

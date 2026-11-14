@@ -17,7 +17,7 @@ def test_grouped_model_create_stores_no_duplicate_credential(monkeypatch) -> Non
     group_id = ObjectId()
     model_id = ObjectId()
     group = {
-        "_id": group_id, "main_id": "tenant", "provider_id": provider_id,
+        "_id": group_id, "tenant_id": "tenant", "provider_id": provider_id,
         "status": "active", "base_url": "https://shared.example/v1",
         "api_key_masked": "sk-****", "api_version": "",
     }
@@ -43,7 +43,7 @@ def test_grouped_model_create_stores_no_duplicate_credential(monkeypatch) -> Non
     result = asyncio.run(models.post_model_instance(
         models.ModelInstancePayload(providerId=str(provider_id), groupId=str(group_id),
                                     displayName="Text", modelName="gpt-example", apiKey="unexpected"),
-        {"main_id": "tenant"},
+        {"tenant_id": "tenant"},
     ))
 
     assert saved["group_id"] == str(group_id)
@@ -66,7 +66,7 @@ def test_available_models_skip_disabled_group(monkeypatch) -> None:
         "_id": group_id, "status": "disabled",
     }]))
 
-    result = asyncio.run(models.get_available_chat_models(current_user={"main_id": "tenant"}))
+    result = asyncio.run(models.get_available_chat_models(current_user={"tenant_id": "tenant"}))
     assert result == []
 
 
@@ -77,6 +77,6 @@ def test_azure_group_requires_api_version(monkeypatch) -> None:
     payload = model_groups.ModelGroupPayload(name="Azure", providerId=str(ObjectId()),
                                             baseUrl="https://example.azure.com", apiKey="secret")
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(model_groups.post_group(payload, {"main_id": "tenant"}))
+        asyncio.run(model_groups.post_group(payload, {"tenant_id": "tenant"}))
     assert exc.value.status_code == 400
     assert exc.value.detail == "model_group_api_version_required"

@@ -14,7 +14,7 @@ import {
   withModelServer,
 } from './support/runtime-admission.mjs'
 
-test('runtime delegates to a DSH subagent and returns the child result to MOVO', async () => {
+test('runtime delegates to a DSH subagent and returns the child result to MOGO', async () => {
   const root = await mkdtemp(join(tmpdir(), 'askai-runtime-subagent-admission-'))
   const calls = []
   try {

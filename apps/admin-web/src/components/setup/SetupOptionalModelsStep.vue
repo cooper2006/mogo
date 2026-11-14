@@ -1,9 +1,9 @@
 <template>
   <div class="step-content">
     <div class="step-heading">
-      <span class="step-kicker">{{ t('legacy.step_4_of_5') }}</span>
-      <h2>{{ t('legacy.configure_other_models') }}</h2>
-      <p>{{ t('legacy.these_models_extend_specialized_movo_capabilities_skip_them_now') }}</p>
+      <span class="step-kicker">{{ t('步骤 4 / 5') }}</span>
+      <h2>{{ t('配置其他模型') }}</h2>
+      <p>{{ t('这些模型用于扩展 MOGO 的专项能力，可以跳过并在管理后台随时补充。') }}</p>
     </div>
 
     <div class="model-cards">
@@ -14,13 +14,13 @@
             <div class="model-title-row">
               <h3>{{ definitions[item.capability].name }}</h3>
               <n-tag size="small" :type="item.enabled ? 'success' : 'default'">
-                {{ item.enabled ? t('legacy.enabled') : t('legacy.optional') }}
+                {{ item.enabled ? t('已启用配置') : t('可选') }}
               </n-tag>
             </div>
             <p>{{ definitions[item.capability].description }}</p>
             <span class="model-impact">{{ definitions[item.capability].impact }}</span>
             <span v-if="item.capability === 'embedding' || item.capability === 'rerank'" class="model-recommendation">
-              {{ t('legacy.qwen_is_recommended_first_but_any_compatible_provider_can') }}
+              {{ t('推荐优先使用通义千问，也可以选择其他兼容供应商。') }}
             </span>
           </div>
           <n-switch
@@ -40,9 +40,9 @@
     </div>
 
     <div class="actions">
-      <n-button size="large" :disabled="submitting" @click="$emit('back')">{{ t('legacy.previous') }}</n-button>
+      <n-button size="large" :disabled="submitting" @click="$emit('back')">{{ t('上一步') }}</n-button>
       <n-button size="large" type="primary" :loading="submitting" @click="$emit('next')">
-        {{ t('legacy.next_web_search') }}
+        {{ t('下一步：联网搜索') }}
       </n-button>
     </div>
   </div>
@@ -83,24 +83,24 @@ function providersFor(capability: SetupOptionalModelForm['capability']) {
 }
 const definitions = computed(() => ({
   embedding: {
-    name: t('legacy.embedding_model_404347c'),
-    description: t('legacy.converts_documents_and_questions_into_vectors_for_semantic_knowledge'),
-    impact: t('additional.required_for_the_knowledge_base_chat_remains_available_without'),
+    name: t('向量模型（Embedding）'),
+    description: t('把文档和问题转换为向量，用于知识库语义检索、文档问答和 RAG。'),
+    impact: t('知识库必需：未配置时仍可对话，但文档无法完成向量学习与检索。'),
   },
   rerank: {
-    name: t('additional.rerank_model_rerank'),
-    description: t('additional.rerank_vector_search_candidates_to_improve_the_relevance_and'),
-    impact: t('additional.recommended_basic_search_still_works_without_it_but_ranking'),
+    name: t('重排模型（Rerank）'),
+    description: t('对向量检索候选内容再次排序，提高知识库答案的相关性与准确度。'),
+    impact: t('推荐配置：未配置不影响基础检索，但复杂问题的召回排序可能不够准确。'),
   },
   vision: {
-    name: t('legacy.vision_model_c7979d9'),
-    description: t('legacy.understands_images_screenshots_scans_and_charts_for_visual_q'),
-    impact: t('legacy.if_skipped_configure_a_vision_model_later_for_image'),
+    name: t('视觉模型（Vision）'),
+    description: t('理解图片、截图、扫描件和图表内容，用于视觉问答与图片信息提取。'),
+    impact: t('未配置时：图片理解类任务需稍后配置视觉模型。'),
   },
   image: {
-    name: t('legacy.image_generation_model_e90dc17'),
-    description: t('legacy.generates_images_from_text_for_article_illustrations_posters_creative'),
-    impact: t('legacy.if_skipped_text_chat_is_unaffected_image_generation_remains'),
+    name: t('文生图模型（Image）'),
+    description: t('根据文字生成图片，用于文章配图、海报、创意素材和视觉草图。'),
+    impact: t('未配置时：不影响文字对话，图片生成能力暂不可用。'),
   },
 }));
 
@@ -113,27 +113,28 @@ const icons: Record<SetupOptionalModelForm['capability'], string> = {
 </script>
 
 <style scoped>
+/* design-token-ignore: 首装引导页（SetupPage.vue）的品牌模型图标，刻意保持浅色不随主题变化 */
 .step-content { display: grid; gap: 16px; }
 .step-heading { margin-bottom: 2px; }
-.step-kicker { color: #3568e8; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-.step-heading h2 { margin: 6px 0; color: #10204a; font-size: 24px; }
-.step-heading p { margin: 0; color: #64748b; line-height: 1.6; }
+.step-kicker { color: var(--mg-brand); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.step-heading h2 { margin: 6px 0; color: var(--mg-text-1); font-size: 24px; }
+.step-heading p { margin: 0; color: var(--mg-text-2); line-height: 1.6; }
 .model-cards { display: grid; gap: 12px; }
-.model-card { overflow: hidden; border: 1px solid #e0e7f1; border-radius: 14px; background: #fafcff; transition: border-color .2s ease, box-shadow .2s ease; }
+.model-card { overflow: hidden; border: 1px solid var(--mg-border); border-radius: 14px; background: var(--mg-bg-surface); transition: border-color .2s ease, box-shadow .2s ease; }
 .model-card.enabled { border-color: #a9c0f7; box-shadow: 0 8px 24px rgba(53, 104, 232, .08); }
 .model-summary { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 14px; padding: 16px; }
-.model-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 12px; background: #eaf0ff; color: #315fc8; }
+.model-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 12px; background: var(--mg-brand-soft); color: var(--mg-brand); }
 .model-icon :deep(svg) { width: 22px; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
-.model-icon-embedding { background: #e8f7f2; color: #168461; }
+.model-icon-embedding { background: #e8f7f2; color: var(--mg-success-text); }
 .model-icon-rerank { background: #fff4df; color: #b66a00; }
 .model-icon-image { background: #f4ecff; color: #7b43c7; }
 .model-copy { min-width: 0; }
 .model-title-row { display: flex; align-items: center; gap: 8px; }
-.model-title-row h3 { margin: 0; color: #17233d; font-size: 15px; }
+.model-title-row h3 { margin: 0; color: var(--mg-text-1); font-size: 15px; }
 .model-copy p { margin: 5px 0 3px; color: #53617b; font-size: 13px; line-height: 1.55; }
 .model-impact { color: #7b879c; font-size: 12px; line-height: 1.5; }
-.model-recommendation { display: block; margin-top: 4px; color: #3568e8; font-size: 12px; line-height: 1.5; }
-.model-form { padding: 18px 16px 2px; border-top: 1px solid #e6ecf5; background: #fff; }
+.model-recommendation { display: block; margin-top: 4px; color: var(--mg-brand); font-size: 12px; line-height: 1.5; }
+.model-form { padding: 18px 16px 2px; border-top: 1px solid #e6ecf5; background: var(--mg-bg-surface); }
 .actions { display: grid; grid-template-columns: auto minmax(220px, 1fr); gap: 10px; margin-top: 2px; }
 @media (max-width: 600px) { .model-summary { grid-template-columns: auto minmax(0, 1fr); } .model-summary :deep(.n-switch) { grid-column: 2; } .actions { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { .model-card { transition: none; } }

@@ -3,16 +3,16 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.db import get_db
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 
 
 class PersonalKnowledgeFeedbackSummaryService:
     """Batched unread comment summaries used to prioritize knowledge list rows."""
 
-    async def unread_by_resource(self, *, main_id: str, user_id: str) -> dict[str, dict[str, Any]]:
+    async def unread_by_resource(self, *, tenant_id: str, user_id: str) -> dict[str, dict[str, Any]]:
         rows = await get_db().resource_feedback_notifications.aggregate([
             {"$match": {
-                "main_id": resolve_main_id(main_id),
+                "tenant_id": resolve_tenant_id(tenant_id),
                 "resource_type": "personal_knowledge",
                 "recipient_user_id": str(user_id),
                 "status": "unread",

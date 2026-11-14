@@ -37,7 +37,7 @@ class _Db:
 def _document(document_id):
     return {
         "_id": document_id,
-        "main_id": "tenant",
+        "tenant_id": "tenant",
         "scope": "personal",
         "resource_id": "resource",
     }
@@ -46,7 +46,7 @@ def _document(document_id):
 def test_only_latest_processing_document_can_update_resource_status():
     db = _Db({
         "_id": "resource",
-        "main_id": "tenant",
+        "tenant_id": "tenant",
         "deleted_at": None,
         "active_document_id": "old-active",
         "processing_document_id": "latest",
@@ -62,7 +62,7 @@ def test_only_latest_processing_document_can_update_resource_status():
 def test_latest_indexed_document_switches_active_version_atomically():
     db = _Db({
         "_id": "resource",
-        "main_id": "tenant",
+        "tenant_id": "tenant",
         "deleted_at": None,
         "active_document_id": "old-active",
         "processing_document_id": "latest",
@@ -85,7 +85,7 @@ def test_latest_indexed_document_switches_active_version_atomically():
 def test_stale_index_completion_cannot_replace_latest_version():
     db = _Db({
         "_id": "resource",
-        "main_id": "tenant",
+        "tenant_id": "tenant",
         "deleted_at": None,
         "active_document_id": "old-active",
         "processing_document_id": "latest",

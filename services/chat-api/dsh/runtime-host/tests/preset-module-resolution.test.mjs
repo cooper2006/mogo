@@ -16,14 +16,14 @@ test('resolve package modules inside declarative preset groups without rewriting
     config: { id: 'test', plugins: [{
       id: 'group', group: true, config: [
         { id: 'native', name: '@deepseek-ai/dsh-tool-skill' },
-        { id: 'custom', name: '/movo/custom-plugin.mjs' },
+        { id: 'custom', name: '/mogo/custom-plugin.mjs' },
       ],
     }] },
   }] }]
 
   const result = resolvePresetModules(source, installation)
   const native = '/installed/@deepseek-ai_dsh-tool-skill'
-  const custom = '/movo/custom-plugin.mjs'
+  const custom = '/mogo/custom-plugin.mjs'
   assert.equal(result[0].insert[0].config.plugins[0].config[0].name,
     process.platform === 'win32' ? pathToFileURL(native).href : native)
   assert.equal(result[0].insert[0].config.plugins[0].config[1].name,

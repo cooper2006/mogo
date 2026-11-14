@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import html
 from typing import Any, Dict, List
@@ -220,7 +221,8 @@ def _render_pie_chart(payload: Dict[str, Any], theme: Dict[str, Any], *, width: 
     for raw in list(payload.get("values") or []):
         try:
             values.append(float(raw))
-        except Exception:
+        except Exception as exc:
+            log_print(f"[services.presentation.chart_svg_renderer._render_pie_chart] suppressed {type(exc).__name__}: {exc}", flush=True)
             continue
     if not values:
         series = _numeric_series(payload)

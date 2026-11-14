@@ -1,11 +1,4 @@
 import axios from 'axios'
-import type { QuestionAnswerEntry } from '../components/chat/questionAnswerHistory'
-
-export type ChatMessageAuthor = {
-  user_id: string
-  display_name: string | null
-  avatar_url: string | null
-}
 
 export type ChatMessage = {
   role: string
@@ -16,21 +9,8 @@ export type ChatMessage = {
   images?: ImageInfo[]
   /** Server-minted id for this assistant turn (X-Message-Id from /chat/completions) */
   message_id?: string
-  /** T5: stable server-computed per-row fallback identity; the browser consumes
-   *  it verbatim as the merge key and never synthesizes one. */
-  legacy_key?: string
-  /** T5: allocated message sequence; `0` marks a DEGRADED unsequenced row. */
-  seq?: number
-  /** Message author — user_id IS the author; no author_user_id duplicate. Present
-   *  on session-GET responses (server-side addition); absent on optimistic and
-   *  request-path messages (MessageIn.user_id is Optional and ignored on writes). */
-  user_id?: string
-  /** T5: user-message identity projection (`author: {user_id, display_name,
-   *  avatar_url} | null`); assistant rows have no author projection. */
-  author?: ChatMessageAuthor | null
   /** Persisted V3 events returned by GET /sessions/{id}; used for replay. */
   execution_events?: any[]
-  question_answers?: QuestionAnswerEntry[]
   trigger_source?: string
   scheduled_job_id?: string
   scheduled_run_id?: string
@@ -68,39 +48,36 @@ export type SessionSummary = {
     message_id: string
     source: 'scheduled' | string
     status: 'running' | 'suspended' | string
-    initiator_user_id?: string
     scheduled_job_id?: string
     started_at?: string
   } | null
   scheduled_unread?: boolean
   pending_approval_count?: number
   last_scheduled_run?: { run_id: string; status: string; finished_at?: string } | null
-  /** Sharing fields (todos 8/9/19): access is the VIEWER's scope; present on
-   *  shared-scope list rows and the detail payload. The owner-scope list payload
-   *  omits them (byte-compatible owner-list contract), hence optional. */
-  access?: 'owner' | 'shared'
-  owner_user_id?: string
-  participant_count?: number
-  /** T19: the viewer's unread state on shared-scope rows only; owner rows keep
-   *  scheduled_unread and never carry this field. */
-  shared_unread?: boolean
   execution_location?: 'server' | 'desktop' | 'remote_sandbox'
   runtime_preset_id?: string
   model_instance_id?: string | null
   code_project?: { workspace_id: string; git_branch: string; worktree: boolean } | null
+  /** 046 FR-011: 项目维度分组键；迁移期由后端兼容 project_id / workspace_id / "default"。 */
+  project_id?: string
+  /** 侧边栏扩展项：置顶时间戳（null/缺省 = 未置顶）。 */
+  pinned_at?: string | null
+  /** 侧边栏扩展项：是否已归档。 */
+  archived?: boolean
+  /** P3 三期-a 会话共享：access 是查看者视角的作用域；仅 shared 列表行与 detail 携带，owner 列表（_serialize_session_summary）省略。 */
+  access?: 'owner' | 'shared'
+  owner_user_id?: string
+  participant_count?: number
+  /** 查看者在 shared 行的未读态；owner 行不带此字段。 */
+  shared_unread?: boolean
 }
 
 export type SessionDetail = SessionSummary & {
   messages: ChatMessage[]
-  /** T9: the backend SessionDetail model always emits these (non-optional
-   *  pydantic fields, defaults "owner"/""/0), so they are REQUIRED here —
-   *  unlike the optional SessionSummary fields the owner-scope list omits. */
+  /** P3 三期-a：后端 SessionDetail 恒经 _serialize_session 输出（_serialize_session_summary 是列表轻量版），故 REQUIRED。 */
   access: 'owner' | 'shared'
   owner_user_id: string
   participant_count: number
-  /** T7: authoritative fresh-stream position for a live SSE reopen after a
-   *  control-frame invalidation; absent when the server omits it. */
-  live_cursor?: string
 }
 
 export type SessionSearchResult = SessionSummary & {
@@ -132,11 +109,39 @@ function authHeaders(authToken?: string | null) {
 }
 
 export type DesktopProject = {
+  /** 服务端文档 _id（= workspace_id；默认项目为 "default"）。 */
+  _id?: string
   workspace_id: string
+  tenant_id?: string
+  /** 049 FR-003: 创建者 id；成员管理权归创建者。 */
+  user_id?: string
+  /** 049 FR-001: 项目成员（创建者不在此数组里）。 */
+  member_user_ids?: string[]
   title: string
   worktree: boolean
+  /** 046 FR-009: 项目状态；目录不存在 → archived，恢复 → active。 */
+  status?: 'active' | 'archived'
   created_at: string
   updated_at: string
+}
+
+/** 049 FR-004: 项目成员候选（来自 end_users，可按部门子树过滤）。 */
+export type ProjectMemberCandidate = {
+  id: string
+  name: string
+  loginName: string
+  mobile: string
+  email: string
+  departmentId: string
+  departmentName: string
+}
+
+/** 049 FR-004: 成员弹窗左侧部门树节点（org_units 扁平表）。 */
+export type ProjectDepartmentNode = {
+  id: string
+  name: string
+  parentId: string
+  depth: number
 }
 
 export async function createDesktopProject(
@@ -152,9 +157,113 @@ export async function listDesktopProjects(authToken?: string | null): Promise<De
   return Array.isArray(response.data?.data) ? response.data.data : []
 }
 
-export async function listSessions(userId: string, mainId?: string, authToken?: string | null): Promise<SessionSummary[]> {
+/** 046 FR-009: 对账时自动归档/恢复项目。 */
+export async function updateDesktopProjectStatus(
+  projectId: string,
+  status: 'active' | 'archived',
+  authToken?: string | null,
+): Promise<void> {
+  await client.patch(`/askai-api/api/projects/${encodeURIComponent(projectId)}`, { status }, { headers: authHeaders(authToken) })
+}
+
+/** 侧边栏扩展项：重命名项目标题（Web 端经 PATCH /projects/{id}）。 */
+export async function updateDesktopProjectTitle(
+  projectId: string,
+  title: string,
+  authToken?: string | null,
+): Promise<DesktopProject> {
+  const response = await client.patch(
+    `/askai-api/api/projects/${encodeURIComponent(projectId)}`,
+    { title },
+    { headers: authHeaders(authToken) },
+  )
+  return response.data?.data
+}
+
+/** 049 FR-001/FR-003: 保存项目成员（仅创建者；memberUserIds 为全量集合）。 */
+export async function updateDesktopProjectMembers(
+  projectId: string,
+  memberUserIds: string[],
+  authToken?: string | null,
+): Promise<DesktopProject> {
+  const response = await client.patch(
+    `/askai-api/api/projects/${encodeURIComponent(projectId)}`,
+    { member_user_ids: memberUserIds },
+    { headers: authHeaders(authToken) },
+  )
+  return response.data?.data
+}
+
+/** 049 FR-004: 成员候选列表（departmentId 非空时按部门及下级过滤）。 */
+export async function listProjectMemberCandidates(
+  departmentId: string | null | undefined,
+  keyword: string,
+  authToken?: string | null,
+): Promise<ProjectMemberCandidate[]> {
+  const response = await client.get('/askai-api/api/projects/member-candidates', {
+    params: { department_id: departmentId || '', keyword: keyword || '' },
+    headers: authHeaders(authToken),
+  })
+  return Array.isArray(response.data?.data?.items) ? response.data.data.items : []
+}
+
+/** 049 FR-004: 成员弹窗部门树（本租户 active 部门）。 */
+export async function listProjectDepartments(authToken?: string | null): Promise<ProjectDepartmentNode[]> {
+  const response = await client.get('/askai-api/api/projects/departments', { headers: authHeaders(authToken) })
+  return Array.isArray(response.data?.data?.departments) ? response.data.data.departments : []
+}
+
+/** 侧边栏扩展项：置顶 / 取消置顶会话。 */
+export async function pinSession(
+  sessionId: string,
+  userId: string,
+  tenantId: string | undefined,
+  pinned: boolean,
+  authToken?: string | null,
+): Promise<SessionSummary> {
+  const response = await client.patch(`/askai-api/api/sessions/${sessionId}/pin`, {
+    user_id: userId,
+    tenant_id: tenantId,
+    pinned,
+  }, { headers: authHeaders(authToken) })
+  return response.data?.data
+}
+
+/** 侧边栏扩展项：归档 / 取消归档会话。 */
+export async function archiveSession(
+  sessionId: string,
+  userId: string,
+  tenantId: string | undefined,
+  archived: boolean,
+  authToken?: string | null,
+): Promise<SessionSummary> {
+  const response = await client.patch(`/askai-api/api/sessions/${sessionId}/archive`, {
+    user_id: userId,
+    tenant_id: tenantId,
+    archived,
+  }, { headers: authHeaders(authToken) })
+  return response.data?.data
+}
+
+/** 侧边栏扩展项：分叉会话（以源会话消息副本新建独立会话）。 */
+export async function forkSession(
+  sessionId: string,
+  userId: string,
+  tenantId: string | undefined,
+  title: string | undefined,
+  authToken?: string | null,
+): Promise<SessionSummary> {
+  const response = await client.post(`/askai-api/api/sessions/${sessionId}/fork`, {
+    user_id: userId,
+    tenant_id: tenantId,
+    title,
+  }, { headers: authHeaders(authToken) })
+  return response.data?.data
+}
+
+export async function listSessions(userId: string, tenantId?: string, authToken?: string | null): Promise<SessionSummary[]> {
   const query = new URLSearchParams({ userId })
-  if (mainId) query.set('mainId', mainId)
+  if (tenantId) query.set('tenantId', tenantId)
   const response = await client.get(`/askai-api/api/sessions?${query.toString()}`, {
     timeout: 15000, headers: authHeaders(authToken),
   })
@@ -163,7 +272,7 @@ export async function listSessions(userId: string, mainId?: string, authToken?: 
 
 export async function listSessionsPaged(
   userId: string,
-  mainId?: string,
+  tenantId?: string,
   options: { limit?: number; offset?: number; scope?: 'owner' | 'shared' } = {},
   authToken?: string | null,
 ): Promise<SessionListPage> {
@@ -175,8 +284,8 @@ export async function listSessionsPaged(
     limit: String(limit),
     offset: String(offset),
   })
-  if (mainId) query.set('mainId', mainId)
-  /** scope=shared fetches the sessions the viewer actively participates in (todo 8). */
+  if (tenantId) query.set('tenantId', tenantId)
+  // P3 三期-a：scope=shared 列出分享给我（参与）的会话；后端 list_sessions 支持。
   if (options.scope) query.set('scope', options.scope)
   const response = await client.get(`/askai-api/api/sessions?${query.toString()}`, {
     timeout: 15000, headers: authHeaders(authToken),
@@ -192,7 +301,7 @@ export async function listSessionsPaged(
 
 export async function searchSessions(
   userId: string,
-  mainId: string | undefined,
+  tenantId: string | undefined,
   queryText: string,
   options: { limit?: number; offset?: number } = {},
   authToken?: string | null,
@@ -205,7 +314,7 @@ export async function searchSessions(
     limit: String(limit),
     offset: String(offset),
   })
-  if (mainId) query.set('mainId', mainId)
+  if (tenantId) query.set('tenantId', tenantId)
   const response = await client.get(`/askai-api/api/sessions/search?${query.toString()}`, {
     timeout: 15000, headers: authHeaders(authToken),
   })
@@ -220,30 +329,54 @@ export async function searchSessions(
 
 export async function createSession(
   userId: string,
-  mainId?: string,
+  tenantId?: string,
   title?: string,
   messages?: ChatMessage[],
   authToken?: string | null,
+  employeeId?: string,
 ): Promise<SessionSummary> {
   const response = await client.post('/askai-api/api/sessions', {
     user_id: userId,
-    main_id: mainId,
+    tenant_id: tenantId,
     title: title || 'New Chat',
     messages: messages || [],
+    employeeId: employeeId || undefined,
   }, { headers: authHeaders(authToken) })
   return response.data?.data
 }
 
-export async function getSession(sessionId: string, userId: string, mainId?: string, authToken?: string | null): Promise<SessionDetail> {
+export async function getSession(sessionId: string, userId: string, tenantId?: string, authToken?: string | null): Promise<SessionDetail> {
+  // 022 FR-15（T032）：GET 只读；已读标记（scheduled_unread）走显式 POST。
   const query = new URLSearchParams({ userId })
-  if (mainId) query.set('mainId', mainId)
+  if (tenantId) query.set('tenantId', tenantId)
   const response = await client.get(`/askai-api/api/sessions/${sessionId}?${query.toString()}`, { headers: authHeaders(authToken) })
+  await markSessionRead(sessionId, userId, tenantId, authToken).catch(() => undefined)
   return response.data?.data
 }
 
-export async function deleteSession(sessionId: string, userId: string, mainId?: string, authToken?: string | null): Promise<{ id: string }> {
+/**
+ * 022 FR-15（T032）：把会话标记为已读（清除 scheduled_unread）。
+ * 原先夹在 GET /sessions/{id} 里，GET 因此产生写副作用；现在显式 POST。
+ */
+export async function markSessionRead(
+  sessionId: string,
+  userId: string,
+  tenantId?: string,
+  authToken?: string | null,
+): Promise<Record<string, unknown> | undefined> {
   const query = new URLSearchParams({ userId })
-  if (mainId) query.set('mainId', mainId)
+  if (tenantId) query.set('tenantId', tenantId)
+  const response = await client.post(
+    `/askai-api/api/sessions/${encodeURIComponent(sessionId)}/read?${query.toString()}`,
+    undefined,
+    { headers: authHeaders(authToken) },
+  )
+  return response.data?.data
+}
+
+export async function deleteSession(sessionId: string, userId: string, tenantId?: string, authToken?: string | null): Promise<{ id: string }> {
+  const query = new URLSearchParams({ userId })
+  if (tenantId) query.set('tenantId', tenantId)
   const response = await client.delete(`/askai-api/api/sessions/${sessionId}?${query.toString()}`, { headers: authHeaders(authToken) })
   return response.data?.data
 }
@@ -251,22 +384,22 @@ export async function deleteSession(sessionId: string, userId: string, mainId?: 
 export async function updateSessionTitle(
   sessionId: string,
   userId: string,
-  mainId: string | undefined,
+  tenantId: string | undefined,
   title: string,
   authToken?: string | null,
 ): Promise<SessionSummary> {
   const response = await client.patch(`/askai-api/api/sessions/${sessionId}`, {
     user_id: userId,
-    main_id: mainId,
+    tenant_id: tenantId,
     title,
   }, { headers: authHeaders(authToken) })
   return response.data?.data
 }
 
-export async function appendMessages(sessionId: string, userId: string, mainId: string | undefined, messages: ChatMessage[], authToken?: string | null): Promise<SessionSummary> {
+export async function appendMessages(sessionId: string, userId: string, tenantId: string | undefined, messages: ChatMessage[], authToken?: string | null): Promise<SessionSummary> {
   const response = await client.post(`/askai-api/api/sessions/${sessionId}/messages`, {
     user_id: userId,
-    main_id: mainId,
+    tenant_id: tenantId,
     messages,
   }, { headers: authHeaders(authToken) })
   return response.data?.data

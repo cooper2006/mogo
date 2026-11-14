@@ -1,0 +1,6 @@
+# TLS 证书文件（不入库）
+fullchain.pem
+privkey.pem
+*.crt
+*.key
+*.pem

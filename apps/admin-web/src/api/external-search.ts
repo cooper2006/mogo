@@ -48,21 +48,21 @@ export interface ExternalSearchTestResult {
 }
 
 export async function fetchExternalSearchProviders() {
-  const { data } = await apiClient.get<ExternalSearchProviderItem[]>('/api/settings/external-search/providers');
+  const { data } = await apiClient.get<ExternalSearchProviderItem[]>('/api/v1/settings/external-search/providers');
   return data;
 }
 
 export async function saveExternalSearchProvider(provider: ExternalSearchProvider, payload: ExternalSearchProviderPayload) {
-  const { data } = await apiClient.put<ExternalSearchProviderItem>(`/api/settings/external-search/providers/${provider}`, payload);
+  const { data } = await apiClient.put<ExternalSearchProviderItem>(`/api/v1/settings/external-search/providers/${provider}`, payload);
   return data;
 }
 
 export async function setDefaultExternalSearchProvider(provider: ExternalSearchProvider) {
-  const { data } = await apiClient.post<{ success: boolean }>(`/api/settings/external-search/providers/${provider}/default`);
+  const { data } = await apiClient.post<{ success: boolean }>(`/api/v1/settings/external-search/providers/${provider}/default`);
   return data;
 }
 
 export async function testExternalSearchProvider(provider: ExternalSearchProvider, payload: ExternalSearchTestPayload) {
-  const { data } = await apiClient.post<ExternalSearchTestResult>(`/api/settings/external-search/providers/${provider}/test`, payload);
+  const { data } = await apiClient.post<ExternalSearchTestResult>(`/api/v1/settings/external-search/providers/${provider}/test`, payload);
   return data;
 }

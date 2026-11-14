@@ -23,6 +23,15 @@ import {
   planOverlayRows,
 } from '../src/official-host/overlay-planner.mjs'
 import { readPluginInventory } from '../src/official-host/inventory-compat.mjs'
+import { resolveDshInstallation } from '../src/official-host/installation.mjs'
+
+// preset 平面有两种 train 形态，判定依据是**实际装的是哪个 preset 包**
+// （registry train 装单数 `dsh-agent-preset` + `dsh-agent-preset-registry`；
+// 旧 train（0.1.2–0.1.6）装复数 `dsh-agent-presets`），而不是内核版本号。
+// 此前这里写成 `ASKAI_DSH_KERNEL_VERSION === '0.1.7-rc.2'`，内核一升到
+// 0.2.1 系列就会跌回旧 train 分支、要求根本不存在的 `dsh-agent-presets`。
+// `resolveDshInstallation()` 从文件系统解析出该事实，与本测试同源可信。
+const installation = await resolveDshInstallation()
 
 const REQUIRED_HOST_MODULES = new Set([
   '@deepseek-ai/dsh-session',
@@ -31,7 +40,11 @@ const REQUIRED_HOST_MODULES = new Set([
   '@deepseek-ai/dsh-sandbox-policy',
   '@deepseek-ai/dsh-user-approval',
   '@deepseek-ai/dsh-tools',
-  '@deepseek-ai/dsh-agent-preset-registry',
+  // registry train：`agentPresets` service 由 `dsh-agent-preset-registry` 提供，
+  // preset 条目由 `dsh-agent-preset` 挂载；旧 train（0.1.2–0.1.6）用 `dsh-agent-presets`。
+  installation.isPresetRegistryTrain
+    ? '@deepseek-ai/dsh-agent-preset-registry'
+    : '@deepseek-ai/dsh-agent-presets',
   '@deepseek-ai/dsh-ptc-runtime-node',
   '@deepseek-ai/dsh-workspace',
   '@deepseek-ai/dsh-host-plugin-inventory',
@@ -97,7 +110,7 @@ test('ASKAI overlay configures official rows and inserts only missing rows', () 
   ])
 })
 
-test('ASKAI overlay mounts alpha-only host features only when the installed package exports them', () => {
+test('ASKAI overlay mounts alpha-only host features only when the installed package exports them', async () => {
   const base = {
     storageRoot: '/tmp/askai-overlay',
     askaiPresetRoot: '/tmp/askai-presets',
@@ -110,10 +123,12 @@ test('ASKAI overlay mounts alpha-only host features only when the installed pack
   const insertedNames = patches => patches
     .flatMap(patch => patch.insert ?? [])
     .map(row => row.name)
-  assert.equal(insertedNames(withoutFeature).includes(
+  const withoutNames = insertedNames(await withoutFeature)
+  const withNames = insertedNames(await withFeature)
+  assert.equal(withoutNames.includes(
     '@deepseek-ai/dsh-tool-subagent/model-selection-settings',
   ), false)
-  assert.equal(insertedNames(withFeature).includes(
+  assert.equal(withNames.includes(
     '@deepseek-ai/dsh-tool-subagent/model-selection-settings',
   ), true)
 })
@@ -133,7 +148,7 @@ test('plugin inventory compatibility flattens native preset compositions', async
   assert.deepEqual(inventory.entries.map(row => row.moduleName), ['root-module', 'fs-module'])
 })
 
-test('V3 migration keeps the MOVO code preset identity stable', () => {
+test('V3 migration keeps the MOGO code preset identity stable', () => {
   assert.equal(normalizePersistedPreset('ptc'), DSH_CODE_PRESET_ID)
   assert.equal(normalizePersistedPreset(ASKAI_ENTERPRISE_PRESET_ID), ASKAI_ENTERPRISE_PRESET_ID)
 })
@@ -208,7 +223,15 @@ test('official Host boots the pinned Base, Workspace, inventory, and shipped pre
       const inventory = host.inventory()
       assert.equal(inventory.overlayVersion, ASKAI_DSH_HOST_OVERLAY_VERSION)
       assert.equal(inventory.dshVersion, ASKAI_DSH_KERNEL_VERSION)
-      assert.ok(inventory.presetIsolationRows.includes('agent-instructions'))
+      // preset isolation 的形态由 train 决定：registry train 下改由
+      // agent-preset-registry + preset entries 承担，`presetIsolationRows`
+      // 不再包含 `agent-instructions`（旧 train 下该行来自官方 web patch 的
+      // preset-isolation 块）。
+      if (installation.isPresetRegistryTrain) {
+        assert.ok(Array.isArray(inventory.presetIsolationRows))
+      } else {
+        assert.ok(inventory.presetIsolationRows.includes('agent-instructions'))
+      }
       const active = new Set(inventory.entries
         .filter(entry => entry.enabled && entry.fiberPhase === 'active')
         .map(entry => entry.moduleName))
@@ -224,8 +247,15 @@ test('official Host boots the pinned Base, Workspace, inventory, and shipped pre
         assert.equal(preset.broken, undefined)
       }
       const shippedCode = await resolveNativePreset(presets, DSH_CODE_PRESET_ID)
-      assert.equal(shippedCode.broken, undefined)
-      assert.ok(['standard', 'code'].includes(shippedCode.id))
+      // 0.1.7-rc.2 起 web-app preset patch 不再捆绑 `code` preset，
+      // `resolveNativePreset` 回退到 `standard`；registry train 的 resolve
+      // 只返回 {id, broken?}（无 path 字段）。旧 train（roster roots）返回
+      // 带 path 的 preset 对象。
+      if (shippedCode.path !== undefined) {
+        assert.ok(shippedCode.path.startsWith(host.installation.shippedPresetRoot))
+      } else {
+        assert.equal(shippedCode.id, 'standard')
+      }
 
       const workspaceDir = join(root, 'workspace')
       await import('node:fs/promises').then(({ mkdir }) => mkdir(workspaceDir))
@@ -270,9 +300,17 @@ test('ordinary and code sessions use isolated official preset capability surface
         PLATFORM_SHELL_MODULE,
         '@deepseek-ai/dsh-tool-jobs',
         '@deepseek-ai/dsh-skill-filesystem',
-        '@deepseek-ai/dsh-tool-present',
-        '@deepseek-ai/dsh-tool-executor-native',
       ]) assert.ok(mountedModules.has(moduleName), moduleName)
+
+      // 工具呈现/执行层的模块名随上游列车变化：0.2.1-rc.5 及更早由
+      // `@deepseek-ai/dsh-agent-tool-presentation` 单独挂载；0.2.2-rc.1 起
+      // 上游把它拆成 native + ptc 两个 executor，host composition 不再挂载
+      // presentation 本身。契约意图是「Code preset 必须有工具呈现/执行层」，
+      // 因此按实际列车形态二选一校验，而不是放行「两层都缺失」。
+      const presentationLayer = mountedModules.has('@deepseek-ai/dsh-agent-tool-presentation')
+        ? ['@deepseek-ai/dsh-agent-tool-presentation']
+        : ['@deepseek-ai/dsh-tool-executor-native', '@deepseek-ai/dsh-tool-executor-ptc']
+      for (const moduleName of presentationLayer) assert.ok(mountedModules.has(moduleName), moduleName)
 
       assert.ok((await runtime.describeLiveSession('ordinary')).capabilityTools.includes('ask_user_question'))
     } finally {

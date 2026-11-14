@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from app.token_usage.models import TokenUsageRecord
@@ -20,7 +20,7 @@ class TokenUsageRepository:
                 "$set": {
                     "push_status": str(status or ""),
                     "push_error": str(error or ""),
-                    "updated_at": datetime.utcnow(),
+                    "updated_at": datetime.now(tz=timezone.utc),
                 }
             },
         )

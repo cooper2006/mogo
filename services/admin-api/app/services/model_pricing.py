@@ -34,9 +34,9 @@ def normalize_pricing(value: Any) -> dict[str, Any] | None:
     return result
 
 
-async def load_model_prices(db: Any, main_id: str) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+async def load_model_prices(db: Any, tenant_id: str) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
     docs = await db[INSTANCE_COLLECTION].find(
-        {"main_id": main_id}, {"model_name": 1, "pricing": 1}
+        {"tenant_id": tenant_id}, {"model_name": 1, "pricing": 1}
     ).to_list(length=5000)
     by_id: dict[str, dict[str, Any]] = {}
     by_name: dict[str, dict[str, Any]] = {}

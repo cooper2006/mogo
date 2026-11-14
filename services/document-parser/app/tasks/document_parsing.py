@@ -3,10 +3,11 @@ from __future__ import annotations
 from app.domain.jobs import ParseDocumentJobRequest
 from app.repositories.job_repository import mark_job_failed, mark_job_running
 from app.services.document_parsing_service import post_parse_failure_callback, run_document_parse
+from app.tasks.base import TracedTask
 from app.workers.celery_app import celery_app
 
 
-@celery_app.task(name="document.parse", bind=True, max_retries=2)
+@celery_app.task(name="document.parse", base=TracedTask, bind=True, max_retries=2)
 def document_parse_task(self, job_id: str, payload: dict) -> None:
     request = ParseDocumentJobRequest.model_validate(payload)
     try:

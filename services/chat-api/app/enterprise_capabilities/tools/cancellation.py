@@ -13,7 +13,7 @@ class ActiveCapabilityExecution:
 
 
 class ActiveCapabilityExecutions:
-    """Process-local bridge from MOVO chat cancellation to Tool execution."""
+    """Process-local bridge from MOGO chat cancellation to Tool execution."""
 
     def __init__(self) -> None:
         self._items: dict[str, ActiveCapabilityExecution] = {}

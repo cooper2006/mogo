@@ -66,18 +66,18 @@ class Db:
     def __init__(self):
         now = datetime.datetime.now(datetime.timezone.utc)
         self.knowledge_resources = Collection([
-            {"_id": "old", "main_id": "tenant", "owner_user_id": "A", "directory_id": "", "deleted_at": None, "name": "旧文档", "updated_at": now},
-            {"_id": "unread", "main_id": "tenant", "owner_user_id": "A", "directory_id": "", "deleted_at": None, "name": "有新评论", "updated_at": now - datetime.timedelta(days=2)},
-            {"_id": "new", "main_id": "tenant", "owner_user_id": "A", "directory_id": "", "deleted_at": None, "name": "普通文档", "updated_at": now - datetime.timedelta(days=1)},
+            {"_id": "old", "tenant_id": "tenant", "owner_user_id": "A", "directory_id": "", "deleted_at": None, "name": "旧文档", "updated_at": now},
+            {"_id": "unread", "tenant_id": "tenant", "owner_user_id": "A", "directory_id": "", "deleted_at": None, "name": "有新评论", "updated_at": now - datetime.timedelta(days=2)},
+            {"_id": "new", "tenant_id": "tenant", "owner_user_id": "A", "directory_id": "", "deleted_at": None, "name": "普通文档", "updated_at": now - datetime.timedelta(days=1)},
         ])
         self.resource_feedback_notifications = Collection([
-            {"_id": "notification", "resource_id": "unread", "main_id": "tenant", "resource_type": "personal_knowledge", "recipient_user_id": "A", "status": "unread", "created_at": now},
+            {"_id": "notification", "resource_id": "unread", "tenant_id": "tenant", "resource_type": "personal_knowledge", "recipient_user_id": "A", "status": "unread", "created_at": now},
         ])
         self.resource_grants = Collection([
-            {"_id": "grant", "resource_id": "unread", "main_id": "tenant", "resource_type": "personal_knowledge", "recipient_user_id": "B", "status": "active"},
+            {"_id": "grant", "resource_id": "unread", "tenant_id": "tenant", "resource_type": "personal_knowledge", "recipient_user_id": "B", "status": "active"},
         ])
         self.personal_knowledge_directories = Collection()
-        self.end_users = Collection([{"_id": "A", "main_id": "tenant", "name": "所有者"}])
+        self.end_users = Collection([{"_id": "A", "tenant_id": "tenant", "name": "所有者"}])
 
     def __getitem__(self, name):
         return getattr(self, name)
@@ -89,8 +89,8 @@ def test_unread_feedback_is_prioritized_across_pages(monkeypatch):
     monkeypatch.setattr(summary_module, "get_db", lambda: db)
 
     service = PersonalKnowledgeService()
-    first_page = asyncio.run(service.list_resources(main_id="tenant", user_id="A", view="mine", page=1, page_size=2))
-    second_page = asyncio.run(service.list_resources(main_id="tenant", user_id="A", view="mine", page=2, page_size=2))
+    first_page = asyncio.run(service.list_resources(tenant_id="tenant", user_id="A", view="mine", page=1, page_size=2))
+    second_page = asyncio.run(service.list_resources(tenant_id="tenant", user_id="A", view="mine", page=2, page_size=2))
 
     assert [item["id"] for item in first_page["items"]] == ["unread", "old"]
     assert first_page["items"][0]["feedback"]["unreadCount"] == 1

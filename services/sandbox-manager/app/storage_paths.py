@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 def workspace_root() -> Path:
-    return Path(os.environ.get("MOVO_SANDBOX_WORKSPACE_ROOT", "/workspaces"))
+    return Path(os.environ.get("MOGO_SANDBOX_WORKSPACE_ROOT", "/workspaces"))
 
 
 def manager_state_root() -> Path:
@@ -15,4 +15,4 @@ def manager_state_root() -> Path:
 
 
 def legacy_runtime_root() -> Path:
-    return Path(os.environ.get("MOVO_SANDBOX_RUNTIME_ROOT", "/runtime-data"))
+    return Path(os.environ.get("MOGO_SANDBOX_RUNTIME_ROOT", "/runtime-data"))

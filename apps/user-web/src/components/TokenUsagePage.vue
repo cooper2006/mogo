@@ -11,7 +11,7 @@ import { internalRequestTitles } from '../locales/legacyIdentityValues'
 
 const props = defineProps<{
   userId?: string | null
-  mainId?: string | null
+  tenantId?: string | null
   token?: string
 }>()
 
@@ -72,7 +72,7 @@ async function loadPage(nextOffset = 0) {
   loading.value = true
   try {
     const page = await listTokenUsage(props.userId, {
-      mainId: props.mainId || undefined,
+      tenantId: props.tenantId || undefined,
       limit,
       offset: nextOffset,
       q: query.value.trim(),
@@ -151,7 +151,7 @@ watch([query, status], () => {
 })
 
 watch(
-  () => [props.userId, props.mainId, props.token],
+  () => [props.userId, props.tenantId, props.token],
   () => {
     if (props.userId && props.token) {
       loadPage(0).catch(() => {})
@@ -169,10 +169,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="usage-page">
+  <div class="mg-page usage-page">
     <header class="usage-header">
       <div class="min-w-0">
-        <h1>{{ t('usage.title') }}</h1>
+        <h1 class="mg-page-title">{{ t('usage.title') }}</h1>
         <p>{{ t('usage.header_desc') }}</p>
       </div>
       <div class="usage-header-actions">
@@ -349,21 +349,16 @@ onMounted(() => {
 .usage-page {
   height: 100%;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
   overflow: hidden;
-  padding-top: 12px;
-  background: #f6f8fc;
 }
 
 .usage-header {
   width: calc(100% - 24px);
   margin: 0 12px;
   padding: 14px 18px;
-  border: 1px solid #e6ebf5;
+  border: 1px solid var(--mg-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--mg-bg-surface);
   box-shadow: 0 4px 12px rgba(29, 54, 110, 0.04);
   display: flex;
   align-items: center;
@@ -373,15 +368,14 @@ onMounted(() => {
 
 .usage-header h1 {
   margin: 0;
-  color: #101c3d;
-  font-size: 20px;
+  color: var(--mg-text-1);
   line-height: 1.2;
   font-weight: 800;
 }
 
 .usage-header p {
   margin: 4px 0 0;
-  color: #65748c;
+  color: var(--mg-text-2);
   font-size: 13px;
 }
 
@@ -393,7 +387,7 @@ onMounted(() => {
 }
 
 .usage-updated {
-  color: #7a8797;
+  color: var(--mg-text-3);
   font-size: 12px;
   white-space: nowrap;
 }
@@ -407,7 +401,7 @@ onMounted(() => {
 }
 
 .usage-list-card {
-  border: 1px solid #e6ebf5;
+  border: 1px solid var(--mg-border);
   border-radius: 8px;
   box-shadow: 0 6px 20px rgba(16, 38, 84, 0.05);
 }

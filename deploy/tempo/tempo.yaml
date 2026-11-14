@@ -1,0 +1,47 @@
+# 023 observability-resilience (T011)
+# Tempo 分布式追踪后端：接收 OTel Collector 推送的 OTLP traces。
+# 存储：本地文件（/var/lib/tempo），容器卷持久化。
+server:
+  http_listen_port: 3200
+  grpc_listen_port: 9095
+  # OTLP 直连（collector 侧使用 tempo:4317）
+  otel_grpc:
+    enabled: true
+    endpoint: 0.0.0.0:4317
+    tls:
+      cert_file: ""
+      key_file: ""
+    insecure: true
+
+distributor:
+  receivers:
+    otlp:
+      enabled: true
+
+compactor:
+  compaction:
+    block_retention: 72h
+    enable_dedup: false
+    idle_timeout: 2m
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/lib/tempo/traces
+    wal:
+      dir: /var/lib/tempo/wal
+    pool:
+      max_concurrent: 20
+
+limits:
+  per_tenant:
+    default:
+      ingestion_burst_bytes: 10MB
+      ingestion_rate_bytes: 5MB
+
+# 调试端点（健康检查）
+web:
+  api:
+    remote_read:
+      enabled: false

@@ -17,7 +17,7 @@ test('runtime profile installs from the registry selected during inspection', as
     name: 'dsh-plugin-greet', version: '0.3.2', spec: 'dsh-plugin-greet@0.3.2',
     registry: 'https://registry.npmjs.org/',
   }, {
-    name: 'movo-test-bundle', version: '1.0.0', spec: 'movo-test-bundle@1.0.0',
+    name: 'mogo-test-bundle', version: '1.0.0', spec: 'mogo-test-bundle@1.0.0',
   }])
   assert.equal(restart, true)
   assert.deepEqual(options, [

@@ -26,7 +26,6 @@ import {
 import ScheduledTaskEditor from './ScheduledTaskEditor.vue'
 import { getLocale, t } from '../../composables/i18n'
 import { formatScheduledInstant, formatScheduledWallTime } from './scheduledTaskTime'
-import { scheduledTaskError } from './scheduledTaskErrors'
 
 const props = defineProps<{
   token: string
@@ -55,7 +54,7 @@ let refreshTimer: ReturnType<typeof setInterval> | null = null
 const filterKeyword = ref('')
 
 const sessionTitleById = computed(
-  () => new Map(props.sessions.map((item) => [item.id, item.title || t('legacy.new_chat')])),
+  () => new Map(props.sessions.map((item) => [item.id, item.title || t('新对话')])),
 )
 
 const filteredJobs = computed(() => {
@@ -73,7 +72,9 @@ async function load(silent = false) {
   try {
     jobs.value = await listScheduledJobs(props.token)
   } catch (error: any) {
-    message.error(scheduledTaskError(error, 'legacy.failed_to_load_scheduled_tasks'))
+    message.error(
+      error?.response?.data?.detail || error?.message || t('加载定时任务失败'),
+    )
   } finally {
     if (!silent) loading.value = false
   }
@@ -100,10 +101,12 @@ async function save(draft: ScheduledJobDraft) {
     if (editingJob.value) await updateScheduledJob(props.token, editingJob.value.id, draft)
     else await createScheduledJob(props.token, draft)
     editorOpen.value = false
-    message.success(editingJob.value ? t('legacy.scheduled_task_updated') : t('legacy.scheduled_task_created'))
+    message.success(editingJob.value ? t('定时任务已更新') : t('定时任务已创建'))
     await load()
   } catch (error: any) {
-    message.error(scheduledTaskError(error, 'legacy.failed_to_save'))
+    message.error(
+      error?.response?.data?.detail || error?.message || t('保存失败'),
+    )
   } finally {
     saving.value = false
   }
@@ -114,17 +117,21 @@ async function toggle(job: ScheduledJob, enabled: boolean) {
     await updateScheduledJob(props.token, job.id, { enabled })
     await load()
   } catch (error: any) {
-    message.error(scheduledTaskError(error, 'legacy.failed_to_update'))
+    message.error(
+      error?.response?.data?.detail || error?.message || t('更新失败'),
+    )
   }
 }
 
 async function runNow(job: ScheduledJob) {
   try {
     await runScheduledJobNow(props.token, job.id)
-    message.success(t('legacy.execution_started'))
+    message.success(t('已开始执行'))
     await load()
   } catch (error: any) {
-    message.error(scheduledTaskError(error, 'legacy.failed_to_start'))
+    message.error(
+      error?.response?.data?.detail || error?.message || t('启动失败'),
+    )
   }
 }
 
@@ -132,28 +139,30 @@ async function remove(job: ScheduledJob) {
   try {
     await deleteScheduledJob(props.token, job.id)
     await load()
-    message.success(t('legacy.scheduled_task_deleted'))
+    message.success(t('定时任务已删除'))
   } catch (error: any) {
-    message.error(scheduledTaskError(error, 'legacy.failed_to_delete'))
+    message.error(
+      error?.response?.data?.detail || error?.message || t('删除失败'),
+    )
   }
 }
 
 function scheduleText(job: ScheduledJob) {
   const locale = getLocale() === 'zh' ? 'zh-CN' : 'en-US'
   const time = formatScheduledWallTime(job.run_at, locale)
-  if (job.schedule_kind === 'once') return t('legacy.once', { time: formatScheduledWallTime(job.run_at, locale, true) })
-  if (job.schedule_kind === 'daily') return t('legacy.daily_at', { time })
-  const labels = ['legacy.mon', 'legacy.tue', 'legacy.wed', 'legacy.thu', 'legacy.fri', 'legacy.sat', 'legacy.sun']
+  if (job.schedule_kind === 'once') return t('单次 · {time}', { time: formatScheduledWallTime(job.run_at, locale, true) })
+  if (job.schedule_kind === 'daily') return t('每天 {time}', { time })
+  const labels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
   const separator = getLocale() === 'zh' ? '、' : ', '
-  return t('legacy.weekly_on_at', { days: job.weekdays.map((day) => t(labels[day])).join(separator), time })
+  return t('每周{days} {time}', { days: job.weekdays.map((day) => t(labels[day])).join(separator), time })
 }
 
 function statusText(job: ScheduledJob) {
-  if (!job.enabled) return t('legacy.disabled')
-  if (job.last_run_status === 'running') return t('legacy.running')
-  if (job.last_run_status === 'failed') return t('legacy.last_run_failed')
-  if (job.next_run_at) return t('legacy.next', { time: formatScheduledInstant(job.next_run_at, job.timezone, getLocale() === 'zh' ? 'zh-CN' : 'en-US', true) })
-  return t('legacy.awaiting_schedule')
+  if (!job.enabled) return t('已停用')
+  if (job.last_run_status === 'running') return t('正在运行')
+  if (job.last_run_status === 'failed') return t('最近执行失败')
+  if (job.next_run_at) return t('下次 {time}', { time: formatScheduledInstant(job.next_run_at, job.timezone, getLocale() === 'zh' ? 'zh-CN' : 'en-US', true) })
+  return t('等待安排')
 }
 
 onMounted(() => {
@@ -179,28 +188,28 @@ watch(
 </script>
 
 <template>
-  <div class="page-stack tasks-page">
-    <!-- Header styled like MyToolsPage and MySkillsPage -->
+  <div class="mg-page tasks-page">
+    <!-- 头部区域，风格与 MyToolsPage / MySkillsPage 一致 -->
     <header class="tasks-header">
       <div class="tasks-header-left">
         <n-button secondary @click="emit('back')">
           <template #icon><n-icon><ArrowBackOutline /></n-icon></template>
-          {{ t('legacy.back_to_chat') }}
+          {{ t('返回对话') }}
         </n-button>
-        <h1>{{ t('legacy.scheduled_tasks') }}</h1>
+        <h1 class="mg-page-title">{{ t('定时任务') }}</h1>
       </div>
     </header>
 
-    <!-- Main list card without a statistics card -->
+    <!-- 列表主面板 Shell Card （注意：无顶部统计卡片） -->
     <n-card class="list-card shell-card" :bordered="false" size="large">
-      <!-- Filter and action toolbar -->
+      <!-- 过滤与操作工具栏 -->
       <div class="list-filter-row">
         <div class="filter-toolbar">
           <n-space align="center" :size="10" class="filter-left">
             <n-input
               v-model:value="filterKeyword"
               clearable
-              :placeholder="t('legacy.search_task_name_or_prompt')"
+              :placeholder="t('搜索任务名称或提示词...')"
               class="keyword-input"
             />
           </n-space>
@@ -222,7 +231,7 @@ watch(
                   <path d="M16 16h5v5" />
                 </svg>
               </template>
-              {{ t('legacy.refresh') }}
+              {{ t('刷新') }}
             </n-button>
             <n-button type="primary" strong @click="createNew()">
               <template #icon>
@@ -239,13 +248,13 @@ watch(
                   <path d="M12 5v14" />
                 </svg>
               </template>
-              {{ t('legacy.create_scheduled_task') }}
+              {{ t('创建定时任务') }}
             </n-button>
           </n-space>
         </div>
       </div>
 
-      <!-- List content -->
+      <!-- 列表内容区 -->
       <div class="list-body">
         <n-spin :show="loading">
           <div v-if="filteredJobs.length" class="task-grid">
@@ -262,7 +271,7 @@ watch(
                     :bordered="false"
                     :type="job.enabled ? 'success' : 'default'"
                   >
-                    {{ job.enabled ? t('legacy.enabled') : t('legacy.disabled') }}
+                    {{ job.enabled ? t('已启用') : t('已停用') }}
                   </n-tag>
                   <n-tag
                     v-if="job.last_run_status === 'running'"
@@ -272,7 +281,7 @@ watch(
                   >
                     <span class="inline-flex items-center gap-1">
                       <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500"></span>
-                      {{ t('legacy.running_5942497') }}
+                      {{ t('运行中') }}
                     </span>
                   </n-tag>
                   <n-tag
@@ -281,7 +290,7 @@ watch(
                     :bordered="false"
                     type="error"
                   >
-                    {{ t('legacy.last_run_failed_ec2121f') }}
+                    {{ t('最近失败') }}
                   </n-tag>
                 </div>
                 <span class="card-time">{{ scheduleText(job) }}</span>
@@ -299,9 +308,9 @@ watch(
                   class="session-link"
                   @click="emit('open-session', job.session_id)"
                 >
-                  {{ sessionTitleById.get(job.session_id) || t('legacy.target_chat') }}
+                  {{ sessionTitleById.get(job.session_id) || t('目标会话') }}
                 </button>
-                <span v-else class="meta-item">{{ t('legacy.new_chat_each_run') }}</span>
+                <span v-else class="meta-item">{{ t('每次新建会话') }}</span>
                 <span class="meta-divider">•</span>
                 <span class="meta-item">{{ statusText(job) }}</span>
               </div>
@@ -309,7 +318,7 @@ watch(
               <div class="card-footrow">
                 <div class="card-actions">
                   <div class="card-switch" @click.stop>
-                    <span class="card-switch-label">{{ job.enabled ? t('legacy.enabled') : t('legacy.disabled') }}</span>
+                    <span class="card-switch-label">{{ job.enabled ? t('已启用') : t('已停用') }}</span>
                     <n-switch
                       size="small"
                       :value="job.enabled"
@@ -321,7 +330,7 @@ watch(
                     size="small"
                     quaternary
                     circle
-                    :title="t('legacy.run_now')"
+                    :title="t('立即运行')"
                     @click="runNow(job)"
                   >
                     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -333,7 +342,7 @@ watch(
                     size="small"
                     quaternary
                     circle
-                    :title="t('legacy.edit_task')"
+                    :title="t('编辑任务')"
                     @click="edit(job)"
                   >
                     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -348,7 +357,7 @@ watch(
                         size="small"
                         quaternary
                         circle
-                        :title="t('legacy.delete_task')"
+                        :title="t('删除任务')"
                       >
                         <svg viewBox="0 0 24 24" aria-hidden="true">
                           <path d="M3 6h18" />
@@ -359,7 +368,7 @@ watch(
                         </svg>
                       </n-button>
                     </template>
-                    {{ t('legacy.delete_this_scheduled_task') }}
+                    {{ t('确定删除这个定时任务吗？') }}
                   </n-popconfirm>
                 </div>
               </div>
@@ -372,10 +381,10 @@ watch(
               <span>TIME</span>
               <span>TASK</span>
             </div>
-            <div class="empty-title">{{ t('legacy.no_scheduled_tasks_yet') }}</div>
-            <div class="empty-desc">{{ t('legacy.create_a_scheduled_task_so_ai_can_start_a') }}</div>
+            <div class="empty-title">{{ t('还没有定时任务') }}</div>
+            <div class="empty-desc">{{ t('创建定时任务，让 AI 在指定时间自动为您发起会话并完成工作。') }}</div>
             <n-space justify="center">
-              <n-button type="primary" @click="createNew()">{{ t('legacy.create_your_first_task') }}</n-button>
+              <n-button type="primary" @click="createNew()">{{ t('创建第一个任务') }}</n-button>
             </n-space>
           </div>
         </n-spin>
@@ -400,19 +409,14 @@ watch(
 .tasks-page {
   height: 100%;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  background: #f6f8fc;
-  padding: 12px;
 }
 
 .tasks-header {
   width: 100%;
   padding: 14px 18px;
-  border: 1px solid #e6ebf5;
+  border: 1px solid var(--mg-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--mg-bg-surface);
   box-shadow: 0 4px 12px rgba(29, 54, 110, 0.04);
   display: flex;
   align-items: center;
@@ -422,8 +426,7 @@ watch(
 
 .tasks-header h1 {
   margin: 0;
-  color: #101c3d;
-  font-size: 20px;
+  color: var(--mg-text-1);
   line-height: 1.2;
   font-weight: 800;
 }
@@ -436,8 +439,8 @@ watch(
 
 .shell-card {
   border-radius: 14px;
-  border: 1px solid #e6ebf5;
-  background: #fff;
+  border: 1px solid var(--mg-border);
+  background: var(--mg-bg-surface);
   box-shadow: 0 6px 20px rgba(16, 38, 84, 0.05);
 }
 
@@ -477,7 +480,7 @@ watch(
 .list-filter-row {
   padding: 0 44px 12px;
   margin: 0 -44px 12px;
-  border-bottom: 1px solid #edf1f7;
+  border-bottom: 1px solid var(--mg-border);
 }
 
 .list-body {
@@ -497,7 +500,7 @@ watch(
   padding: 16px;
   border: 1px solid rgba(28, 45, 82, 0.08);
   border-radius: 8px;
-  background: #fff;
+  background: var(--mg-bg-surface);
   box-shadow:
     0 8px 18px rgba(15, 31, 69, 0.06),
     0 1px 2px rgba(15, 31, 69, 0.04);
@@ -534,12 +537,12 @@ watch(
 }
 
 .card-time {
-  color: #7a8797;
+  color: var(--mg-text-3);
   font-size: 12px;
 }
 
 .card-title {
-  color: #17233d;
+  color: var(--mg-text-1);
   font-size: 16px;
   font-weight: 800;
   white-space: nowrap;
@@ -548,7 +551,7 @@ watch(
 }
 
 .card-desc {
-  color: #5f6f85;
+  color: var(--mg-text-2);
   font-size: 13px;
   line-height: 1.55;
   display: -webkit-box;
@@ -562,21 +565,21 @@ watch(
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: #708099;
+  color: var(--mg-text-2);
   flex-wrap: wrap;
   margin-top: 2px;
 }
 
 .meta-item {
-  color: #65748c;
+  color: var(--mg-text-2);
 }
 
 .meta-divider {
-  color: #cbd5e1;
+  color: var(--mg-text-2);
 }
 
 .session-link {
-  color: #2d63ff;
+  color: var(--mg-brand);
   font-weight: 500;
   cursor: pointer;
   background: none;
@@ -609,12 +612,12 @@ watch(
   gap: 8px;
   padding: 4px 10px;
   border-radius: 999px;
-  background: #f6f9ff;
-  border: 1px solid #e3ebfb;
+  background: var(--mg-brand-soft);
+  border: 1px solid var(--mg-border);
 }
 
 .card-switch-label {
-  color: #4a5d7c;
+  color: var(--mg-text-2);
   font-size: 12px;
   line-height: 1;
 }
@@ -630,12 +633,12 @@ watch(
 }
 
 .delete-btn:hover {
-  color: #d03050;
+  color: var(--mg-danger-text);
 }
 
 .task-card-disabled {
-  background: linear-gradient(180deg, #fbfcfe, #f6f8fc);
-  border-color: rgba(28, 45, 82, 0.06);
+  background: var(--mg-gradient-page);
+  border-color: var(--mg-border-subtle);
 }
 
 .task-card-disabled .card-title,
@@ -646,7 +649,7 @@ watch(
 
 .empty-shell {
   min-height: 320px;
-  border: 1px dashed #d8e2f2;
+  border: 1px dashed var(--mg-border);
   border-radius: 12px;
   display: flex;
   flex-direction: column;
@@ -654,7 +657,7 @@ watch(
   justify-content: center;
   gap: 12px;
   text-align: center;
-  background: linear-gradient(180deg, #fbfdff, #fff);
+  background: var(--mg-gradient-empty);
   margin: 20px 0;
 }
 
@@ -667,7 +670,7 @@ watch(
   width: 54px;
   height: 28px;
   border-radius: 6px;
-  background: #eef4ff;
+  background: var(--mg-brand-soft);
   color: #3b82f6;
   font-size: 11px;
   font-weight: 700;
@@ -678,13 +681,13 @@ watch(
 }
 
 .empty-title {
-  color: #1e293b;
+  color: var(--mg-text-1);
   font-size: 16px;
   font-weight: 700;
 }
 
 .empty-desc {
-  color: #64748b;
+  color: var(--mg-text-3);
   font-size: 13px;
   max-width: 400px;
 }

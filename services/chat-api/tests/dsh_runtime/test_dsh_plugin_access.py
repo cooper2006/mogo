@@ -27,7 +27,7 @@ def test_personal_install_rejects_name_of_restricted_enterprise_plugin(monkeypat
         return set()
 
     monkeypatch.setattr(endpoint, "filter_allowed_resource_ids", deny)
-    principal = ApiPrincipal(kind="end_user", main_id="tenant", user_id="employee")
+    principal = ApiPrincipal(kind="end_user", tenant_id="tenant", user_id="employee")
     with pytest.raises(HTTPException) as error:
         asyncio.run(endpoint._check_personal_name(principal, "employee", "restricted"))
     assert error.value.status_code == 403
@@ -50,7 +50,7 @@ def test_failed_initial_audience_removes_new_plugin(monkeypatch):
     monkeypatch.setattr(endpoint.repository, "save", save)
     monkeypatch.setattr(endpoint.repository, "remove", remove)
     monkeypatch.setattr(endpoint, "_initialize_organization_access", fail)
-    principal = ApiPrincipal(kind="admin_service", main_id="tenant")
+    principal = ApiPrincipal(kind="admin_service", tenant_id="tenant")
     with pytest.raises(RuntimeError, match="policy store unavailable"):
         asyncio.run(endpoint._save_inspected_plugin(principal, "", {"name": "new"}))
-    assert removed == [{"main_id": "tenant", "user_id": "", "plugin_id": "new-id"}]
+    assert removed == [{"tenant_id": "tenant", "user_id": "", "plugin_id": "new-id"}]

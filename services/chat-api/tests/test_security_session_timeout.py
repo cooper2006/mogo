@@ -1,0 +1,407 @@
+"""T018 集成测试：chat-api 会话空闲 30min / 绝对 24h 超时（FR-11）。
+
+覆盖：
+
+- :mod:`app.security.session_timeout` 纯逻辑在 chat-api 字段名
+  （``last_seen_at``，datetime 存储）下的行为；
+- :func:`app.services.end_user_session.resolve_session_user` 接入点：
+  空闲 / 绝对超时返回 401 并把会话标记为 ``expired``，窗口内刷新
+  ``last_seen_at``。
+
+与 admin-api 的 :mod:`app.middleware.timeout` 共用同一份判定逻辑，
+因此两边口径必然一致。
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+from typing import Any
+
+import pytest
+from fastapi import HTTPException
+
+from app.core.end_user_auth import build_session_token
+from app.security import session_timeout as st
+from app.security.session_timeout import (
+    ABSOLUTE_TIMEOUT_SECONDS,
+    IDLE_TIMEOUT_SECONDS,
+    MESSAGE_ABSOLUTE,
+    MESSAGE_IDLE,
+    REASON_ABSOLUTE,
+    REASON_IDLE,
+    REASON_OK,
+    evaluate_session_timeout,
+    rejection_detail,
+)
+from app.core.ids import to_backend_id
+from bson import ObjectId
+
+from app.services import end_user_session
+
+SECRET = "test-end-user-secret"
+TENANT = "tenant-0001"
+USER_ID = "665f1c0c0b1e2a3f4a5b6c7d0e0f1011"
+def _now_dt() -> dt.datetime:
+    """测试内统一取一次"当前时间"，所有文档相对它构造。"""
+    return dt.datetime.now(dt.timezone.utc)
+
+
+NOW_DT = _now_dt()
+NOW_TS = int(NOW_DT.timestamp())
+
+
+# ---------------------------------------------------------------------------
+# 纯判定：chat-api 字段名
+# ---------------------------------------------------------------------------
+
+
+def _session(**overrides: Any) -> dict:
+    doc = {
+        "token_id": "tok-1",
+        "user_id": USER_ID,
+        "tenant_id": TENANT,
+        "status": "active",
+        "created_at": NOW_DT - dt.timedelta(hours=1),
+        "last_seen_at": NOW_DT - dt.timedelta(minutes=1),
+    }
+    doc.update(overrides)
+    return doc
+
+
+def test_chat_api_field_name_is_honored() -> None:
+    verdict = evaluate_session_timeout(
+        _session(), now=NOW_TS, last_activity_field="last_seen_at"
+    )
+    assert verdict.ok is True
+    assert verdict.reason == REASON_OK
+    assert verdict.idle_seconds == 60
+    assert verdict.absolute_seconds == 3600
+
+
+def test_idle_timeout_uses_last_seen_at() -> None:
+    verdict = evaluate_session_timeout(
+        _session(last_seen_at=NOW_DT - dt.timedelta(minutes=31)),
+        now=NOW_TS,
+        last_activity_field="last_seen_at",
+    )
+    assert verdict.ok is False
+    assert verdict.reason == REASON_IDLE
+    assert verdict.message == MESSAGE_IDLE
+
+
+def test_absolute_timeout_uses_created_at() -> None:
+    verdict = evaluate_session_timeout(
+        _session(
+            created_at=NOW_DT - dt.timedelta(hours=25),
+            last_seen_at=NOW_DT - dt.timedelta(minutes=1),
+        ),
+        now=NOW_TS,
+        last_activity_field="last_seen_at",
+    )
+    assert verdict.ok is False
+    assert verdict.reason == REASON_ABSOLUTE
+    assert verdict.message == MESSAGE_ABSOLUTE
+
+
+def test_wrong_field_name_falls_back_to_created_at() -> None:
+    """字段名配错时不会崩，回退到 created_at 作为基准（fail-safe）。"""
+    verdict = evaluate_session_timeout(
+        _session(
+            created_at=NOW_DT - dt.timedelta(minutes=10),
+            last_seen_at=NOW_DT - dt.timedelta(minutes=40),
+        ),
+        now=NOW_TS,
+        last_activity_field="last_activity_at",  # 不存在
+    )
+    # 无 last_activity_at → 回退 created_at（10min 前），仍在空闲窗口内
+    assert verdict.ok is True
+    assert verdict.idle_seconds == 10 * 60
+
+
+def test_defaults_match_admin_api() -> None:
+    """双服务超时窗口必须一致（FR-11 统一口径）。"""
+    assert IDLE_TIMEOUT_SECONDS == 30 * 60
+    assert ABSOLUTE_TIMEOUT_SECONDS == 24 * 3600
+
+
+def test_rejection_detail_shape() -> None:
+    verdict = evaluate_session_timeout(
+        _session(last_seen_at=NOW_DT - dt.timedelta(minutes=40)),
+        now=NOW_TS,
+        last_activity_field="last_seen_at",
+    )
+    detail = rejection_detail(verdict)
+    assert detail["code"] == "SESSION_TIMEOUT"
+    assert detail["reason"] == REASON_IDLE
+    assert detail["idleSeconds"] == 40 * 60
+    assert detail["absoluteLimitSeconds"] == 24 * 3600
+
+
+def test_epoch_seconds_handles_chat_api_datetimes() -> None:
+    assert st.epoch_seconds(NOW_DT) == NOW_TS
+    naive = dt.datetime(2026, 10, 12, 10, 0, 0)
+    assert isinstance(st.epoch_seconds(naive), int)
+    assert st.epoch_seconds(None) == 0
+
+
+# ---------------------------------------------------------------------------
+# 接入点：resolve_session_user
+# ---------------------------------------------------------------------------
+
+
+class FakeCollection:
+    def __init__(self, docs: list[dict]) -> None:
+        self.docs = docs
+
+    async def find_one(self, query: dict, projection=None) -> dict | None:
+        for doc in self.docs:
+            if all(doc.get(k) == v for k, v in (query or {}).items()):
+                return dict(doc)
+        return None
+
+    async def update_one(self, query: dict, update: dict, upsert: bool = False) -> None:
+        for doc in self.docs:
+            if all(doc.get(k) == v for k, v in (query or {}).items()):
+                doc.update(update.get("$set", {}))
+                return
+
+
+class FakeDB:
+    def __init__(self) -> None:
+        self.collections: dict[str, list[dict]] = {}
+
+    def __getitem__(self, name: str) -> Any:
+        return FakeCollection(self.collections.setdefault(name, []))
+
+
+@pytest.fixture
+def fake_db(monkeypatch) -> Any:
+    db = FakeDB()
+    monkeypatch.setattr(end_user_session, "get_db", lambda: db)
+
+    # 让 resolve_session_user 使用的密钥与 build_session_token 一致
+    settings = type(
+        "Settings",
+        (),
+        {"END_USER_AUTH_SECRET": SECRET, "END_USER_AUTH_TOKEN_TTL_SECONDS": 3600},
+    )()
+    monkeypatch.setattr(end_user_session, "get_settings", lambda: settings)
+    return db
+
+
+def _token(token_id: str = "tok-1") -> str:
+    return build_session_token(SECRET, token_id)
+
+
+def _session_doc(**overrides: Any) -> dict:
+    doc = {
+        "_id": 1,
+        "token_id": "tok-1",
+        "user_id": USER_ID,
+        "tenant_id": TENANT,
+        "status": "active",
+        "created_at": NOW_DT - dt.timedelta(hours=1),
+        "last_seen_at": NOW_DT - dt.timedelta(minutes=1),
+    }
+    doc.update(overrides)
+    return doc
+
+
+def _user_doc() -> dict:
+    return {
+        "_id": to_backend_id(USER_ID),
+        "tenant_id": TENANT,
+        "status": "active",
+        "primary_org_id": "",
+    }
+
+
+@pytest.mark.asyncio
+async def test_resolve_session_user_rejects_idle_session(fake_db) -> None:
+    fake_db["end_user_sessions"].docs.append(
+        _session_doc(last_seen_at=NOW_DT - dt.timedelta(minutes=31))
+    )
+    fake_db["end_users"].docs.append(_user_doc())
+
+    with pytest.raises(HTTPException) as exc_info:
+        await end_user_session.resolve_session_user(f"Bearer {_token()}")
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail["code"] == "SESSION_TIMEOUT"
+    assert exc_info.value.detail["reason"] == REASON_IDLE
+    # 会话被标记为 expired
+    assert fake_db["end_user_sessions"].docs[0]["status"] == "expired"
+
+
+@pytest.mark.asyncio
+async def test_resolve_session_user_rejects_absolute_timeout(fake_db) -> None:
+    fake_db["end_user_sessions"].docs.append(
+        _session_doc(
+            created_at=NOW_DT - dt.timedelta(hours=25),
+            last_seen_at=NOW_DT - dt.timedelta(minutes=1),
+        )
+    )
+    fake_db["end_users"].docs.append(_user_doc())
+
+    with pytest.raises(HTTPException) as exc_info:
+        await end_user_session.resolve_session_user(f"Bearer {_token()}")
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail["reason"] == REASON_ABSOLUTE
+    assert fake_db["end_user_sessions"].docs[0]["status"] == "expired"
+
+
+@pytest.mark.asyncio
+async def test_resolve_session_user_refreshes_last_seen_within_windows(fake_db) -> None:
+    original_seen = NOW_DT - dt.timedelta(minutes=5)
+    session_doc = _session_doc(last_seen_at=original_seen)
+    fake_db["end_user_sessions"].docs.append(session_doc)
+    fake_db["end_users"].docs.append(_user_doc())
+
+    result = await end_user_session.resolve_session_user(f"Bearer {_token()}")
+    assert result["session"]["token_id"] == "tok-1"
+    assert result["tenant_id"] == TENANT
+    assert result["org_id"] == ""
+    # last_seen_at 被刷新到调用时刻（全量套件下允许较大漂移）
+    stored = fake_db["end_user_sessions"].docs[0]
+    assert stored["last_seen_at"] > original_seen
+
+
+@pytest.mark.asyncio
+async def test_resolve_session_user_still_rejects_expired_token(fake_db) -> None:
+    """既有的 expires_at 判定不受新逻辑影响。"""
+    fake_db["end_user_sessions"].docs.append(
+        _session_doc(expires_at=NOW_DT - dt.timedelta(minutes=1))
+    )
+    fake_db["end_users"].docs.append(_user_doc())
+
+    with pytest.raises(HTTPException) as exc_info:
+        await end_user_session.resolve_session_user(f"Bearer {_token()}")
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "session_expired"
+
+
+@pytest.mark.asyncio
+async def test_resolve_session_user_slides_expires_at(fake_db) -> None:
+    """022 FR-11：活跃请求把 expires_at 往后推。
+
+    没有滑动续期时 ``expires_at`` 只在登录时写一次（TTL 1h），持续活跃的用户
+    也会到点被强制重登；Console 表现为一堆 401 + 弹出登录框。
+    """
+    # NOW_DT 在模块导入时捕获；全量套件要跑约 5 分钟，若沿用导入时刻的
+    # NOW_DT + 5min 作 expires_at，执行时早已过期 → 401，测不出续期。
+    # 这里在执行时刻取一次 fresh now，保证断言针对的是「真实当前时间」。
+    now = dt.datetime.now(dt.timezone.utc)
+    fake_db["end_user_sessions"].docs.append(
+        _session_doc(expires_at=now + dt.timedelta(minutes=5))
+    )
+    fake_db["end_users"].docs.append(_user_doc())
+
+    result = await end_user_session.resolve_session_user(f"Bearer {_token()}")
+
+    renewed = result["session"]["expires_at"]
+    assert renewed > now + dt.timedelta(minutes=30)
+    # 返回值与落库值保持一致，避免调用方拿到旧有效期。
+    assert fake_db["end_user_sessions"].docs[0]["expires_at"] == renewed
+
+
+@pytest.mark.asyncio
+async def test_resolve_session_user_renewal_capped_by_absolute_deadline(fake_db) -> None:
+    """续期不能突破 24h 绝对窗口，否则等于取消了绝对超时。"""
+    now = dt.datetime.now(dt.timezone.utc)
+    created = now - dt.timedelta(seconds=ABSOLUTE_TIMEOUT_SECONDS - 600)
+    fake_db["end_user_sessions"].docs.append(
+        _session_doc(created_at=created, expires_at=now + dt.timedelta(minutes=5))
+    )
+    fake_db["end_users"].docs.append(_user_doc())
+
+    result = await end_user_session.resolve_session_user(f"Bearer {_token()}")
+
+    assert result["session"]["expires_at"] == created + dt.timedelta(
+        seconds=ABSOLUTE_TIMEOUT_SECONDS
+    )
+
+
+@pytest.mark.asyncio
+async def test_resolve_session_user_slides_naive_expires_at(fake_db) -> None:
+    """Mongo/PanWeiDB 读出的 datetime 是 naive UTC，续期逻辑必须照样生效。"""
+    now = dt.datetime.now(dt.timezone.utc)
+    fake_db["end_user_sessions"].docs.append(
+        _session_doc(expires_at=(now + dt.timedelta(minutes=5)).replace(tzinfo=None))
+    )
+    fake_db["end_users"].docs.append(_user_doc())
+
+    result = await end_user_session.resolve_session_user(f"Bearer {_token()}")
+
+    renewed = result["session"]["expires_at"]
+    assert renewed.tzinfo is not None
+    assert renewed > now + dt.timedelta(minutes=30)
+
+
+@pytest.mark.asyncio
+async def test_resolve_session_user_invalid_token_still_rejected(fake_db) -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        await end_user_session.resolve_session_user("Bearer garbage")
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "invalid_token"
+
+
+@pytest.mark.asyncio
+async def test_resolve_session_user_missing_session_rejected(fake_db) -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        await end_user_session.resolve_session_user(f"Bearer {_token()}")
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "session_not_found"
+
+
+def test_chat_api_constants_are_exported() -> None:
+    assert end_user_session.SESSION_IDLE_TIMEOUT_SECONDS == 30 * 60
+    assert end_user_session.SESSION_ABSOLUTE_TIMEOUT_SECONDS == 24 * 3600
+    assert end_user_session.LAST_SEEN_FIELD == "last_seen_at"
+
+
+# ---------------------------------------------------------------------------
+# naive datetime 的时区形状（2026-11-12 手工链路验收发现的即时过期缺陷）
+# ---------------------------------------------------------------------------
+
+
+def test_naive_datetime_is_interpreted_as_utc_not_host_local() -> None:
+    """naive 值必须按 UTC 墙钟解释。
+
+    pymongo 以 tz-aware 关闭方式读取，MongoDB 存的是 UTC，读回就是「UTC 墙钟的
+    naive datetime」。旧实现直接 ``.timestamp()`` 会按**主机本地时区**解释，
+    时区偏移被当成时间差：UTC+8 上写入 8 小时前的会话被判「空闲 8 小时」，
+    超过 30min 窗后第二个请求必 401，且已被写成 ``expired``（实测复现）。
+
+    期望值在 UTC 主机上本地解释时恰与 UTC 口径重合（``-8h == -8h``），故本用例
+    在 UTC 环境下也成立，不会变成假绿。
+    """
+    naive = dt.datetime(2026, 10, 12, 10, 0, 0)
+    expected_utc = int(naive.replace(tzinfo=dt.timezone.utc).timestamp())
+    assert st.epoch_seconds(naive) == expected_utc
+    # 旧实现（本地时区解释）与 UTC 口径恰好等价的唯一情形：主机时区就是 UTC。
+    assert expected_utc != int(naive.astimezone().timestamp()) or \
+        dt.datetime.now(dt.timezone.utc).utcoffset() == dt.timedelta(0)
+
+
+def test_fresh_session_not_expired_by_host_timezone() -> None:
+    """端到端：刚写入的会话，第二个请求不得被主机时区误判成 8 小时空闲。
+
+    模拟真实链路：服务端写 aware UTC → 落库 → pymongo 读回 naive → 判定。
+    旧实现对 naive 值按主机本地时区解释，UTC+8 上「1 分钟前的 UTC 墙钟」会被
+    读成「16 小时前」，idle 直接超 30min 窗 → 会话只能活一个请求。
+    """
+    aware = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=1)
+    naive_from_db = aware.replace(tzinfo=None)  # pymongo 读回形状
+    assert naive_from_db.tzinfo is None
+
+    verdict = evaluate_session_timeout(
+        {"created_at": aware, "last_seen_at": naive_from_db},
+        now=int(dt.datetime.now(dt.timezone.utc).timestamp()),
+        last_activity_field="last_seen_at",
+    )
+    assert verdict.idle_seconds == 60, (
+        f"时区形状缺陷：idle={verdict.idle_seconds}s（应为 60s，"
+        f"偏移 {verdict.idle_seconds - 60}s = 主机时区偏移）"
+    )
+    assert verdict.ok, f"reason={verdict.reason}"

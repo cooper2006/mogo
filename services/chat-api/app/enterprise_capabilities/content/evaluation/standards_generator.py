@@ -186,23 +186,20 @@ class StandardsGenerator:
                     anti_example=(item.anti_example or "").strip(),
                 )
             )
-        try:
+        log_print(
+            "[content_evaluation][standards] generated count=%s severities=%s"
+            % (
+                len(out),
+                json.dumps([s.severity for s in out]),
+            ),
+            flush=True,
+        )
+        for s in out:
             log_print(
-                "[content_evaluation][standards] generated count=%s severities=%s"
-                % (
-                    len(out),
-                    json.dumps([s.severity for s in out]),
-                ),
+                "[content_evaluation][standards]   %s [%s] %s"
+                % (s.id, s.severity, s.description),
                 flush=True,
             )
-            for s in out:
-                log_print(
-                    "[content_evaluation][standards]   %s [%s] %s"
-                    % (s.id, s.severity, s.description),
-                    flush=True,
-                )
-        except Exception:
-            pass
         return EvaluationStageOutcome(items=out, commentary=decision_commentary_dict(res.commentary))
 
     async def generate(self, *, user_request: str, skill_context: Optional[Dict[str, Any]] = None) -> List[Standard]:

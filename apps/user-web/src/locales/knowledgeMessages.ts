@@ -1,5 +1,5 @@
 export const knowledgeMessages = {
-  'knowledge.sidebar': { zh: '我的 知识', en: 'My Knowledge' },
+  'knowledge.sidebar': { zh: '我的知识', en: 'My Knowledge' },
   'knowledge.mine': { zh: '我的知识', en: 'My Knowledge' },
   'knowledge.all': { zh: '全部知识', en: 'All knowledge' },
   'knowledge.shared_with_me': { zh: '分享给我', en: 'Shared with me' },

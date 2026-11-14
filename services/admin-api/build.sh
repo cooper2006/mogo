@@ -6,9 +6,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 REGISTRY="${REGISTRY:-ghcr.io}"
 REGISTRY_NAMESPACE="${REGISTRY_NAMESPACE:-}"
-IMAGE_NAME="${IMAGE_NAME:-movo-admin}"
+IMAGE_NAME="${IMAGE_NAME:-mogo-admin}"
 IMAGE_TAG="${IMAGE_TAG:-dev-0.0.1}"
-LOCAL_IMAGE="movo-admin"
+LOCAL_IMAGE="mogo-admin"
 PUSH="${PUSH:-true}"
 NO_CACHE="${NO_CACHE:-true}"
 

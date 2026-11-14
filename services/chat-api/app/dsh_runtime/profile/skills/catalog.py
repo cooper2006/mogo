@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any, Protocol
 
+from app.governance.position_policy import EmployeePolicyResolver
 from app.services.org_skill_adapter import organization_skill_adapter
 from app.services.skills import user_skill_service
 from app.core.db import get_db
-from app.product.resource_access import filter_allowed_resource_ids
-from app.services.skill_packages.readiness import attach_environment_status, needs_environment
-from app.services.skill_packages.dependency_status import dependency_status
-from app.services.skill_packages.execution_requirements import EXECUTABLE_PATH_PATTERN, package_uses_execution
 
 
 class SkillCatalog(Protocol):
@@ -19,27 +15,15 @@ class SkillCatalog(Protocol):
 
 
 class MongoSkillCatalog:
+    def __init__(self, policy_resolver: EmployeePolicyResolver | None = None) -> None:
+        self._policy_resolver = policy_resolver
+
     async def list_enabled(self, tenant_id: str, user_id: str) -> list[dict[str, Any]]:
-        personal = await user_skill_service.list_skills(user_id, main_id=tenant_id, include_package_files=False)
-        organization = await organization_skill_adapter.list_runtime_skills(main_id=tenant_id, include_package_files=False)
-        allowed_organization_ids = await filter_allowed_resource_ids(
-            "skill",
-            main_id=tenant_id,
-            user_id=user_id,
-            resource_ids=(str(item.get("id") or "") for item in organization if isinstance(item, dict)),
-        )
+        personal = await user_skill_service.list_skills(user_id, tenant_id=tenant_id)
+        organization = await organization_skill_adapter.list_runtime_skills(tenant_id=tenant_id)
+        policy = await self._policy_resolver.resolve(tenant_id, user_id) if self._policy_resolver else None
         rows: list[dict[str, Any]] = []
         seen: set[str] = set()
-        managed = [
-            item for item in [*personal, *organization]
-            if isinstance(item, dict) and needs_environment(item)
-        ]
-        if managed:
-            await attach_environment_status(managed)
-            async def active_environment_status(item: dict) -> None:
-                if item.get("pending_package"):
-                    item["active_environment_status"] = await dependency_status(str(item.get("package_digest") or ""))
-            await asyncio.gather(*(active_environment_status(item) for item in managed))
         for item in [*personal, *organization]:
             if not isinstance(item, dict):
                 continue
@@ -48,43 +32,15 @@ class MongoSkillCatalog:
                 continue
             if item.get("enabled", item.get("is_active", True)) is False:
                 continue
-            if needs_environment(item):
-                state = item.get("active_environment_status") if item.get("pending_package") else item.get("environment_status")
-                if state != "ready":
-                    continue
-            # The Skill remains installed while its current runtime is unavailable.
             is_organization = str(item.get("visibility") or "").lower() == "organization" or str(item.get("source") or "") == "org_db"
-            if is_organization and source_id not in allowed_organization_ids:
+            if is_organization and policy is not None and not policy.allows_skill(source_id):
                 continue
             seen.add(source_id)
-            runtime_skill = dict(item)
-            runtime_skill.pop("pending_package", None)
-            rows.append(runtime_skill)
+            rows.append(dict(item))
         package_ids = [str(item.get("package_id") or "") for item in rows if item.get("package_id")]
         if package_ids:
-            legacy_ids = [
-                str(item["package_id"]) for item in rows
-                if item.get("package_id") and "package_requires_execution" not in item
-            ]
-            executable_ids = set()
-            if legacy_ids:
-                executable = await get_db().skill_packages.find({
-                    "_id": {"$in": legacy_ids}, "main_id": tenant_id,
-                    "files.path": {"$regex": EXECUTABLE_PATH_PATTERN},
-                }, {"_id": 1}).to_list(length=len(legacy_ids))
-                executable_ids = {str(item["_id"]) for item in executable}
-            for row in rows:
-                if row.get("package_id") and "package_requires_execution" not in row:
-                    row["package_requires_execution"] = str(row["package_id"]) in executable_ids or package_uses_execution(
-                        files=(),
-                        tools=(*(row.get("package_declared_tools") or []), *(row.get("package_referenced_tools") or [])),
-                        requires_environment=bool(row.get("package_requires_environment")),
-                    )
             packages = await get_db().skill_packages.find({
-                "_id": {"$in": package_ids}, "main_id": tenant_id,
-            }, {
-                "archive_base64": 1, "archive_gridfs_id": 1, "root_prefix": 1,
-                "files": {"$slice": 3},
+                "_id": {"$in": package_ids}, "tenant_id": tenant_id,
             }).to_list(length=len(package_ids))
             by_id = {str(item.get("_id") or ""): item for item in packages}
             for row in rows:
@@ -96,6 +52,5 @@ class MongoSkillCatalog:
                     ]
                     if resource_files:
                         row["runtime_bundle_base64"] = str(package.get("archive_base64") or "")
-                        row["runtime_bundle_archive_id"] = str(package.get("archive_gridfs_id") or "")
                         row["runtime_bundle_root"] = str(package.get("root_prefix") or "")
         return rows

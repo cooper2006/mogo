@@ -44,6 +44,34 @@ const roleOptions = [
   { label: 'checkbox', value: 'checkbox' },
 ]
 
+// 识别 iconfont 风格类名（icon-/ic-/anticon-/el-icon- 前缀）的 token。
+const ICON_TOKEN_RE = /^(icon|ic|anticon|el-icon)[-_]/i
+
+/** 从类名字符串中找出第一个图标类名 token。 */
+function findIconToken(cls: string): string | undefined {
+  return cls.split(/\s+/).find(t => ICON_TOKEN_RE.test(t))
+}
+
+/** 推断控件 role：显式 role 优先，其次按标签名映射，最后回退到已填值。 */
+function inferRole(tag: string, explicit: string, fallback: string): string {
+  return explicit
+    || (tag === 'a' ? 'link'
+      : tag === 'button' ? 'button'
+      : tag === 'input' ? 'textbox'
+      : tag === 'textarea' ? 'textbox'
+      : tag === 'select' ? 'combobox'
+      : fallback)
+}
+
+/** 提取图标类名：先看自身，再看单个子元素上的图标类（如 <i class="iconfont xxx">）。 */
+function extractIconClass(el: HTMLElement): string | undefined {
+  const iconTok = findIconToken((el.className || '').toString())
+  if (iconTok) return iconTok
+  const child = el.querySelector('[class*="icon"]')
+  if (child) return findIconToken((child.className || '').toString())
+  return undefined
+}
+
 // Tiny, local HTML → locator signal extractor. Uses DOMParser; no deps.
 function extractFromHTML() {
   const src = htmlSnippet.value.trim()
@@ -53,31 +81,14 @@ function extractFromHTML() {
     const el = doc.body.firstElementChild as HTMLElement | null
     if (!el) return
     const next: Locator = { ...local.value }
-    const tag = el.tagName.toLowerCase()
-    const explicit = el.getAttribute('role')?.toLowerCase() || ''
-    next.role = explicit || (tag === 'a' ? 'link'
-      : tag === 'button' ? 'button'
-      : tag === 'input' ? 'textbox'
-      : tag === 'textarea' ? 'textbox'
-      : tag === 'select' ? 'combobox'
-      : next.role || '')
+    next.role = inferRole(el.tagName.toLowerCase(), el.getAttribute('role')?.toLowerCase() || '', next.role || '')
     const aria = el.getAttribute('aria-label') || ''
     if (aria) next.aria_label = aria
     const txt = (el.textContent || '').replace(/\s+/g, ' ').trim()
     if (txt) next.text = txt.slice(0, 120)
     // iconfont-style class detection
-    const cls = (el.className || '').toString()
-    const iconTok = cls.split(/\s+/).find(t => /^(icon|ic|anticon|el-icon)[-_]/i.test(t))
-    if (iconTok) next.icon_class = iconTok
-    if (!iconTok) {
-      // scan single-child icon (<i class="iconfont xxx"></i>)
-      const child = el.querySelector('[class*="icon"]')
-      if (child) {
-        const tok = (child.className || '').toString()
-          .split(/\s+/).find(t => /^(icon|ic|anticon|el-icon)[-_]/i.test(t))
-        if (tok) next.icon_class = tok
-      }
-    }
+    const iconClass = extractIconClass(el)
+    if (iconClass) next.icon_class = iconClass
     local.value = next
   } catch { /* bad HTML snippet */ }
 }

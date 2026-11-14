@@ -1,0 +1,308 @@
+# 023 observability-resilience — T063 / T064 / T065（Phase 5，US4）
+#
+# 告警规则：基于**用户可见症状**（FR-16），而非资源阈值。
+#   - P0：SLO 违约（错误预算燃烧过快）、服务不可用（/ready 失败、抓取中断）
+#   - P1：关键路径错误率突增、延迟 SLO 违约、LLM 错误率超预算
+#   - P2：资源阈值（CPU / 内存 / 磁盘）—— 仅记录，不打扰值班（FR-16/FR-17）
+#
+# ── 与 OQ-6 的对齐 ──────────────────────────────────────────────────
+# OQ-6（2026-10-24）：SLO = 可用性 99.9% / P99 < 3s / LLM 错误率 < 1%；
+# 错误预算燃烧告警采用多窗口多燃烧率（multiwindow multi-burn-rate）：
+#   快速档 1h / 5m  → 燃烧率 > 14.4 → P0（1h 消耗 2% 月预算）
+#   中速档 6h / 30m → 燃烧率 > 6    → P1（6h 消耗 5% 月预算）
+#   慢速档 3d / 6h  → 燃烧率 > 1    → P1（3d 消耗 ~10% 月预算）
+# 月预算 = 0.1%（30 天 ≈ 43min）。燃烧率 = 错误率 / 0.001。
+#
+# ── 如实标注：两处导出器缺口（不假装已具备）────────────────────────
+# 1. `node_*` 指标来自 node-exporter，本 compose **未部署**该服务。
+#    T065 只要求「资源阈值告警降级为 P2」，不含 exporter 部署，
+#    故 P2 三条规则为**定义就绪**状态：接入 node-exporter 后自动生效，
+#    在此之前不会产生任何序列（因此也不会误报）。
+# 2. `probe_success` 来自 blackbox-exporter，本 compose 同样**未部署**。
+#    MogoServiceNotReady 为定义就绪；当下真正能立刻生效的服务不可用信号
+#    是 MogoServiceScrapeDown（`up == 0`，Prometheus 原生指标）。
+#    二者互补：`up` 判「抓不到」，`probe_success` 判「抓得到但依赖不可用」。
+#
+# ── 校验 ────────────────────────────────────────────────────────────
+#   promtool check rules deploy/prometheus/alert-rules.yml   # 若本机有 promtool
+#   python -m pytest deploy/tests/test_alerting_us4.py -q    # 静态回归守卫
+#
+# ── 通知模板约定（FR-18）───────────────────────────────────────────
+# 每条规则的 annotations 必须带：
+#   runbook_url    → docs/runbooks/ 下真实存在的文件
+#   dashboard_url  → 真实存在的 Grafana 面板（mogo-troubleshooting 等）
+# P0/P1 症状类告警还必须带 trace_url（P2 资源类允许省略，模板有兜底）。
+
+groups:
+  # ══ P0/P1：SLO 违约与症状告警（T063）══════════════════════════════
+  - name: mogo_slo_alerts
+    interval: 1m
+    rules:
+      # ── 快速燃烧：1h 窗口消耗 2% 月预算 → P0 ──
+      - alert: MogoAvailabilityBurnRateFast
+        expr: |
+          (
+            sum by (service) (rate(mogo_http_errors_total[5m]))
+            / sum by (service) (rate(mogo_http_requests_total[5m]))
+          ) / 0.001 > 14.4
+          and
+          (
+            sum by (service) (rate(mogo_http_errors_total[1h]))
+            / sum by (service) (rate(mogo_http_requests_total[1h]))
+          ) / 0.001 > 14.4
+        for: 2m
+        labels:
+          severity: P0
+          component: availability
+        annotations:
+          summary: "{{ $labels.service }} 可用性错误预算燃烧过快（1h/5m > 14.4x）"
+          description: >-
+            服务 {{ $labels.service }} 近 5m 与 1h 的错误率均超过 14.4 倍预算
+            （当前 5m 错误率 {{ $value }} 倍预算）。按 99.9% 目标，此速度 1h
+            即消耗约 2% 月错误预算（月预算 ≈ 43min）。请立即确认是否为大面积
+            5xx 或下游依赖不可用。
+          runbook_url: "https://github.com/cooper2006/mogo/blob/main/docs/runbooks/high_error_rate.md"
+          dashboard_url: "http://localhost:3001/d/mogo-troubleshooting"
+          trace_url: "http://localhost:3001/d/mogo-troubleshooting?var-trace_id="
+
+      # ── 中速燃烧：6h 窗口消耗 5% 月预算 → P1 ──
+      - alert: MogoAvailabilityBurnRateMedium
+        expr: |
+          (
+            sum by (service) (rate(mogo_http_errors_total[30m]))
+            / sum by (service) (rate(mogo_http_requests_total[30m]))
+          ) / 0.001 > 6
+          and
+          (
+            sum by (service) (rate(mogo_http_errors_total[6h]))
+            / sum by (service) (rate(mogo_http_requests_total[6h]))
+          ) / 0.001 > 6
+        for: 15m
+        labels:
+          severity: P1
+          component: availability
+        annotations:
+          summary: "{{ $labels.service }} 可用性错误预算持续偏高（6h/30m > 6x）"
+          description: >-
+            服务 {{ $labels.service }} 近 30m 与 6h 错误率均超过 6 倍预算。
+            不是瞬时抖动，按此速度 6h 将消耗约 5% 月预算，需在当班内定位根因。
+          runbook_url: "https://github.com/cooper2006/mogo/blob/main/docs/runbooks/high_error_rate.md"
+          dashboard_url: "http://localhost:3001/d/mogo-troubleshooting"
+          trace_url: "http://localhost:3001/d/mogo-troubleshooting?var-trace_id="
+
+      # ── 慢速燃烧：3d 窗口持续消耗 → P1 ──
+      - alert: MogoAvailabilityBurnRateSlow
+        expr: |
+          (
+            sum by (service) (rate(mogo_http_errors_total[6h]))
+            / sum by (service) (rate(mogo_http_requests_total[6h]))
+          ) / 0.001 > 1
+          and
+          (
+            sum by (service) (rate(mogo_http_errors_total[3d]))
+            / sum by (service) (rate(mogo_http_requests_total[3d]))
+          ) / 0.001 > 1
+        for: 1h
+        labels:
+          severity: P1
+          component: availability
+        annotations:
+          summary: "{{ $labels.service }} 错误预算在缓慢流失（3d/6h > 1x）"
+          description: >-
+            服务 {{ $labels.service }} 连续 3 天消耗速度高于预算基线。这类
+            「慢性失血」不会触发快速告警，但会在月底耗尽预算，需纳入当周技术债。
+          runbook_url: "https://github.com/cooper2006/mogo/blob/main/docs/runbooks/high_error_rate.md"
+          dashboard_url: "http://localhost:3001/d/mogo-slo-overview"
+          trace_url: "http://localhost:3001/d/mogo-troubleshooting?var-trace_id="
+
+      # ── 延迟 SLO：P99 > 3s → P1 ──
+      - alert: MogoLatencyP99High
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum by (le, service) (rate(mogo_http_request_duration_seconds_bucket[5m]))
+          ) > 3
+        for: 10m
+        labels:
+          severity: P1
+          component: latency
+        annotations:
+          summary: "{{ $labels.service }} P99 延迟 {{ $value | humanize }}s 超过 3s 目标"
+          description: >-
+            服务 {{ $labels.service }} 的 P99 延迟连续 10 分钟高于 SLO 目标 3s
+            （当前 {{ $value | humanize }}s）。先看是否为下游依赖变慢（MongoDB /
+            Redis / LLM provider），再看单请求 span 定位慢调用。
+          runbook_url: "https://github.com/cooper2006/mogo/blob/main/docs/runbooks/latency_regression.md"
+          dashboard_url: "http://localhost:3001/d/mogo-troubleshooting"
+          trace_url: "http://localhost:3001/d/mogo-troubleshooting?var-trace_id="
+
+      # ── LLM 错误率 > 1% → P1 ──
+      - alert: MogoLlmErrorRateHigh
+        expr: |
+          (
+            sum(rate(mogo_chat_llm_calls_total{status="error"}[5m]))
+            / sum(rate(mogo_chat_llm_calls_total[5m]))
+          ) > 0.01
+        for: 10m
+        labels:
+          severity: P1
+          component: llm
+          service: chat-api
+        annotations:
+          summary: "LLM 调用错误率 {{ $value | humanizePercentage }} 超过 1% 目标"
+          description: >-
+            chat-api 对 LLM provider 的调用错误率连续 10 分钟高于 1%
+            （当前 {{ $value | humanizePercentage }}）。检查 provider 是否限流
+            （429）或超时，确认 007 failover 是否已切到备用 provider。
+          runbook_url: "https://github.com/cooper2006/mogo/blob/main/docs/runbooks/llm_timeout.md"
+          dashboard_url: "http://localhost:3001/d/mogo-business-metrics"
+          trace_url: "http://localhost:3001/d/mogo-troubleshooting?var-trace_id="
+
+  # ══ P0/P1：服务可用性与错误率突增（T064）══════════════════════════
+  - name: mogo_service_health_alerts
+    interval: 1m
+    rules:
+      # ── 抓取中断 = 服务不可用（Prometheus 原生指标，当下即可生效）──
+      - alert: MogoServiceScrapeDown
+        # label_replace 把 job 复制成 service：`up` 原生只有 job/instance，
+        # 若不补 service，通知模板里的 {{ $labels.service }} 会渲染成空字符串，
+        # 按 service 配置的静默与抑制也会匹配不到这条 P0。
+        expr: |
+          label_replace(
+            up{job=~"chat-api|admin-api|document-api"} == 0,
+            "service", "$1", "job", "(.*)"
+          )
+        for: 2m
+        labels:
+          severity: P0
+          component: availability
+        annotations:
+          summary: "{{ $labels.service }} 抓取中断：Prometheus 连不上 /metrics"
+          description: >-
+            服务 {{ $labels.service }} 已连续 2 分钟抓取失败（`up == 0`）。
+            通常意味着进程崩溃、容器重启循环或网络隔离——先确认容器状态
+            与启动日志，再看是否依赖不可达导致启动自检失败。
+          runbook_url: "https://github.com/cooper2006/mogo/blob/main/docs/runbooks/service_not_ready.md"
+          dashboard_url: "http://localhost:3001/d/mogo-troubleshooting"
+          trace_url: "http://localhost:3001/d/mogo-troubleshooting?var-trace_id="
+
+      # ── /ready 失败：依赖不可达（需 blackbox-exporter，见文件头缺口说明）──
+      - alert: MogoServiceNotReady
+        # 同 ScrapeDown：probe_success 只有 instance（探活 URL），从 URL 里
+        # 提取主机名补成 service，保证静默/抑制可以按服务名生效。
+        expr: |
+          label_replace(
+            probe_success{job="mogo-ready-probe"} == 0,
+            "service", "$1", "instance", "https?://([^:/]+).*"
+          )
+        for: 2m
+        labels:
+          severity: P0
+          component: readiness
+        annotations:
+          summary: "{{ $labels.instance }} /ready 返回失败：依赖不可达"
+          description: >-
+            服务 {{ $labels.instance }} 的 /ready 探针连续 2 分钟失败。进程还活着
+            但依赖（MongoDB / Redis / LLM provider）不可用，属于「活着但不能干活」。
+            优先按依赖链排查：MongoDB → Redis → LLM provider。
+          runbook_url: "https://github.com/cooper2006/mogo/blob/main/docs/runbooks/service_not_ready.md"
+          dashboard_url: "http://localhost:3001/d/mogo-troubleshooting"
+          trace_url: "http://localhost:3001/d/mogo-troubleshooting?var-trace_id="
+
+      # ── 关键路径错误率突增（相对基线 3 倍且绝对值 > 1%）→ P1 ──
+      - alert: MogoCriticalPathErrorRateSpike
+        expr: |
+          (
+            sum by (service) (rate(mogo_http_errors_total[5m]))
+            / sum by (service) (rate(mogo_http_requests_total[5m]))
+          ) > 0.01
+          and
+          (
+            sum by (service) (rate(mogo_http_errors_total[5m]))
+            / sum by (service) (rate(mogo_http_requests_total[5m]))
+          ) > 3 * (
+            sum by (service) (rate(mogo_http_errors_total[1h]))
+            / sum by (service) (rate(mogo_http_requests_total[1h]))
+          )
+        for: 5m
+        labels:
+          severity: P1
+          component: error_rate
+        annotations:
+          summary: "{{ $labels.service }} 错误率突增：5m 为 1h 基线的 3 倍以上"
+          description: >-
+            服务 {{ $labels.service }} 的错误率相对自身 1h 基线突增 3 倍以上，
+            且绝对值已超过 1%。这是「变化」而非「绝对值」告警，用来抓刚上线的
+            回归或依赖侧抖动。
+          runbook_url: "https://github.com/cooper2006/mogo/blob/main/docs/runbooks/high_error_rate.md"
+          dashboard_url: "http://localhost:3001/d/mogo-troubleshooting"
+          trace_url: "http://localhost:3001/d/mogo-troubleshooting?var-trace_id="
+
+  # ══ P2：资源阈值（T065，降级为仅记录）═════════════════════════════
+  - name: mogo_resource_alerts
+    interval: 1m
+    rules:
+      - alert: MogoHostCpuHigh
+        expr: |
+          (
+            1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m]))
+          ) > 0.85
+        for: 15m
+        labels:
+          severity: P2
+          component: resource
+          # 主机级告警不属于任何应用服务：显式给一个 service 维度，
+          # 这样 `amtool silence add 'service="host"'` 才压得掉（否则这条永远静默不了）。
+          service: host
+        annotations:
+          summary: "{{ $labels.instance }} CPU 使用率超过 85%"
+          description: >-
+            主机 CPU 连续 15 分钟高于 85%（当前 {{ $value | humanizePercentage }}）。
+            资源指标不直接代表用户可见故障，按 FR-16 降级为 P2 仅记录；
+            若同时伴随 P0/P1 症状告警，再作为根因线索使用。
+          runbook_url: "https://github.com/cooper2006/mogo/blob/main/docs/runbooks/README.md"
+          dashboard_url: "http://localhost:3001/d/mogo-gold-signals"
+
+      - alert: MogoHostMemoryHigh
+        expr: |
+          (
+            1 - (
+              node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes
+            )
+          ) > 0.90
+        for: 15m
+        labels:
+          severity: P2
+          component: resource
+          # 主机级告警不属于任何应用服务：显式给一个 service 维度，
+          # 这样 `amtool silence add 'service="host"'` 才压得掉（否则这条永远静默不了）。
+          service: host
+        annotations:
+          summary: "{{ $labels.instance }} 内存使用率超过 90%"
+          description: >-
+            主机可用内存不足 10%（当前使用率 {{ $value | humanizePercentage }}）。
+            P2 仅记录；若触发 OOM 会以服务重启的形式体现为 P0 抓取中断。
+          runbook_url: "https://github.com/cooper2006/mogo/blob/main/docs/runbooks/README.md"
+          dashboard_url: "http://localhost:3001/d/mogo-gold-signals"
+
+      - alert: MogoHostDiskLow
+        expr: |
+          (
+            node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"}
+            / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"}
+          ) < 0.15
+        for: 30m
+        labels:
+          severity: P2
+          component: resource
+          # 主机级告警不属于任何应用服务：显式给一个 service 维度，
+          # 这样 `amtool silence add 'service="host"'` 才压得掉（否则这条永远静默不了）。
+          service: host
+        annotations:
+          summary: "{{ $labels.instance }} 磁盘可用空间不足 15%"
+          description: >-
+            挂载点 {{ $labels.mountpoint }} 可用空间低于 15%（当前
+            {{ $value | humanizePercentage }}）。P2 仅记录；磁盘打满会先表现为
+            MongoDB 写入失败 → /ready 失败 → P0。
+          runbook_url: "https://github.com/cooper2006/mogo/blob/main/docs/runbooks/README.md"
+          dashboard_url: "http://localhost:3001/d/mogo-gold-signals"

@@ -1,0 +1,57 @@
+# 连接器模板种子（041-connector-market）。凭证一律占位符 <...>，加载时校验。
+id: yonyou-nc
+version: 1
+category: erp
+name:
+  zh: "用友 NC Cloud REST"
+  en: "Yonyou NC Cloud REST"
+description:
+  zh: "调用用友 NC Cloud 开放接口（单据/主数据）。"
+  en: "Call Yonyou NC Cloud open APIs (bill/master data)."
+auth_type: api_key
+credential_key: token
+config_template:
+  method: POST
+  url: "https://${host}/nccloud/api/${path}"
+params:
+  - key: host
+    label:
+      zh: "服务地址"
+      en: "服务地址"
+    type: string
+    required: true
+    secret: false
+    in: path
+    description:
+      zh: "NC Cloud 访问域名（不含协议）"
+      en: "NC Cloud host without scheme"
+    example: "<your-nccloud-host>"
+  - key: path
+    label:
+      zh: "接口路径"
+      en: "接口路径"
+    type: string
+    required: true
+    secret: false
+    in: path
+    description:
+      zh: "目标 REST 路径"
+      en: "Target REST path"
+    example: "<uapbd/bd_material>"
+  - key: token
+    label:
+      zh: "接口凭证"
+      en: "接口凭证"
+    type: string
+    required: true
+    secret: true
+    in: headers
+    description:
+      zh: "开放平台 token"
+      en: "Open platform token"
+    example: "<your-nccloud-token>"
+test_hint:
+  probe:
+    zh: "调用一个只读查询接口"
+    en: "调用一个只读查询接口"
+  expected_status: 200

@@ -1,0 +1,81 @@
+# 连接器模板种子（041-connector-market）。凭证一律占位符 <...>，加载时校验。
+id: sap-odata
+version: 1
+category: erp
+name:
+  zh: "SAP OData（通用 REST 降级）"
+  en: "SAP OData (generic REST fallback)"
+description:
+  zh: "按通用 REST 方式调用 SAP OData 服务；协议复杂场景首期降级为普通 HTTP 连接器。"
+  en: "Call SAP OData as generic REST; complex protocol cases degrade to a plain HTTP connector."
+auth_type: api_key
+credential_key: token
+config_template:
+  method: GET
+  url: "https://${host}/sap/opu/odata/sap/${service}/${entity}?$top=${top}"
+params:
+  - key: host
+    label:
+      zh: "服务地址"
+      en: "服务地址"
+    type: string
+    required: true
+    secret: false
+    in: path
+    description:
+      zh: "SAP 网关域名（不含协议）"
+      en: "SAP gateway host without scheme"
+    example: "<your-sap-host>"
+  - key: service
+    label:
+      zh: "服务名"
+      en: "服务名"
+    type: string
+    required: true
+    secret: false
+    in: path
+    description:
+      zh: "OData 服务名"
+      en: "OData service name"
+    example: "<API_BUSINESS_PARTNER>"
+  - key: entity
+    label:
+      zh: "实体集"
+      en: "实体集"
+    type: string
+    required: true
+    secret: false
+    in: path
+    description:
+      zh: "实体集合名"
+      en: "Entity set name"
+    example: "<A_BusinessPartner>"
+  - key: top
+    label:
+      zh: "返回条数"
+      en: "返回条数"
+    type: integer
+    required: true
+    secret: false
+    in: query
+    description:
+      zh: "最大返回行数"
+      en: "Max rows"
+    example: "10"
+  - key: token
+    label:
+      zh: "接口凭证"
+      en: "接口凭证"
+    type: string
+    required: true
+    secret: true
+    in: headers
+    description:
+      zh: "SAP 访问令牌"
+      en: "SAP access token"
+    example: "<your-sap-token>"
+test_hint:
+  probe:
+    zh: "查询一个只读实体集"
+    en: "查询一个只读实体集"
+  expected_status: 200

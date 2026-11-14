@@ -2,57 +2,60 @@
   <div class="login-page">
     <div class="login-panel">
       <div class="login-copy">
-        <img class="login-logo" :src="movoLogo" alt="MOVO" />
-        <h1>{{ t('legacy.movo_agent_console') }}</h1>
+        <img class="login-logo" :src="mogoLogo" alt="MOGO" />
+        <h1>{{ t('墨攻智能体控制台') }}</h1>
         <p>
-          {{ t('legacy.manage_organizations_models_and_process_configurations_to_ensure_stable') }}
+          {{ t('管理组织、模型与流程配置，确保平台运行稳定、可控、可追踪。') }}
         </p>
       </div>
 
       <n-card class="login-card" :bordered="false">
         <n-form label-placement="top" @submit.prevent="handleLogin">
-          <n-form-item :label="t('legacy.username_email')">
-            <n-input v-model:value="form.username" :placeholder="t('legacy.please_enter_your_username')" @keydown.enter.prevent="handleLogin" />
+          <n-form-item :label="t('账号')">
+            <n-input v-model:value="form.username" :placeholder="t('请输入账号')" @keydown.enter.prevent="handleLogin" />
           </n-form-item>
-          <n-form-item :label="t('legacy.password')">
+          <n-form-item :label="t('密码')">
             <n-input
               v-model:value="form.password"
               type="password"
               show-password-on="click"
-              :placeholder="t('legacy.enter_password')"
+              :placeholder="t('输入密码')"
               @keydown.enter.prevent="handleLogin"
             />
           </n-form-item>
           <n-space vertical :size="14">
             <n-button block type="primary" size="large" :loading="loading" attr-type="submit">
-              {{ t('legacy.sign_in_3481b81') }}
+              {{ t('登录后台') }}
+            </n-button>
+            <n-button block quaternary size="small" type="primary" @click="router.push('/platform/login')">
+              {{ t('以平台管理员身份登录') }}
             </n-button>
           </n-space>
         </n-form>
       </n-card>
     </div>
 
-    <n-modal v-model:show="tenantModalVisible" preset="card" :title="t('legacy.please_select_an_organization_to_enter')" style="width: 520px" :mask-closable="false">
+    <n-modal v-model:show="tenantModalVisible" preset="card" :title="t('请选择要进入的企业')" style="width: 520px" :mask-closable="false">
       <div class="tenant-list">
         <button
           v-for="candidate in tenantCandidates"
-          :key="candidate.mainId"
+          :key="candidate.tenantId"
           class="tenant-option"
           type="button"
           :disabled="selectingTenant"
           @click="handleTenantSelect(candidate)"
         >
           <span class="tenant-copy">
-            <strong>{{ candidate.orgName || t('legacy.unnamed_organization') }}</strong>
-            <small>{{ candidate.roleName || t('legacy.organization_administrator') }}</small>
+            <strong>{{ candidate.orgName || t('未命名企业') }}</strong>
+            <small>{{ candidate.roleName || t('组织管理员') }}</small>
           </span>
           <span class="tenant-arrow" aria-hidden="true">›</span>
         </button>
       </div>
-      <div v-if="!tenantCandidates.length" class="tenant-empty">{{ t('legacy.no_organizations_available_please_sign_in_again') }}</div>
+      <div v-if="!tenantCandidates.length" class="tenant-empty">{{ t('暂无可选择企业，请重新登录。') }}</div>
       <template #footer>
         <n-space justify="end">
-          <n-button :disabled="selectingTenant" @click="resetTenantSelection">{{ t('legacy.sign_in_again') }}</n-button>
+          <n-button :disabled="selectingTenant" @click="resetTenantSelection">{{ t('重新登录') }}</n-button>
         </n-space>
       </template>
     </n-modal>
@@ -60,14 +63,13 @@
 </template>
 
 <script setup lang="ts">
-import { deploymentErrorMessage } from '@/api/deploymentError';
 import { reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useMessage } from 'naive-ui';
 import { login, selectTenantLogin, type TenantCandidate } from '@/api/auth';
 import { useAuthStore } from '@/stores/auth';
 import { t } from '@/composables/i18n';
-import movoLogo from '@/assets/images/movo-logo.png';
+import mogoLogo from '@/assets/images/mogo-logo.png';
 
 const router = useRouter();
 const message = useMessage();
@@ -93,11 +95,11 @@ async function handleLogin() {
       return;
     }
     authStore.login(result);
-    message.success(t('legacy.logged_in_successfully'));
+    message.success(t('登录成功'));
     router.push('/dashboard');
   } catch (error) {
     console.error(error);
-    message.error(deploymentErrorMessage(error, t('legacy.login_failed_please_check_username_password_or_if_the')));
+    message.error(t('登录失败，请检查账号密码或 admin-api 是否已启动'));
   } finally {
     loading.value = false;
   }
@@ -109,14 +111,14 @@ async function handleTenantSelect(candidate: TenantCandidate) {
   try {
     const result = await selectTenantLogin({
       challengeToken: challengeToken.value,
-      mainId: candidate.mainId,
+      tenantId: candidate.tenantId,
     });
     authStore.login(result);
-    message.success(t('legacy.entered', { org: candidate.orgName || t('legacy.organization') }));
+    message.success(t('已进入 {org}', { org: candidate.orgName || t('企业') }));
     router.push('/dashboard');
   } catch (error) {
     console.error(error);
-    message.error(deploymentErrorMessage(error, t('legacy.failed_to_enter_organization_please_sign_in_again')));
+    message.error(t('进入企业失败，请重新登录'));
     resetTenantSelection();
   } finally {
     selectingTenant.value = false;
@@ -194,17 +196,17 @@ async function resetTenantSelection() {
   gap: 14px;
   width: 100%;
   padding: 14px 16px;
-  border: 1px solid #dbe5f5;
+  border: 1px solid var(--mg-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--mg-bg-surface);
   cursor: pointer;
   text-align: left;
   transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .tenant-option:hover:not(:disabled) {
-  border-color: #9db8f8;
-  background: #f8fbff;
+  border-color: var(--mg-brand-soft-border);
+  background: var(--mg-bg-surface-hover);
   box-shadow: 0 8px 20px rgba(37, 99, 235, 0.08);
 }
 
@@ -223,25 +225,25 @@ async function resetTenantSelection() {
 }
 
 .tenant-copy strong {
-  color: #12234b;
+  color: var(--mg-text-1);
   font-size: 15px;
   font-weight: 800;
 }
 
 .tenant-copy small {
   margin-top: 4px;
-  color: #64748b;
+  color: var(--mg-text-2);
   font-size: 13px;
 }
 
 .tenant-arrow {
-  color: #94a3b8;
+  color: var(--mg-text-3);
   font-size: 22px;
 }
 
 .tenant-empty {
   padding: 24px 0;
-  color: #64748b;
+  color: var(--mg-text-2);
   text-align: center;
 }
 

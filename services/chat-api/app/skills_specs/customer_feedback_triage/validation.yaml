@@ -1,0 +1,64 @@
+# Acceptance criteria for the customer_feedback_triage Skill.
+#
+# Mirrors docs/cases/single-agent-customer-feedback-triage.md §6 one-to-one.
+# Every entry names the automated test that proves it, so the contract cannot
+# silently drift away from the implementation.
+
+skill: customer_feedback_triage
+version: 1.0.0
+
+acceptance:
+  - id: AC-1
+    criterion: 单批 500 条反馈处理 ≤ 3 分钟
+    verification: 端到端计时
+    test: tests/cases/test_customer_feedback_triage.py::test_batch_of_500_completes_within_budget
+    threshold_seconds: 180
+
+  - id: AC-2
+    criterion: P0 识别召回率 ≥ 95%（人工标注 100 条对照）
+    verification: 混淆矩阵
+    test: tests/cases/test_customer_feedback_triage.py::test_p0_recall_meets_threshold
+    threshold_recall: 0.95
+
+  - id: AC-3
+    criterion: PII 泄漏率 = 0（脱敏后报告扫描敏感词）
+    verification: 正则 + Shannon 熵双判定
+    test: tests/cases/test_customer_feedback_triage.py::test_no_pii_leaks_after_redaction
+
+  - id: AC-4
+    criterion: P0 ≥ 3 时审批事件正确触发
+    verification: approval_events 表验证
+    test: tests/cases/test_customer_feedback_triage.py::test_approval_triggers_at_p0_threshold
+
+  - id: AC-5
+    criterion: 成本记录（token）进入 008 ops-dashboard
+    verification: token_usage 表验证
+    test: tests/cases/test_customer_feedback_triage.py::test_token_usage_is_recorded_for_dashboard
+
+  - id: AC-6
+    criterion: 全链路审计（001 gatekeeper）事件完整
+    verification: 审计查询
+    test: tests/cases/test_customer_feedback_triage.py::test_audit_trail_is_complete
+
+  - id: AC-7
+    criterion: 会话 commit 后报告可 resume（002 session-versioning）
+    verification: 手动 resume 验证
+    test: tests/cases/test_customer_feedback_triage.py::test_report_is_resumable_after_commit
+
+  - id: AC-8
+    criterion: Skill 打包可被 skillhub 安装（019 skill packages）
+    verification: skill_package_install 验证
+    test: tests/cases/test_customer_feedback_triage.py::test_skill_package_passes_validator
+
+validation:
+  required_sections:
+    - Executive Summary
+    - P0 P1 Items
+    - Trend Analysis
+    - Recommended Actions
+  must_include_fields:
+    - Source batch id
+    - Classification timestamp
+    - Total items count
+    - P0 count
+    - P1 count

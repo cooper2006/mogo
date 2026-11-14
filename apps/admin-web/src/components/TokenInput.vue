@@ -124,9 +124,9 @@ const suggestionsToShow = computed(() =>
   min-height: 136px;
   flex-direction: column;
   gap: 10px;
-  border: 1px solid #d8e1f0;
+  border: 1px solid var(--mg-border);
   border-radius: 12px;
-  background: #fff;
+  background: var(--mg-bg-surface);
   padding: 12px;
 }
 
@@ -137,10 +137,10 @@ const suggestionsToShow = computed(() =>
 }
 
 .token-suggestion {
-  border: 1px solid #dfe7f5;
+  border: 1px solid var(--mg-border);
   border-radius: 999px;
-  background: #f7f9fd;
-  color: #52627f;
+  background: var(--mg-brand-soft);
+  color: var(--mg-text-2);
   cursor: pointer;
   font-size: 12px;
   line-height: 1;
@@ -149,8 +149,8 @@ const suggestionsToShow = computed(() =>
 }
 
 .token-suggestion:hover {
-  border-color: #b9cbee;
-  background: #edf3ff;
+  border-color: var(--mg-brand-soft-border);
+  background: var(--mg-brand-soft);
   color: #2a4d9b;
 }
 
@@ -167,7 +167,7 @@ const suggestionsToShow = computed(() =>
   align-items: center;
   gap: 6px;
   border-radius: 999px;
-  background: #edf3ff;
+  background: var(--mg-brand-soft);
   color: #2450a6;
   font-size: 12px;
   font-weight: 600;
@@ -187,7 +187,7 @@ const suggestionsToShow = computed(() =>
   min-width: 140px;
   flex: 1;
   border: 0;
-  color: #172033;
+  color: var(--mg-text-1);
   font-size: 13px;
   outline: none;
   padding: 6px 0;

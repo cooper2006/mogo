@@ -6,13 +6,13 @@ from app import main
 
 
 def test_queue_setting_requires_manager_token(monkeypatch) -> None:
-    monkeypatch.setenv("MOVO_SANDBOX_MANAGER_TOKEN", "a" * 64)
+    monkeypatch.setenv("MOGO_SANDBOX_MANAGER_TOKEN", "a" * 64)
     client = TestClient(main.app)
     assert client.put("/v1/settings", json={"max_pending": 3}).status_code == 401
 
 
 def test_queue_setting_is_validated_and_applied(monkeypatch) -> None:
-    monkeypatch.setenv("MOVO_SANDBOX_MANAGER_TOKEN", "a" * 64)
+    monkeypatch.setenv("MOGO_SANDBOX_MANAGER_TOKEN", "a" * 64)
 
     class JobsFake:
         def set_max_pending(self, value):

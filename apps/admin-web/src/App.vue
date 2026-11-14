@@ -1,13 +1,16 @@
 <template>
+  <a href="#main-content" class="skip-link">跳转到主内容</a>
   <n-config-provider
     :theme="themeInstance"
-    :theme-overrides="themeOverrides"
+    :theme-overrides="naiveOverrides"
     :locale="naiveLocale"
     :date-locale="naiveDateLocale"
   >
     <n-dialog-provider>
       <n-message-provider>
-        <router-view />
+        <main id="main-content">
+          <router-view />
+        </main>
       </n-message-provider>
     </n-dialog-provider>
   </n-config-provider>
@@ -18,11 +21,11 @@ import { computed, watch } from 'vue';
 import { zhCN, dateZhCN, enUS, dateEnUS, darkTheme } from 'naive-ui';
 import { useLocale } from '@/composables/i18n';
 import { useTheme } from '@/composables/theme';
-import { adminThemeOverrides } from '@/theme/naive-overrides';
 
 const { locale } = useLocale();
-const { activeTheme } = useTheme();
+const { activeTheme, naiveOverrides } = useTheme();
 
+// 组件外观由 theme/naive.ts 的 CSS 变量引用驱动，深浅主题只需切换 base theme。
 const themeInstance = computed(() => {
   return activeTheme.value === 'dark' ? darkTheme : null;
 });
@@ -42,6 +45,4 @@ watch(
   },
   { immediate: true },
 );
-
-const themeOverrides = computed(() => adminThemeOverrides(activeTheme.value));
 </script>

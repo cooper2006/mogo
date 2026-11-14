@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 import math
@@ -115,8 +116,8 @@ class DocumentContextService:
             )
             if isinstance(parsed, ChunkSemanticBrief):
                 return parsed
-        except Exception:
-            pass
+        except Exception as exc:
+            log_print(f"[document_context] chunk semantic LLM failed: {exc}", flush=True)
         fallback_summary = str(chunk or "").strip()[:600]
         return ChunkSemanticBrief(summary=fallback_summary, key_points=[fallback_summary] if fallback_summary else [])
 
@@ -159,8 +160,8 @@ class DocumentContextService:
             )
             if isinstance(parsed, DocumentSemanticProfile):
                 return parsed
-        except Exception:
-            pass
+        except Exception as exc:
+            log_print(f"[document_context] document profile LLM failed: {exc}", flush=True)
 
         summaries = [str(item.summary or "").strip() for item in chunk_briefs if str(item.summary or "").strip()]
         points: List[str] = []

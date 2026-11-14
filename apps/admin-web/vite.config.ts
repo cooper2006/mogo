@@ -1,10 +1,10 @@
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import path from 'node:path';
-import { adminDarkStyles } from './theme/dark-style-plugin.mjs';
 
-const productExtensionPath = process.env.MOVO_ADMIN_PRODUCT_UI_EXTENSION
-  ? path.resolve(process.env.MOVO_ADMIN_PRODUCT_UI_EXTENSION)
+const productExtensionEnv = process.env.MOGO_ADMIN_PRODUCT_UI_EXTENSION?.trim();
+const productExtensionPath = productExtensionEnv
+  ? path.resolve(productExtensionEnv)
   : path.resolve(__dirname, './src/product/community.ts');
 
 export default defineConfig(({ command }) => ({
@@ -12,14 +12,36 @@ export default defineConfig(({ command }) => ({
   // Keep the build safe even when a Docker/build environment omits the variable.
   base: process.env.VITE_BASE_PATH || (command === 'build' ? '/admin/' : '/'),
   plugins: [vue()],
-  css: { postcss: { plugins: [adminDarkStyles()] } },
+  build: {
+    // Disable sourcemap in production to prevent source code leakage (QF-009).
+    sourcemap: false,
+    // 026 T035: 生产构建优化 —— 显式报告 gzip 体积、CSS 代码分割、静态资源内联阈值、
+    // 模块预加载 polyfill、带 hash 的 chunk 文件名（便于 CDN 长缓存）。
+    // 实际 gzip/brotli 传输压缩由 nginx/CDN 层完成（见 deploy/nginx/static-assets-cdn.conf）。
+    reportCompressedSize: true,
+    cssCodeSplit: true,
+    assetsInlineLimit: 4096,
+    modulePreload: { polyfill: true },
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        chunkFileNames: 'assets/[name]-[hash].js',
+        manualChunks: {
+          'vendor-vue': ['vue', 'vue-router', 'pinia'],
+          'vendor-ui': ['naive-ui'],
+          'vendor-editor': ['codemirror', '@codemirror/commands', '@codemirror/lang-python', '@codemirror/state', '@codemirror/view'],
+          'vendor-pdf': ['pdfjs-dist'],
+          'vendor-http': ['axios'],
+        },
+      },
+    },
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      '@movo-admin-product-extension': productExtensionPath,
-      '@movo-admin-web': path.resolve(__dirname, './src'),
+      '@mogo-admin-product-extension': productExtensionPath,
+      '@mogo-admin-web': path.resolve(__dirname, './src'),
       'vue': path.resolve(__dirname, './node_modules/vue'),
-      'vue-router': path.resolve(__dirname, './node_modules/vue-router'),
       'naive-ui': path.resolve(__dirname, './node_modules/naive-ui'),
       'axios': path.resolve(__dirname, './node_modules/axios'),
     },

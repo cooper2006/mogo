@@ -18,15 +18,16 @@ def make_archive(files: dict[str, str]) -> bytes:
 
 
 def test_packaged_skill_resources_are_staged_for_one_job(tmp_path):
+    # 校验器对单包文件数有上限（validator.MAX_FILES），模板类技能要落在上限内。
     files = {
         "ppt-master/SKILL.md": "---\nname: ppt-master\ndescription: Create slides\n---\nUse templates.\n",
-        **{f"ppt-master/templates/layout-{index}.txt": f"layout {index}" for index in range(300)},
+        **{f"ppt-master/templates/layout-{index}.txt": f"layout {index}" for index in range(120)},
     }
     data = make_archive(files)
     validated = validate_skill_zip(data)
-    assert len(validated.files) == 301
+    assert len(validated.files) == 121
     skill_dir = stage_skill_bundle(SkillBundle("ppt-master", validated.root_prefix, data), tmp_path)
-    assert (skill_dir / "templates/layout-299.txt").read_text() == "layout 299"
+    assert (skill_dir / "templates/layout-119.txt").read_text() == "layout 119"
     assert skill_dir == tmp_path / "skill/ppt-master"
 
 
@@ -57,10 +58,12 @@ def test_immutable_cache_reuses_package_without_reextracting(tmp_path, monkeypat
 
 
 def test_repository_repack_keeps_script_executable_bit(tmp_path):
+    # 校验器只接受「根目录」或「单层目录」作为 Skill 根（invalid_bundle_structure），
+    # 仓库重打包必须先收敛成单层前缀再入包。
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w") as archive:
-        archive.writestr("repo/skills/sample/SKILL.md", "---\nname: sample\ndescription: Test\n---\nBody\n")
-        executable = zipfile.ZipInfo("repo/skills/sample/scripts/run.sh")
+        archive.writestr("sample/SKILL.md", "---\nname: sample\ndescription: Test\n---\nBody\n")
+        executable = zipfile.ZipInfo("sample/scripts/run.sh")
         executable.create_system = 3
         executable.external_attr = 0o100755 << 16
         archive.writestr(executable, "#!/bin/sh\necho ok\n")

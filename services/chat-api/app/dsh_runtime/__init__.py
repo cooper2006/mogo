@@ -4,7 +4,13 @@ from .contracts.versions import AGENT_KERNEL_CONTRACT_VERSION, KERNEL_EVENT_VERS
 from .gateway import DshAgentKernelGateway
 from .host_manager import DshHostConfig, DshRuntimeHostManager
 from .profile import ModelProfileCompiler, RuntimeProfileResolver, RuntimeProfileSnapshot
-from .transport import HttpKernelHostTransport
+from .transport import (
+    HttpKernelHostTransport,
+    configured_runtime_hosts,
+    normalize_base_urls,
+    session_id_from_path,
+    sticky_index,
+)
 
 __all__ = [
     "AGENT_KERNEL_CONTRACT_VERSION",
@@ -16,4 +22,8 @@ __all__ = [
     "ModelProfileCompiler",
     "RuntimeProfileResolver",
     "RuntimeProfileSnapshot",
+    "configured_runtime_hosts",
+    "normalize_base_urls",
+    "session_id_from_path",
+    "sticky_index",
 ]

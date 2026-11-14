@@ -5,11 +5,11 @@ from app.enterprise_capabilities.browser.engine.agent_loop.decision_diagnostics 
 
 def test_search_value_is_logged_for_search_field() -> None:
     result = summarize_actions(
-        [SimpleNamespace(tool="browser_fill", args={"ref": "e1", "value": "MOVO 官网"})],
+        [SimpleNamespace(tool="browser_fill", args={"ref": "e1", "value": "MOGO 官网"})],
         [{"ref": "e1", "role": "textbox", "name": "搜索", "searchContext": True}],
     )
 
-    assert result[0]["search_value"] == "MOVO 官网"
+    assert result[0]["search_value"] == "MOGO 官网"
 
 
 def test_searchbox_role_is_enough_to_log_search_value() -> None:

@@ -24,7 +24,7 @@ async def record_question_answer(
         "answers": answers,
         "created_at": datetime.now(timezone.utc),
     }
-    scope = {"main_id": tenant_id, "message_id": message_id, "role": "assistant"}
+    scope = {"tenant_id": tenant_id, "message_id": message_id, "role": "assistant"}
     async def persist() -> dict[str, Any]:
         result = await db.chat_messages.update_one(
             {**scope, "question_answers.id": {"$ne": question_id}},

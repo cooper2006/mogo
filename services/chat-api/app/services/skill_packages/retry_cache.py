@@ -18,7 +18,7 @@ async def ensure_retry_bundle_cached(db: Any, package: dict[str, Any]) -> str:
     prefix = str(package.get("root_prefix") or "")
     if not SHA256.fullmatch(digest) or (prefix and (_safe_zip_path(prefix) + "/") != prefix):
         raise ValueError("Invalid Skill package cache path")
-    root = Path(os.environ.get("MOVO_SANDBOX_WORKSPACE_ROOT", "/workspaces"))
+    root = Path(os.environ.get("MOGO_SANDBOX_WORKSPACE_ROOT", "/workspaces"))
     cached_skill = root / "skill-cache" / digest / prefix / "SKILL.md"
     archive = None if cached_skill.is_file() else await read_archive(db, package)
     bundle = SkillBundle(

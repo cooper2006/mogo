@@ -578,7 +578,7 @@ def test_explicit_manual_recording_uses_same_cache_pipeline() -> None:
         accepted, reason = await capture_manual_recording(
             cache=cache,
             user_id="u1",
-            main_id="m1",
+            tenant_id="m1",
             recording_id="r1",
             operation="保存带图片的文章草稿",
             events=_events(),
@@ -603,7 +603,7 @@ def test_manual_recording_without_terminal_action_is_rejected() -> None:
         accepted, reason = await capture_manual_recording(
             cache=cache,
             user_id="u1",
-            main_id="m1",
+            tenant_id="m1",
             recording_id="r1",
             operation="保存带图片的文章草稿",
             events=_events(terminal=False),
@@ -719,7 +719,7 @@ def test_manual_recording_does_not_report_success_when_persistence_fails() -> No
         accepted, _reason = await capture_manual_recording(
             cache=cache,
             user_id="u1",
-            main_id="m1",
+            tenant_id="m1",
             recording_id="r1",
             operation="保存带图片的文章草稿",
             events=_events(),

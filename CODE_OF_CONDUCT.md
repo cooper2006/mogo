@@ -1,6 +1,6 @@
 # Community Code of Conduct
 
-MOVO contributors and maintainers are expected to keep project spaces
+MOGO contributors and maintainers are expected to keep project spaces
 professional, inclusive and focused on improving the software.
 
 Acceptable participation includes constructive technical feedback, respect for

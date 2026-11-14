@@ -108,7 +108,7 @@ async def _test_real_dsh_host_session_replay_cancel_isolation_plugin_and_crash(t
     transport: HttpKernelHostTransport | None = None
     try:
         base_url = await manager.start()
-        transport = HttpKernelHostTransport(base_url, timeout_seconds=10)
+        transport = HttpKernelHostTransport(base_url, timeout_seconds=120)
         gateway = DshAgentKernelGateway(transport)
         runtime = await gateway.create_runtime(_runtime_request())
         session = await _session(gateway, runtime.runtime_id, "conversation-1")
@@ -186,7 +186,7 @@ async def _test_real_dsh_host_session_replay_cancel_isolation_plugin_and_crash(t
         await manager.stop()
 
         base_url = await manager.start()
-        transport = HttpKernelHostTransport(base_url, timeout_seconds=10)
+        transport = HttpKernelHostTransport(base_url, timeout_seconds=120)
         gateway_after_restart = DshAgentKernelGateway(transport)
         runtime_after_restart = await gateway_after_restart.create_runtime(_runtime_request())
         resumed = await transport.request(

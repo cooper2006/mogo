@@ -11,9 +11,10 @@ from app.llm.factory import get_openai_compatible_client
 from app.llm.types import Message, Role
 from app.enterprise_capabilities.research.progressive.models import SearchCandidate
 from app.infrastructure.request_context import get_request_context
-from app.services.search_provider_config import resolve_default_external_search_provider
-from app.services.search_provider_config import has_saved_external_search_config
-
+from app.services.search_provider_config import (
+    has_saved_external_search_config,
+    resolve_default_external_search_provider,
+)
 from .deepseek_provider import DeepSeekProvider
 
 
@@ -222,7 +223,7 @@ class VolcArkProvider:
             )
             completion = await client.ainvoke(
                 [
-                    Message(role=Role.SYSTEM, content="You are a web research assistant. Search the internet and return verifiable sources."),
+                    Message(role=Role.SYSTEM, content="你是联网搜索助手。请搜索互联网并返回可核验来源。"),
                     Message(role=Role.USER, content=query),
                 ],
             )
@@ -251,13 +252,48 @@ class VolcArkProvider:
         return rows
 
 
+class ClawSearchProvider:
+    name = "claw_search"
+
+    def __init__(self, *, endpoint: str = "") -> None:
+        self.endpoint = endpoint or "https://www.claw-search.com/api/search"
+
+    async def search(self, query: str, *, max_results: int) -> list[SearchCandidate]:
+        params = {"q": query}
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
+                resp = await client.get(self.endpoint, params=params)
+                resp.raise_for_status()
+                data = resp.json()
+        except Exception as exc:
+            logger.warning("progressive_research_claw_search_failed query=%r error=%s", query[:120], exc)
+            return []
+        web = data.get("web") if isinstance(data.get("web"), dict) else {}
+        rows: list[SearchCandidate] = []
+        for item in list(web.get("results") or [])[: max(1, min(20, int(max_results or 8)))]:
+            if not isinstance(item, dict):
+                continue
+            url = str(item.get("url") or "").strip()
+            if not url:
+                continue
+            rows.append(
+                SearchCandidate(
+                    provider=self.name,
+                    query=query,
+                    title=str(item.get("title") or "").strip(),
+                    url=url,
+                    snippet=str(item.get("description") or "").strip(),
+                    score=None,
+                )
+            )
+        return rows
+
+
 class ProviderRouter:
     def __init__(self, providers: list[SearchProvider] | None = None) -> None:
         self._providers = providers
 
-    async def available_providers(
-        self, *, main_id: str | None = None, strict_config_lookup: bool = False,
-    ) -> list[SearchProvider]:
+    async def available_providers(self) -> list[SearchProvider]:
         if self._providers is not None:
             logger.info(
                 "progressive_research_providers_injected providers=%s",
@@ -273,13 +309,11 @@ class ProviderRouter:
         settings = get_settings()
         providers: list[SearchProvider] = []
         request_context = get_request_context()
-        main_id = str(main_id or request_context.get("main_id") or request_context.get("mainId") or "default").strip() or "default"
+        tenant_id = str(request_context.get("tenant_id") or request_context.get("tenantId") or "default").strip() or "default"
         configured: dict[str, Any] | None = None
         try:
-            configured = await resolve_default_external_search_provider(main_id)
+            configured = await resolve_default_external_search_provider(tenant_id)
         except Exception as exc:
-            if strict_config_lookup:
-                raise
             logger.warning("progressive_research_provider_config_unavailable error=%s", exc)
 
         provider = str((configured or {}).get("provider") or "").strip()
@@ -309,11 +343,17 @@ class ProviderRouter:
                     base_url=str(configured.get("base_url") or "").strip(),
                 )
             )
+        elif provider == "claw_search":
+            providers.append(
+                ClawSearchProvider(
+                    endpoint=str(configured.get("endpoint") or "").strip(),
+                )
+            )
 
         # Environment keys are legacy fallback for installations without Admin
         # search settings. A selected provider must never trigger extra billed
         # searches against other accounts, and disabling it must stay disabled.
-        if configured or await has_saved_external_search_config(main_id):
+        if configured or await has_saved_external_search_config(tenant_id):
             return providers
 
         tavily_key = str(getattr(settings, "TAVILY_API_KEY", "") or "").strip()

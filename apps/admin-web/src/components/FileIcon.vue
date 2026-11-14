@@ -107,7 +107,7 @@ const iconSize = computed(() => {
 .file-icon-text {
   font-size: 13px;
   font-weight: 650;
-  color: #23324f;
+  color: var(--mg-text-1);
   line-height: 1;
 }
 

@@ -1,0 +1,76 @@
+# Implementation Plan: Five-Event Hooks Interception Mechanism
+
+**Branch**: `009-hooks-interception` | **Date**: 2026-07-08 | **Spec**: [spec.md](./spec.md)
+
+**Input**: 缺口新特性。在 `dsh_runtime` 会话生命周期 + 工具调用链路上挂载五事件 Hooks，fail_closed + 声明式规则，复用既有 admission/gateway/approval 挂载点。
+
+## Summary
+
+新增 `dsh_runtime/hooks/` 子模块：五事件注册（SessionStart/PreToolUse/PostToolUse/SessionEnd/MemoryCommit）+ 声明式规则引擎（deny_tool/require_field/observe）+ 超时保护 + fail_closed。挂载点复用既有：`turn_admission.admit_skill_selection`（PreToolUse 切入）、`gateway` 会话生命周期（SessionStart/End/MemoryCommit）、`approval_runtime`（审批联动）。首期先落 PreToolUse 单事件（规划文档"落地建议 3"：先单事件低成本切入）。
+
+## Technical Context
+
+**Language/Version**: Python 3.13（chat-api）
+
+**Primary Dependencies**: 既有 `dsh_runtime`（turn_admission/gateway/events）+ `governance/approval_runtime`
+
+**Storage**: 钩子规则声明（MongoDB `hook_rules` 集合，声明式配置）
+
+**Testing**: pytest（规则引擎单测 + fail_closed 注入测试 + 五事件触发集成测试）
+
+**Target Platform**: 自托管 Docker Compose
+
+**Project Type**: 既有模块扩展（dsh_runtime 钩子层）
+
+## 现有实现事实（挂载点依据）
+
+- `dsh_runtime/turn_admission.py`：`admit_skill_selection`（PreToolUse 切入的既有准入逻辑）
+- `dsh_runtime/gateway.py`：`DshAgentKernelGateway`（create/dispose/attach_session，会话生命周期钩子点）
+- `dsh_runtime/tool_gateway/token.py`：`ToolGatewayTokenService`（工具调用凭据）
+- `governance/approval_runtime.py`：`ApprovalRuntime.issue/validate_and_consume/deny`（审批联动）
+- `dsh_runtime/events/`：authoritative_delivery / durable_writer / live_stream / projection（事件通道复用）
+
+## Constitution Check
+
+| 原则 | 结果 |
+|---|---|
+| I. Specification-First | 通过 |
+| II. Production Readiness | 通过：fail_closed 防越权 |
+| III. Security | 通过：deny_tool 合规拦截 |
+| IV. i18n | 通过 |
+| V. Observability | 通过：钩子事件审计 |
+
+## Project Structure
+
+```text
+services/chat-api/app/dsh_runtime/
+└── hooks/                       # 新增子模块（引擎侧）
+    ├── __init__.py
+    ├── registry.py             # 五事件注册/查找
+    ├── engine.py               # 规则引擎（deny_tool/require_field/observe）
+    ├── rules.py                # 声明式规则 schema
+    ├── timeout.py              # 超时保护 + fail_closed
+    ├── integration.py          # 挂载到 turn_admission/gateway/events
+    └── store.py                # hook_rules 存储 + 三级作用域查询
+
+services/admin-api/app/api/routes/
+└── hooks.py                    # hook_rules 管理端点（声明式配置 CRUD，挂 /api/hooks）
+services/admin-api/app/services/
+└── hooks_store.py              # admin-api 侧 store（同 hook_rules 集合，形状校验）
+```
+
+> 端点归属订正（2026-09-28）：管理端点落在 **admin-api**（`app/api/routes/hooks.py`，
+> 实际路径 `/api/hooks/rules`），与 admin-web 钩子规则页 `api/dsh_hooks.ts` 对接；
+> 此处原写 `chat-api/app/api/`，与 `quickstart.md`、规划文档 P1-4「admin `/api/hooks` CRUD」
+> 矛盾，已订正。chat-api 侧曾有一份并行实现 `app/api/endpoints/dsh_hooks.py`，
+> 因鉴权不匹配（end-user token）+ gateway `/admin-api/*` 不进 chat-api 而无人可达，
+> 2026-09-28 已移除。
+
+## Open Questions（已 clarify 消解）
+- OQ-1 超时阈值：**默认 5s，可配**（`hook_timeout_seconds`），复用 `execution_timeout.py::ExecutionTimeoutPolicy` 双层策略模式。
+- OQ-2 fail_closed 默认：**超时/异常/规则解析失败一律拒绝，不可配为放行**（constitution III + 019 底线）；仅 observe 规则可"只记录不拦截"。
+- OQ-3 首期范围：**仅 PreToolUse 单事件**（挂载点 `turn_admission.admit_skill_selection`），其余四事件按节奏补齐。
+- OQ-4 规则作用域 schema：**`hook_rules{scope(tool/session/tenant), rule_type(deny_tool/require_field/observe), rule_config, enabled}`**。
+
+## 下一步
+OQ 已 clarify 消解。`/speckit-checklist`（009 补需求质量门禁）→ `/speckit-tasks` → `/speckit-analyze` → `/speckit-implement` → `/speckit-converge`。

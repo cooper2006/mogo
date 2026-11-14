@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import uuid
 import os
@@ -48,7 +49,7 @@ class RemoteKnowledgeRAGService:
         query: str,
         user_id: str,
         session_id: str,
-        main_id: str,
+        tenant_id: str,
         knowledge_ids: List[str],
         limit: int,
         top_n: int,
@@ -65,8 +66,8 @@ class RemoteKnowledgeRAGService:
             payload["userId"] = user_id
         if session_id:
             payload["sessionId"] = session_id
-        if main_id:
-            payload["mainId"] = main_id
+        if tenant_id:
+            payload["tenantId"] = tenant_id
         return payload
 
     @staticmethod
@@ -102,7 +103,8 @@ class RemoteKnowledgeRAGService:
             raw_score = candidate.get("rerank_score", candidate.get("score", 0))
         try:
             score = float(raw_score or 0)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[services.rag_service.remote_knowledge_rag_service._normalize_candidate] suppressed {type(exc).__name__}: {exc}", flush=True)
             score = 0.0
         if min_score > 0 and score < min_score:
             return None
@@ -143,7 +145,7 @@ class RemoteKnowledgeRAGService:
         request_id: str = "",
         user_id: str = "",
         session_id: str = "",
-        main_id: str = "",
+        tenant_id: str = "",
         knowledge_ids: Any = None,
         limit: int = 40,
         top_k: int = 10,
@@ -170,7 +172,7 @@ class RemoteKnowledgeRAGService:
             query=q,
             user_id=str(user_id or "").strip(),
             session_id=str(session_id or "").strip(),
-            main_id=str(main_id or "").strip(),
+            tenant_id=str(tenant_id or "").strip(),
             knowledge_ids=ids,
             limit=lim,
             top_n=top_n,
@@ -182,6 +184,11 @@ class RemoteKnowledgeRAGService:
                 resp.raise_for_status()
                 raw = resp.json()
         except Exception as exc:
+            log_print(
+                "[services.rag_service.remote_knowledge_rag_service] "
+                f"knowledge candidates request failed: {exc}",
+                flush=True,
+            )
             return {
                 "ok": False,
                 "error": f"knowledge_candidates_request_failed: {type(exc).__name__}: {exc}",

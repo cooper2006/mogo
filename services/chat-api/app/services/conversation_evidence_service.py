@@ -4,11 +4,11 @@ import json
 import logging
 from typing import Any, Dict, List
 
-from bson import ObjectId
+from app.core.ids import is_valid_backend_id, to_backend_id, to_backend_id_strict
 from pydantic import BaseModel, Field
 
 from app.core.db import get_db
-from app.core.tenant import add_main_scope, resolve_main_id
+from app.core.tenant import add_tenant_scope, resolve_tenant_id
 from app.llm.factory import get_llm_client
 from app.llm.types import Message, Role
 from app.enterprise_capabilities.evidence.foundation import normalize_evidence_bundle
@@ -37,14 +37,14 @@ class ConversationEvidenceService:
         *,
         session_id: str,
         user_id: str,
-        main_id: str,
+        tenant_id: str,
         current_request: str,
         evidence_requirement: str = "",
     ) -> Dict[str, Any]:
         rows = await self._load_rows(
             session_id=session_id,
             user_id=user_id,
-            main_id=main_id,
+            tenant_id=tenant_id,
         )
         prior_rows = self._exclude_current_request(rows, current_request=current_request)
         if not prior_rows:
@@ -123,12 +123,12 @@ class ConversationEvidenceService:
                 break
         return out
 
-    async def _load_rows(self, *, session_id: str, user_id: str, main_id: str) -> List[Dict[str, Any]]:
+    async def _load_rows(self, *, session_id: str, user_id: str, tenant_id: str) -> List[Dict[str, Any]]:
         try:
-            oid = ObjectId(str(session_id))
+            oid = to_backend_id_strict(str(session_id))
         except Exception as exc:
             raise LookupError("Invalid conversation session id") from exc
-        query = add_main_scope(
+        query = add_tenant_scope(
             {
                 "session_id": oid,
                 "user_id": str(user_id),
@@ -137,7 +137,7 @@ class ConversationEvidenceService:
                     {"runtime_owner": "dsh"},
                 ],
             },
-            resolve_main_id(main_id),
+            resolve_tenant_id(tenant_id),
         )
         cursor = get_db().chat_messages.find(query).sort("seq", -1).limit(30)
         rows = await cursor.to_list(length=30)

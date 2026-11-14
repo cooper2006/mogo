@@ -58,14 +58,11 @@ class ContentPlanBuilder:
             "multimodal_ui_analysis",
             "user_multimodal_payload",
         } and required_blocks and blocks:
-            try:
-                log_print(
-                    "[content_plan] skip semantic planner for upstream multimodal contract "
-                    f"| source={source} blocks={len(blocks)}",
-                    flush=True,
-                )
-            except Exception:
-                pass
+            log_print(
+                "[content_plan] skip semantic planner for upstream multimodal contract "
+                f"| source={source} blocks={len(blocks)}",
+                flush=True,
+            )
             return True
         if str(content_task_spec.get("execution_kind") or "").strip() != "content":
             return False
@@ -197,10 +194,7 @@ class ContentPlanBuilder:
             normalized = self._normalize_content_plan_payload(raw_data)
             return ContentPlanSpec.model_validate(normalized)
         except Exception as exc:
-            try:
-                log_print(f"[content_plan] semantic build failed, using contract projection | error={type(exc).__name__}", flush=True)
-            except Exception:
-                pass
+            log_print(f"[content_plan] semantic build failed, using contract projection | error={type(exc).__name__}", flush=True)
         return None
 
     async def _try_structured_plan_build(
@@ -231,6 +225,7 @@ class ContentPlanBuilder:
                 return parsed, ""
             return None, "structured_output_not_content_plan"
         except Exception as exc:
+            log_print(f"[enterprise_capabilities.content.planning.builder] silent exception caught: {exc}", flush=True)
             return None, f"{type(exc).__name__}: {exc}"
 
     def _project_build(
@@ -490,7 +485,8 @@ class ContentPlanBuilder:
             record["open_questions"] = self._ensure_list_of_str(record.get("open_questions"))
             try:
                 record["target_words"] = int(record.get("target_words") or 0)
-            except Exception:
+            except Exception as exc:
+                log_print(f"[enterprise_capabilities.content.planning.builder] silent exception caught: {exc}", flush=True)
                 record["target_words"] = 0
             items.append(record)
         return items
@@ -958,17 +954,14 @@ class ContentPlanBuilder:
 
     @staticmethod
     def _log_plan(plan: ContentPlanSpec) -> None:
-        try:
-            log_print(
-                "[content_plan] plan built | id=%s mode=%s sections=%s visual_slots=%s source=%s"
-                % (
-                    str(plan.plan_id or ""),
-                    str(plan.execution_mode or ""),
-                    len(plan.sections),
-                    len(plan.visual_slots),
-                    str((plan.metadata or {}).get("source") or ""),
-                ),
-                flush=True,
-            )
-        except Exception:
-            pass
+        log_print(
+            "[content_plan] plan built | id=%s mode=%s sections=%s visual_slots=%s source=%s"
+            % (
+                str(plan.plan_id or ""),
+                str(plan.execution_mode or ""),
+                len(plan.sections),
+                len(plan.visual_slots),
+                str((plan.metadata or {}).get("source") or ""),
+            ),
+            flush=True,
+        )

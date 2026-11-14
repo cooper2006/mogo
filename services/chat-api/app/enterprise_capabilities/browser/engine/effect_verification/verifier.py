@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 from typing import Any, Dict, Iterable, List, Literal
@@ -16,7 +17,6 @@ from .resource_identity import collect_resource_identity_evidence
 from .semantic_alignment import assess_outcome_alignment
 from .status_semantics import classify_status_text, is_unambiguous_outcome_text
 from .structural_outcome import collect_structural_outcome_evidence
-from .reason_locale import verification_reason
 
 
 class _ModelVerdict(DecisionOutput):
@@ -39,14 +39,14 @@ async def verify_effect(
         *collect_evidence(contract=contract, before=before, after=after),
         *list(supplemental_evidence or []),
     ]
-    deterministic = _deterministic_verdict(contract=contract, evidence=evidence, lang=lang)
+    deterministic = _deterministic_verdict(contract=contract, evidence=evidence)
     if deterministic is not None:
         receipt = _receipt(contract, evidence, **deterministic)
         return await _apply_semantic_outcome_guard(
             receipt=receipt, contract=contract, after=after, lang=lang, llm=llm,
         )
     if not evidence:
-        return _receipt(contract, evidence, status="unknown", confidence=0.0, reason=verification_reason("no_state_change", lang))
+        return _receipt(contract, evidence, status="unknown", confidence=0.0, reason="没有观测到可验证的状态变化")
     model = await _model_verdict(contract=contract, evidence=evidence, lang=lang, llm=llm)
     allowed = {item.evidence_id for item in evidence}
     selected = [item for item in evidence if item.evidence_id in allowed.intersection(model.evidence_ids)]
@@ -86,10 +86,8 @@ async def _apply_semantic_outcome_guard(
     if not alignment.blocks_action:
         return receipt
     detail = (
-        f"预期业务对象“{alignment.intended.entity}”，实际结果表示“{alignment.observed.entity}”：{alignment.reason}"
-        if lang.startswith("zh") else
-        f"Expected business object {alignment.intended.entity!r}, but the result indicates "
-        f"{alignment.observed.entity!r}: {alignment.reason}"
+        f"预期业务对象“{alignment.intended.entity}”，实际结果表示“{alignment.observed.entity}”："
+        f"{alignment.reason}"
     )
     mismatch = _ev("semantic", "semantic_mismatch", detail, "negative", 1.0)
     return receipt.model_copy(update={
@@ -150,7 +148,7 @@ def collect_evidence(*, contract: EffectContract, before: Observation, after: Ob
     return evidence[:80]
 
 
-def _deterministic_verdict(*, contract: EffectContract, evidence: List[EffectEvidence], lang: str) -> Dict[str, Any] | None:
+def _deterministic_verdict(*, contract: EffectContract, evidence: List[EffectEvidence]) -> Dict[str, Any] | None:
     status_kinds = {"transient_dom", "page_status_delta", "page_message_delta"}
     negatives = [item for item in evidence if item.polarity == "negative" and item.kind in status_kinds]
     if negatives:
@@ -166,33 +164,33 @@ def _deterministic_verdict(*, contract: EffectContract, evidence: List[EffectEvi
         return {
             "status": "confirmed_success",
             "confidence": 0.9,
-            "reason": verification_reason("object_id", lang),
+            "reason": "提交后页面获得了新的稳定业务对象标识",
         }
     if durable_new_result:
         return {
             "status": "confirmed_success",
             "confidence": 0.94,
-            "reason": verification_reason("value_added", lang),
+            "reason": "提交值已离开编辑字段，并作为新增内容出现在非编辑结果区",
         }
     if "collection_count_increased" in kinds and "form_closed" in kinds:
         return {
             "status": "confirmed_success",
             "confidence": 0.86,
-            "reason": verification_reason("count_increased", lang),
+            "reason": "提交后编辑表单关闭，且结果集合中的项目数量增加",
         }
     if transitioned and durable_payload:
         return {
             "status": "confirmed_success",
             "confidence": 0.9,
-            "reason": verification_reason("result_present", lang),
+            "reason": "提交后页面发生跳转、编辑表单关闭，且结果页面包含本次填写内容",
         }
     if transitioned:
-        reason = verification_reason("result_unverified", lang)
+        reason = "提交后页面发生跳转且编辑表单关闭，但尚未核验业务结果中存在本次填写内容"
         if any(item.polarity == "pending" for item in evidence):
-            reason += verification_reason("pending_notice", lang)
+            reason += "，同时捕获到处理中提示"
         return {"status": "pending", "confidence": 0.72, "reason": reason}
     if any(item.polarity == "pending" for item in evidence):
-        return {"status": "pending", "confidence": 0.7, "reason": verification_reason("pending_state", lang)}
+        return {"status": "pending", "confidence": 0.7, "reason": "捕获到处理中状态，等待最终结果或执行回查"}
     return None
 
 
@@ -203,8 +201,8 @@ async def _model_verdict(*, contract: EffectContract, evidence: List[EffectEvide
         stage="browser_effect_verification",
     )
     system = (
-        "Judge the outcome of one browser business operation using only the supplied evidence. Cite only IDs in the evidence_id list; do not add facts absent from the page. "
-        "You may combine transient notices, route changes, form closure, network responses, and business-object rechecks. HTTP 200 alone does not prove success. Return unknown when evidence is insufficient."
+        "你只根据给定证据判断一次浏览器业务操作的结果。只能引用 evidence_id 列表中的证据，不得补充页面上没有的事实。"
+        "瞬时提示、路由变化、表单关闭、网络响应和业务对象回查可以组合判断；HTTP 200 不能单独证明业务成功。证据不足必须返回 unknown。"
     ) if lang.startswith("zh") else (
         "Judge a browser business operation only from the supplied evidence IDs. Never invent facts. "
         "HTTP 200 alone does not prove business success; return unknown when evidence is insufficient."
@@ -220,8 +218,9 @@ async def _model_verdict(*, contract: EffectContract, evidence: List[EffectEvide
             [Message(role=Role.SYSTEM, content=system), Message(role=Role.USER, content=json.dumps(payload, ensure_ascii=False))],
             spec=DecisionTurnSpec(locale=lang, turn_id="browser.effect_verification"),
         )
-    except Exception:
-        return _ModelVerdict(status="unknown", confidence=0.0, reason=verification_reason("model_unavailable", lang))
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.browser.engine.effect_verification.verifier._model_verdict] suppressed {type(exc).__name__}: {exc}", flush=True)
+        return _ModelVerdict(status="unknown", confidence=0.0, reason="模型验证不可用")
 
 
 def _receipt(contract: EffectContract, evidence: List[EffectEvidence], *, status: str, confidence: float, reason: str) -> EffectReceipt:

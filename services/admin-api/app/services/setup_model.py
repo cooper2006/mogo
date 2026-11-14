@@ -15,6 +15,7 @@ from app.repositories.model_repository import (
     list_providers,
 )
 from app.services.model_connectivity import run_saved_model_test
+from app.services.setup_cleanup import cleanup_failed_setup
 from app.services.setup_model_probe import SetupModelProbeError, probe_knowledge_model_details
 
 
@@ -56,17 +57,31 @@ async def inspect_setup_model(payload: dict[str, Any]) -> SetupModelInspection:
             return SetupModelInspection(message=result.message, dimension=result.dimension)
         except SetupModelProbeError as exc:
             raise SetupModelError(str(exc)) from exc
-    temporary_main_id = f"setup-test-{secrets.token_hex(12)}"
+    temporary_tenant_id = f"setup-test-{secrets.token_hex(12)}"
     instance_id = ""
     try:
-        instance_id = await create_instance({**normalized, "main_id": temporary_main_id})
-        success, message = await run_saved_model_test(instance_id, temporary_main_id)
+        instance_id = await create_instance({**normalized, "tenant_id": temporary_tenant_id})
+        success, message = await run_saved_model_test(instance_id, temporary_tenant_id)
         if not success:
             raise SetupModelError(message)
         return SetupModelInspection(message=message)
     finally:
+        # Two leaks this must not have:
+        #
+        # 1. ``if instance_id`` skipped cleanup entirely when create_instance
+        #    raised, since instance_id was still "". The probe tenant then
+        #    survived forever — three such rows were found in the dev database
+        #    from the 2026-09-28 setup, one per failed attempt.
+        # 2. ``delete_instance`` only removes the admin_model_instances row. The
+        #    probe also makes unrelated collections materialise rows for this
+        #    tenant (organizations, quota policies, usage logs) — those are not
+        #    model instances, so they stayed behind too.
+        #
+        # So clean the whole probe tenant, and treat "nothing was created" as a
+        # successful no-op: the helper is idempotent, deleting zero rows is fine.
         if instance_id:
-            await delete_instance(instance_id, temporary_main_id)
+            await delete_instance(instance_id, temporary_tenant_id)
+        await cleanup_failed_setup(temporary_tenant_id)
 
 
 # The public service function name is retained for API compatibility; prevent
@@ -74,11 +89,11 @@ async def inspect_setup_model(payload: dict[str, Any]) -> SetupModelInspection:
 test_setup_model.__test__ = False
 
 
-async def create_setup_model(payload: dict[str, Any], main_id: str) -> str:
+async def create_setup_model(payload: dict[str, Any], tenant_id: str) -> str:
     provider = await _require_provider(str(payload.get("providerId") or ""))
     normalized = _normalize_payload(payload, provider)
     try:
-        return await create_instance({**normalized, "main_id": main_id})
+        return await create_instance({**normalized, "tenant_id": tenant_id})
     except DuplicateKeyError as exc:
         raise SetupModelError("The model configuration already exists.") from exc
 

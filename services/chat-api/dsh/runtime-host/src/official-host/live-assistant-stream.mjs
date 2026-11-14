@@ -4,7 +4,7 @@ function stepKey(turn, step) {
   return `${turn}:${step}`
 }
 
-/** Bridge transient DSH frames into MOVO's cursor-based event stream. */
+/** Bridge transient DSH frames into MOGO's cursor-based event stream. */
 export class LiveAssistantStream {
   #journal
   #attempts = new Map()

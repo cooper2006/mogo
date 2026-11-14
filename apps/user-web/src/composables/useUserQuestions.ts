@@ -23,10 +23,16 @@ export function useUserQuestions(options: Options) {
 
   async function refresh() {
     const currentEpoch = epoch
-    if (!options.active() || (!options.running() && !pending.value.length)) return
+    if (!options.active()) return
     const codeId = options.codeSessionId()
     const conversationId = options.conversationId()
     const token = options.token()
+    // 非运行态会话没有「待定问题」：跳过请求，避免对已完成/空闲会话持续轮询
+    // questions 端点（运行窗口内会 403/404，无 run 时也属无效请求），消除控制台噪音。
+    if (!options.running()) {
+      if (currentEpoch === epoch) pending.value = []
+      return
+    }
     if (!codeId && (!conversationId || !token)) {
       pending.value = []
       return
@@ -35,6 +41,7 @@ export function useUserQuestions(options: Options) {
       const rows = codeId ? await listDshCodeQuestions(codeId) : await listUserQuestions(conversationId!, token!)
       if (currentEpoch === epoch) pending.value = rows
     } catch {
+      // A detached or completed runtime has no pending question. Retry on the next interval.
       if (currentEpoch === epoch) pending.value = []
     }
   }
@@ -62,12 +69,12 @@ export function useUserQuestions(options: Options) {
 
   function schedule() {
     if (timer) clearTimeout(timer)
-    if (!options.active() || (!options.running() && !pending.value.length)) return
+    if (!options.active()) return
     const generation = epoch
     timer = setTimeout(async () => {
       await refresh()
       if (generation === epoch) schedule()
-    }, 1500)
+    }, options.running() || pending.value.length ? 1500 : 8000)
   }
 
   watch(() => [options.active(), options.conversationId(), options.codeSessionId(), options.token(), options.running()], (next, previous) => {

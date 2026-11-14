@@ -11,7 +11,7 @@ CONTEXT_FIELDS = (
     "message_id",
     "session_id",
     "user_id",
-    "main_id",
+    "tenant_id",
     "trace_id",
     "run_id",
     "node_id",

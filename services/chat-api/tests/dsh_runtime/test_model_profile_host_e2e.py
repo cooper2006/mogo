@@ -32,15 +32,14 @@ HOST_ENTRY = CHAT_API_ROOT / "dsh" / "runtime-host" / "src" / "host.mjs"
 CODEX_NODE = Path("/Users/jack/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node")
 
 
-def _supported_node() -> Path | None:
+def _node_22_or_newer() -> Path | None:
     candidates = [Path(value) for value in [shutil.which("node"), CODEX_NODE] if value]
     for candidate in candidates:
         if not candidate.is_file():
             continue
         result = subprocess.run([str(candidate), "--version"], capture_output=True, text=True, check=False)
         try:
-            version = tuple(map(int, result.stdout.strip().removeprefix("v").split(".")[:2]))
-            if version >= (24, 9):
+            if int(result.stdout.strip().removeprefix("v").split(".", 1)[0]) >= 22:
                 return candidate
         except ValueError:
             continue
@@ -67,7 +66,8 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                 if message["role"] == "user"
                 for block in message["content"]
                 if block["type"] == "text"
-                and (str(block["text"]).startswith("hello-") or block["text"] == "[auth-fail]")
+                and not str(block["text"]).startswith("Current runtime context.")
+                and not str(block["text"]).startswith("<system-reminder>")
             )
             if user_text == "[auth-fail]":
                 body = {
@@ -137,9 +137,9 @@ def test_real_dsh_uses_default_and_explicit_immutable_model_profiles(tmp_path: P
 
 
 async def _test_real_dsh_uses_default_and_explicit_immutable_model_profiles(tmp_path: Path) -> None:
-    node = _supported_node()
+    node = _node_22_or_newer()
     if node is None:
-        pytest.skip("Node.js 24.9+ is required for the pinned DSH runtime")
+        pytest.skip("Node.js 22+ is required for the pinned DSH runtime")
 
     token_service = ModelGatewayTokenService("step-3-real-host-signing-secret")
     _GatewayHandler.tokens = token_service
@@ -222,14 +222,16 @@ async def _test_real_dsh_uses_default_and_explicit_immutable_model_profiles(tmp_
         assert all("LONG-LIVED" not in json.dumps(call) for call in _GatewayHandler.calls)
         for call in _GatewayHandler.calls:
             model_messages = call["payload"]["messages"]
+            # DSH 0.2.2-rc.2：受信时间上下文由 <system-reminder> 块承载
+            # （原先以 "Current runtime context." 开头的独立块已合并）。
             snapshots = [
                 block["text"]
                 for message in model_messages
                 for block in message["content"]
-                if block["type"] == "text" and "Trusted time context supplied by MOVO" in str(block["text"])
+                if block["type"] == "text" and str(block["text"]).startswith("<system-reminder>")
             ]
             assert snapshots
-            assert "Trusted time context supplied by MOVO" in snapshots[-1]
+            assert "Trusted time context supplied by MOGO" in snapshots[-1]
             assert "User timezone: UTC" in snapshots[-1]
 
         error_session = handles[0][1]

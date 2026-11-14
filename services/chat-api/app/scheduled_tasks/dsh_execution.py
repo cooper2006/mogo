@@ -7,10 +7,11 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from bson import ObjectId
+from app.core.ids import is_valid_backend_id, to_backend_id
 
+from app.core.config import get_settings
 from app.core.db import get_db
-from app.core.tenant import add_main_scope
+from app.core.tenant import add_tenant_scope
 from app.dsh_runtime.application import dsh_runtime_application
 from app.dsh_runtime.chat_service import DshChatService, PreparedTurn
 from app.dsh_runtime.turn_admission import admit_skill_selection
@@ -45,10 +46,24 @@ class ScheduledDshExecution:
             or output_spec.get("selectedSkillId")
             or ""
         ).strip()
+        # 009 T009：定时任务同样过 PreToolUse 钩子（与会话路径一致）。request 传真实
+        # 上下文，否则 require_field 规则会因空 payload 恒拒绝（001 审计，2026-10-03）。
+        # tool 为轮次动作 dsh_turn；工具级拦截在 EnterpriseToolService._authorize
+        # 用真实 toolName/arguments 求值（2026-10-03 009 修复）。
         selection = await admit_skill_selection(
             tenant_id=tenant_id,
             user_id=user_id,
             selected_skill_id=selected,
+            tool="dsh_turn",
+            request={
+                "job_id": str(job.get("_id") or job.get("id") or ""),
+                "selected_skill_id": selected,
+                "output_spec": output_spec,
+                "conversation_id": str(conversation_id or ""),
+                # 019: per-request harness mode (thick/thin).
+                "harness_mode": str(output_spec.get("harness_mode") or get_settings().HARNESS_MODE or "thick"),
+            },
+            session_id=str(conversation_id or ""),
         )
         chat = self._chat_provider()
         turn = await chat.prepare_turn(
@@ -160,10 +175,10 @@ class ScheduledDshExecution:
     ) -> None:
         now = utc_now()
         db = get_db()
-        if conversation_title and ObjectId.is_valid(turn.conversation_id):
+        if conversation_title and is_valid_backend_id(turn.conversation_id):
             await db.chat_sessions.update_one(
-                add_main_scope(
-                    {"_id": ObjectId(turn.conversation_id), "user_id": user_id}, tenant_id
+                add_tenant_scope(
+                    {"_id": to_backend_id(turn.conversation_id), "user_id": user_id}, tenant_id
                 ),
                 {"$set": {"title": conversation_title[:160], "updated_at": now}},
             )
@@ -173,14 +188,14 @@ class ScheduledDshExecution:
             "scheduled_run_id": str(run.get("run_id") or ""),
         }
         await db.chat_messages.update_one(
-            add_main_scope(
-                {"session_id": ObjectId(turn.conversation_id), "message_id": turn.message_id},
+            add_tenant_scope(
+                {"session_id": to_backend_id(turn.conversation_id), "message_id": turn.message_id},
                 tenant_id,
             ),
             {"$set": schedule_fields},
         )
         await db[RUNS].update_one(
-            {"run_id": str(run.get("run_id") or ""), "main_id": tenant_id, "run_as_user_id": user_id},
+            {"run_id": str(run.get("run_id") or ""), "tenant_id": tenant_id, "run_as_user_id": user_id},
             {"$set": {
                 "status": "running",
                 "session_id": turn.conversation_id,
@@ -190,7 +205,7 @@ class ScheduledDshExecution:
             }},
         )
         await db[JOBS].update_one(
-            {"_id": job["_id"], "main_id": tenant_id},
+            {"_id": job["_id"], "tenant_id": tenant_id},
             {"$set": {
                 "last_run_status": "running",
                 "last_session_id": turn.conversation_id,
@@ -212,8 +227,8 @@ class ScheduledDshExecution:
         now = utc_now()
         db = get_db()
         await db.chat_sessions.update_one(
-            add_main_scope(
-                {"_id": ObjectId(turn.conversation_id), "user_id": user_id}, tenant_id
+            add_tenant_scope(
+                {"_id": to_backend_id(turn.conversation_id), "user_id": user_id}, tenant_id
             ),
             {"$set": {
                 "scheduled_unread": True,
@@ -226,7 +241,7 @@ class ScheduledDshExecution:
             }},
         )
         await db[RUNS].update_one(
-            {"run_id": str(run.get("run_id") or ""), "main_id": tenant_id, "run_as_user_id": user_id},
+            {"run_id": str(run.get("run_id") or ""), "tenant_id": tenant_id, "run_as_user_id": user_id},
             {"$set": {
                 "status": status,
                 "error": str(error)[:1000],
@@ -235,7 +250,7 @@ class ScheduledDshExecution:
             }},
         )
         await db[JOBS].update_one(
-            {"_id": job["_id"], "main_id": tenant_id},
+            {"_id": job["_id"], "tenant_id": tenant_id},
             {"$set": {
                 "last_run_status": status,
                 "last_session_id": turn.conversation_id,

@@ -1,0 +1,89 @@
+# 023 observability-resilience (T011)
+# OTel Collector：接收业务服务的 OTLP（OTLP/gRPC 4317、OTLP/HTTP 4318），
+# 路由到 Tempo（traces）与 Loki（logs）。
+#
+# OQ-2 决策（2026-10-24）：追踪后端 = Tempo，OTel Collector 做 OTLP 接入层。
+# 业务服务侧（Phase 3 T033–T035）把 OTEL_EXPORTER_OTLP_ENDPOINT 指向
+# http://otel-collector:4317（或 4318）即可，这里做协议解耦与路由。
+#
+# 注意：backend 网络是 internal 网络（纯容器内通信），collector 只暴露
+# 给同网络的业务服务，无需宿主可达。
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  # 内部 metrics（collector 自身健康），供 prometheus 抓 otel-collector:8889。
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: otel-collector
+          static_configs:
+            - targets: ["localhost:8889"]
+
+processors:
+  memory_limiter:
+    # 容器内限 OOM；0.70/0.90 为 soft/hard 阈值（相对容器内存上限）。
+    soft_limit_percentage: 70
+    spike_limit_percentage: 30
+  batch:
+    timeout: 5s
+    send_batch_max_size: 110000
+    metadata:
+      cardinality_limit: 5000
+
+exporters:
+  debug:
+    verbosity: basic
+
+  # Tempo OTLP 直连（tempo 提供 /tmp/ 的 OTLP 端点；2.6.x 的 tempo
+  # 支持 OTLP 接收）。
+  tempo:
+    otlp:
+      endpoint: tempo:4317
+      tls:
+        insecure: true
+
+  # Loki：trace span 转日志（OQ-1 决策：日志后端 = Loki）。
+  # Phase 4 之后业务 JSON 日志也会经 collector 进 Loki（T025–T030 落地
+  # 时把 pipeline 的 logs 接上 collector logs receiver），这里先做
+  # span -> Loki log line，让 Tempo 查询侧可用 trace_id 反查。
+  loki:
+    endpoint: http://loki:3100/loki/api/v1/push
+    tenant_id: mogo
+    tls:
+      insecure: true
+    external_labels:
+      stack: mogo
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [tempo]
+
+    # 把 trace 摘要写成日志行推 Loki（trace -> log 互跳，023 T041）；
+    # 调试期保留 debug exporter。
+    trace-logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [loki, debug]
+
+    # 业务日志（logs receiver 尚未在 receivers 里启用，Phase 4 T025–T030
+    # 落地 structured logging 后追加 `otlp` 到下面 pipelines.logs.receivers，
+    # 或新增 logs 专用 receiver 段）。
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [loki]
+
+    # Collector 自身 metrics（/metrics 8889 由 prometheus job 抓取，
+    # 同时再推给 Tempo 的自身 metrics 能力暂不需要，保持最小化）。
+    metrics:
+      receivers: [prometheus]
+      processors: [memory_limiter, batch]
+      exporters: [debug]

@@ -1,121 +1,123 @@
 <script setup lang="ts">
-import KnowledgeMentionPicker from './knowledge/KnowledgeMentionPicker.vue'
-import KnowledgeReferenceChips from './knowledge/KnowledgeReferenceChips.vue'
-import { useKnowledgeMentions } from './knowledge/useKnowledgeMentions'
-import type { KnowledgeReference } from '../../api/knowledgeReferences'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { ChatModelOption } from '../../api/models'
-import { useComposerSkillPicker } from './useComposerSkillPicker'
-import { fetchKnowledgeSourceSummary, type KnowledgeSourceSummary } from '../../api/knowledgeSource'
+import { fetchSelectableSkills, type SelectableSkillItem, type SelectableSkillPage } from '../../api/skills'
+import { fetchPortalEmployees, type PortalEmployeeItem } from '../../api/employees'
 import { t, useLocale } from '../../composables/i18n'
-import type { PendingDocument } from './types'
-import { useComposerAttachments } from './useComposerAttachments'
-import { NModal, useMessage } from 'naive-ui'
+import type { ChatDocumentKind, PendingDocument } from './types'
+import { NModal } from 'naive-ui'
 import SkillFeedbackPanel from '../skills/SkillFeedbackPanel.vue'
 import ComposerActionButton from './ComposerActionButton.vue'
-import ComposerAttachmentPreviews from './ComposerAttachmentPreviews.vue'
-import ComposerSkillPicker from './ComposerSkillPicker.vue'
-import ComposerModelPicker from './ComposerModelPicker.vue'
-import ComposerAttachmentMenu from './ComposerAttachmentMenu.vue'
-import ComposerSelections from './ComposerSelections.vue'
-import { useComposerAutofocus } from '../../composables/useComposerAutofocus'
+
+interface PendingImage {
+  file: File
+  previewUrl: string
+}
 
 const props = defineProps<{
   running: boolean
-  blocked?: boolean
   stopping?: boolean
-  active: boolean
   isNewSessionView: boolean
-  welcomeTitle: string
   chatModels: ChatModelOption[]
   selectedModelId: string
   modelSelectorLabel: string
   modelLoadError?: string
   docIcon: (type: string) => string
   userId?: string
-  mainId?: string
+  tenantId?: string
   allowKnowledge?: boolean
   allowSkills?: boolean
 }>()
 
 const emit = defineEmits<{
-  (e: 'send', payload: { text: string; images: File[]; documents: PendingDocument[]; knowledgeQaEnabled: boolean; knowledgeReferences?: KnowledgeReference[]; selectedSkillId?: string; modelId?: string; onRejected?: () => void }): void
+  (e: 'send', payload: { text: string; images: File[]; documents: PendingDocument[]; knowledgeQaEnabled: boolean; selectedSkillId?: string; modelId?: string; employeeId?: string }): void
   (e: 'stop'): void
   (e: 'select-model', modelId: string): void
   (e: 'image-preview', payload: { src: string; alt: string }): void
-  (e: 'document-preview', document: PendingDocument): void
-  (e: 'knowledge-source', source: KnowledgeSourceSummary): void
 }>()
 
 const { locale } = useLocale()
-const message = useMessage()
 
 const userInput = ref('')
 const composerInputRef = ref<HTMLTextAreaElement | null>(null)
-const autofocusEnabled = computed(() => props.active && !props.running && !props.blocked)
-useComposerAutofocus(composerInputRef, autofocusEnabled)
+const pendingImages = ref<PendingImage[]>([])
+const pendingDocuments = ref<PendingDocument[]>([])
+const imageInputRef = ref<HTMLInputElement | null>(null)
+const documentInputRef = ref<HTMLInputElement | null>(null)
 const attachmentMenuOpen = ref(false)
-const attachmentMenuRef = ref<InstanceType<typeof ComposerAttachmentMenu> | null>(null)
+const attachmentMenuRef = ref<HTMLElement | null>(null)
 const knowledgeQaEnabled = ref(false)
-const knowledgeSource = ref<KnowledgeSourceSummary>({ mode: 'movo', displayName: '' })
-const knowledgeLabel = computed(() => knowledgeSource.value.mode === 'external'
-  ? t('chat.external_knowledge_name', { name: knowledgeSource.value.displayName })
-  : t('chat.knowledge_qa'))
-async function refreshKnowledgeSource() {
-  if (!props.userId) return
-  try {
-    const source = await fetchKnowledgeSourceSummary()
-    if (!props.userId) return
-    knowledgeSource.value = source
-    emit('knowledge-source', source)
-  } catch { /* retain the last known source label during a transient request failure */ }
-}
 const modelDropdownOpen = ref(false)
-const modelSelectorRef = ref<InstanceType<typeof ComposerModelPicker> | null>(null)
+const modelSelectorRef = ref<HTMLElement | null>(null)
+// 模型下拉面板：Teleport 到 body 最外层渲染，避免被 ChatWindow 的 overflow-hidden 裁剪；
+// 位置用 fixed 基于触发按钮 rect 计算，列表过长时启用滚动条。
+const modelDropdownPanelRef = ref<HTMLElement | null>(null)
+const modelDropdownPanelStyle = ref<Record<string, string>>({})
+const skillPickerOpen = ref(false)
+const skillPickerLoading = ref(false)
+const skillPickerLoadingMore = ref(false)
+const skillPickerScope = ref<'all' | 'user' | 'organization'>('all')
+const skillPickerKeyword = ref('')
+const skillPickerCursor = ref('')
+const skillPickerHasMore = ref(false)
+const skillPickerItems = ref<SelectableSkillItem[]>([])
+const activeSkillIndex = ref(-1)
+const selectedSkill = ref<SelectableSkillItem | null>(null)
 const organizationFeedbackVisible = ref(false)
-const skillPickerRef = ref<InstanceType<typeof ComposerSkillPicker> | null>(null)
+const skillPickerRef = ref<HTMLElement | null>(null)
+const skillTriggerRange = ref<{ start: number; end: number } | null>(null)
 const isComposingText = ref(false)
-const {
-  open: skillPickerOpen, loading: skillPickerLoading, loadingMore: skillPickerLoadingMore,
-  scope: skillPickerScope, hasMore: skillPickerHasMore, items: skillPickerItems,
-  activeIndex: activeSkillIndex, selectedSkill, close: closeSkillPicker,
-  openPicker: openSkillPicker, handleInput: handleComposerInput,
-  load: loadSelectableSkills, setScope: setSkillPickerScope, select: selectSkill,
-  moveActive: moveActiveSkill, selectActive: selectActiveSkill,
-  onScroll: onSkillPickerScroll, selectShortcutSkill,
-} = useComposerSkillPicker({
-  userId: () => props.userId, mainId: () => props.mainId,
-  allowSkills: () => props.allowSkills,
-  allowPluginEntries: () => true,
-  running: () => props.running,
-  input: userInput, inputElement: composerInputRef,
-  pickerElement: () => skillPickerRef.value?.root,
-  closeAttachmentMenu, resizeInput: autoResizeComposerInput,
-})
-const mentions = useKnowledgeMentions({
-  input: userInput, element: composerInputRef, userId: () => props.userId, mainId: () => props.mainId,
-  allowed: () => props.allowKnowledge !== false && !props.running && !props.blocked,
-  onOpen: () => { closeSkillPicker(); closeAttachmentMenu() }, resize: autoResizeComposerInput, onLimit: () => message.warning(t('knowledgeMention.limit')),
-})
-function onComposerInput() {
-  handleComposerInput()
-  if (!isComposingText.value) mentions.handleInput()
+let skillPickerRequestSeq = 0
+let skillPickerSearchTimer: ReturnType<typeof setTimeout> | null = null
+
+// 051 FR-003：员工选择器（仅新会话可见；数据源 GET /api/employees 可用项）。
+const employeeOptions = ref<PortalEmployeeItem[]>([])
+const employeeLoading = ref(false)
+const selectedEmployeeId = ref<string | null>(null)
+const employeePickerOpen = ref(false)
+const employeePickerRef = ref<HTMLElement | null>(null)
+let employeeLoadSeq = 0
+
+async function loadEmployeeOptions() {
+  if (!props.userId || !props.isNewSessionView) return
+  const seq = ++employeeLoadSeq
+  employeeLoading.value = true
+  try {
+    const page = await fetchPortalEmployees()
+    if (seq !== employeeLoadSeq) return
+    employeeOptions.value = page.items.filter((item) => item.available === true)
+  } catch {
+    if (seq === employeeLoadSeq) employeeOptions.value = []
+  } finally {
+    if (seq === employeeLoadSeq) employeeLoading.value = false
+  }
 }
-const {
-  pendingImages, pendingDocuments, imageInputRef, documentInputRef,
-  revokePendingImage, removePendingImage, removePendingDocument,
-  onImageSelected, onDocumentSelected, onComposerPaste,
-} = useComposerAttachments({
-  running: () => props.running,
-  onUnsupportedFiles: names => message.error(t('composer.unsupportedFiles', {
-    names: names.join(locale.value === 'zh' ? '、' : ', '),
-  })),
-  onImagePasted: () => {
-    closeSkillPicker()
-    closeAttachmentMenu()
-  },
-  focusInput: () => composerInputRef.value?.focus(),
+
+function toggleEmployeePicker() {
+  if (props.running) return
+  employeePickerOpen.value = !employeePickerOpen.value
+  if (employeePickerOpen.value && !employeeOptions.value.length) void loadEmployeeOptions()
+}
+
+function selectEmployee(id: string | null) {
+  selectedEmployeeId.value = id
+  employeePickerOpen.value = false
+}
+
+function clearSelectedEmployee() {
+  selectedEmployeeId.value = null
+}
+
+const selectedEmployeeName = computed(() => {
+  const item = employeeOptions.value.find((entry) => entry.id === selectedEmployeeId.value)
+  return item ? item.name : t('chat.employee.none')
 })
+
+const skillScopeOptions = computed<Array<{ key: 'all' | 'user' | 'organization'; label: string }>>(() => [
+  { key: 'all', label: locale.value === 'zh' ? '全部' : 'All' },
+  { key: 'user', label: locale.value === 'zh' ? '我的' : 'Mine' },
+  { key: 'organization', label: locale.value === 'zh' ? '企业' : 'Org' },
+])
 
 function autoResizeComposerInput() {
   const el = composerInputRef.value
@@ -130,8 +132,22 @@ function resetComposerInputHeight() {
   el.style.height = ''
 }
 
+function revokePendingImage(url: string) {
+  try {
+    URL.revokeObjectURL(url)
+  } catch {
+    // ignore
+  }
+}
+
 function closeAttachmentMenu() {
   attachmentMenuOpen.value = false
+}
+
+function closeSkillPicker() {
+  skillPickerOpen.value = false
+  activeSkillIndex.value = -1
+  skillTriggerRange.value = null
 }
 
 function toggleAttachmentMenu() {
@@ -158,7 +174,6 @@ function selectDocumentAttachment() {
 
 function toggleKnowledgeQa() {
   if (props.allowKnowledge === false) return
-  void refreshKnowledgeSource()
   knowledgeQaEnabled.value = !knowledgeQaEnabled.value
   closeAttachmentMenu()
 }
@@ -173,9 +188,94 @@ function enableKnowledgeQa() {
   closeAttachmentMenu()
 }
 
+function removePendingImage(index: number) {
+  const item = pendingImages.value[index]
+  if (!item) return
+  revokePendingImage(item.previewUrl)
+  pendingImages.value.splice(index, 1)
+}
+
+function removePendingDocument(index: number) {
+  pendingDocuments.value.splice(index, 1)
+}
+
+function detectDocumentType(file: File): ChatDocumentKind | null {
+  const name = String(file.name || '').toLowerCase()
+  if (name.endsWith('.pdf')) return 'pdf'
+  if (name.endsWith('.docx') || name.endsWith('.doc')) return 'docx'
+  if (name.endsWith('.pptx') || name.endsWith('.ppt')) return 'pptx'
+  if (name.endsWith('.md')) return 'md'
+  if (name.endsWith('.txt')) return 'txt'
+  if (name.endsWith('.xlsx') || name.endsWith('.xlsm') || name.endsWith('.xls')) return 'xlsx'
+  if (name.endsWith('.csv') || name.endsWith('.tsv')) return 'xlsx'
+  return null
+}
+
+function addImageFiles(files: File[]) {
+  for (const file of files) {
+    if (!(file.type || '').startsWith('image/')) continue
+    const previewUrl = URL.createObjectURL(file)
+    pendingImages.value.push({ file, previewUrl })
+  }
+}
+
+function onImageSelected(event: Event) {
+  const input = event.target as HTMLInputElement
+  if (!input.files || input.files.length === 0) return
+  addImageFiles(Array.from(input.files))
+  input.value = ''
+}
+
+function onComposerPaste(event: ClipboardEvent) {
+  if (props.running) return
+  const items = Array.from(event.clipboardData?.items || [])
+  const imageFiles = items
+    .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => Boolean(file))
+  if (imageFiles.length === 0) return
+  event.preventDefault()
+  closeSkillPicker()
+  closeAttachmentMenu()
+  addImageFiles(imageFiles)
+  nextTick(() => {
+    composerInputRef.value?.focus()
+  })
+}
+
+function onDocumentSelected(event: Event) {
+  const input = event.target as HTMLInputElement
+  if (!input.files || input.files.length === 0) return
+  const files = Array.from(input.files)
+  for (const file of files) {
+    const kind = detectDocumentType(file)
+    if (!kind) continue
+    pendingDocuments.value.push({ file, kind })
+  }
+  input.value = ''
+}
+
 function toggleModelDropdown() {
   if (props.running) return
   modelDropdownOpen.value = !modelDropdownOpen.value
+  if (modelDropdownOpen.value) {
+    nextTick(() => positionModelDropdownPanel())
+  }
+}
+
+function positionModelDropdownPanel() {
+  const anchor = modelSelectorRef.value
+  if (!anchor) return
+  const rect = anchor.getBoundingClientRect()
+  const gap = 10
+  // 向上弹出（composer 位于窗口底部），右缘与触发按钮对齐。
+  const bottom = Math.max(8, window.innerHeight - rect.top + gap)
+  const right = Math.max(8, window.innerWidth - rect.right)
+  modelDropdownPanelStyle.value = { bottom: `${bottom}px`, right: `${right}px` }
+}
+
+function onWindowReposition() {
+  if (modelDropdownOpen.value) positionModelDropdownPanel()
 }
 
 function selectChatModel(modelId: string) {
@@ -186,15 +286,21 @@ function selectChatModel(modelId: string) {
 function onGlobalPointerDown(event: Event) {
   const target = event.target as Node | null
   if (!target) return
-  const attachmentRoot = attachmentMenuRef.value?.root
+  const attachmentRoot = attachmentMenuRef.value
   if (attachmentMenuOpen.value && attachmentRoot && !attachmentRoot.contains(target)) {
     closeAttachmentMenu()
   }
-  const modelRoot = modelSelectorRef.value?.root
-  if (modelDropdownOpen.value && modelRoot && !modelRoot.contains(target)) {
+  const modelRoot = modelSelectorRef.value
+  const modelPanel = modelDropdownPanelRef.value
+  if (
+    modelDropdownOpen.value &&
+    modelRoot &&
+    !modelRoot.contains(target) &&
+    !(modelPanel && modelPanel.contains(target))
+  ) {
     modelDropdownOpen.value = false
   }
-  const pickerRoot = skillPickerRef.value?.root
+  const pickerRoot = skillPickerRef.value
   const inputRoot = composerInputRef.value
   if (
     skillPickerOpen.value &&
@@ -205,6 +311,167 @@ function onGlobalPointerDown(event: Event) {
   ) {
     closeSkillPicker()
   }
+  const employeeRoot = employeePickerRef.value
+  if (employeePickerOpen.value && employeeRoot && !employeeRoot.contains(target)) {
+    employeePickerOpen.value = false
+  }
+}
+
+function skillTypeLabel(type: SelectableSkillItem['type']) {
+  if (type === 'workflow') return locale.value === 'zh' ? '工作流' : 'Workflow'
+  if (type === 'ordinary') return locale.value === 'zh' ? '普通 Skill' : 'Standard Skill'
+  if (type === 'expert_package') return locale.value === 'zh' ? '专家包' : 'Expert Package'
+  return locale.value === 'zh' ? '写作规范' : 'Writing'
+}
+
+function skillSourceLabel(source: SelectableSkillItem['sourceScope']) {
+  if (source === 'organization') return locale.value === 'zh' ? '企业' : 'Org'
+  return locale.value === 'zh' ? '我的' : 'Mine'
+}
+
+function normalizeSlashKeyword(value: string, cursor = value.length) {
+  const text = String(value || '')
+  const beforeCursor = text.slice(0, Math.max(0, cursor))
+  const slashIndex = beforeCursor.lastIndexOf('/')
+  if (slashIndex < 0) return null
+  const beforeSlash = slashIndex > 0 ? beforeCursor[slashIndex - 1] : ''
+  if (beforeSlash && !/\s/.test(beforeSlash)) return null
+  const rawKeyword = beforeCursor.slice(slashIndex + 1)
+  if (/\s/.test(rawKeyword)) return null
+  skillTriggerRange.value = { start: slashIndex, end: cursor }
+  return rawKeyword.trim()
+}
+
+/** 是否允许继续拉取技能列表；reset 时先清空游标与"还有更多"标记再放行。 */
+function canLoadMoreSkills(reset: boolean): boolean {
+  if (reset) {
+    skillPickerCursor.value = ''
+    skillPickerHasMore.value = false
+    return true
+  }
+  return skillPickerHasMore.value && !skillPickerLoadingMore.value
+}
+
+function markSkillPickerLoading(reset: boolean): void {
+  if (reset) skillPickerLoading.value = true
+  else skillPickerLoadingMore.value = true
+}
+
+function clearSkillPickerLoading(): void {
+  skillPickerLoading.value = false
+  skillPickerLoadingMore.value = false
+}
+
+/** 合并一页技能结果并校正键盘高亮位置：reset 从头开始，翻页则追加到末尾。 */
+function applySkillPage(page: SelectableSkillPage, reset: boolean): void {
+  skillPickerItems.value = reset ? page.items : [...skillPickerItems.value, ...page.items]
+  skillPickerCursor.value = page.nextCursor
+  skillPickerHasMore.value = page.hasMore
+  if (reset) {
+    activeSkillIndex.value = page.items.length > 0 ? 0 : -1
+  } else if (activeSkillIndex.value >= skillPickerItems.value.length) {
+    activeSkillIndex.value = skillPickerItems.value.length > 0 ? skillPickerItems.value.length - 1 : -1
+  }
+}
+
+/** 拉取失败时的状态回收：reset 清空已加载项，翻页则只收起"还有更多"标记。 */
+function applySkillPageError(reset: boolean): void {
+  if (reset) skillPickerItems.value = []
+  skillPickerHasMore.value = false
+  if (reset) activeSkillIndex.value = -1
+}
+
+async function loadSelectableSkills(reset = false) {
+  if (!props.userId) return
+  if (!canLoadMoreSkills(reset)) return
+  const requestId = ++skillPickerRequestSeq
+  markSkillPickerLoading(reset)
+  try {
+    const page = await fetchSelectableSkills({
+      userId: props.userId,
+      tenantId: props.tenantId || 'default',
+      scope: skillPickerScope.value,
+      keyword: skillPickerKeyword.value,
+      cursor: reset ? '' : skillPickerCursor.value,
+      limit: 20,
+    })
+    if (requestId === skillPickerRequestSeq) applySkillPage(page, reset)
+  } catch {
+    if (requestId === skillPickerRequestSeq) applySkillPageError(reset)
+  } finally {
+    if (requestId === skillPickerRequestSeq) clearSkillPickerLoading()
+  }
+}
+
+function scheduleSkillPickerSearch(keyword: string) {
+  skillPickerKeyword.value = keyword
+  if (skillPickerSearchTimer) clearTimeout(skillPickerSearchTimer)
+  skillPickerSearchTimer = setTimeout(() => {
+    loadSelectableSkills(true)
+  }, 180)
+}
+
+function openSkillPicker(keyword = '') {
+  if (props.allowSkills === false || !props.userId || props.running) return
+  skillPickerOpen.value = true
+  closeAttachmentMenu()
+  scheduleSkillPickerSearch(keyword)
+}
+
+function handleComposerInput() {
+  autoResizeComposerInput()
+  const keyword = normalizeSlashKeyword(userInput.value, composerInputRef.value?.selectionStart ?? userInput.value.length)
+  if (keyword === null) {
+    closeSkillPicker()
+    return
+  }
+  openSkillPicker(keyword)
+}
+
+function setSkillPickerScope(scope: 'all' | 'user' | 'organization') {
+  if (skillPickerScope.value === scope) return
+  skillPickerScope.value = scope
+  loadSelectableSkills(true)
+}
+
+function selectSkill(skill: SelectableSkillItem) {
+  selectedSkill.value = skill
+  const range = skillTriggerRange.value
+  if (range) {
+    userInput.value = `${userInput.value.slice(0, range.start)}${userInput.value.slice(range.end)}`
+  } else if (userInput.value.trim().startsWith('/')) {
+    userInput.value = ''
+  }
+  closeSkillPicker()
+  nextTick(() => {
+    autoResizeComposerInput()
+    composerInputRef.value?.focus()
+  })
+}
+
+function scrollActiveSkillIntoView() {
+  nextTick(() => {
+    const root = skillPickerRef.value
+    if (!root || activeSkillIndex.value < 0) return
+    const el = root.querySelector<HTMLElement>(`[data-skill-index="${activeSkillIndex.value}"]`)
+    el?.scrollIntoView({ block: 'nearest' })
+  })
+}
+
+function moveActiveSkill(delta: number) {
+  const total = skillPickerItems.value.length
+  if (total <= 0) {
+    activeSkillIndex.value = -1
+    return
+  }
+  const current = activeSkillIndex.value < 0 ? (delta > 0 ? -1 : 0) : activeSkillIndex.value
+  activeSkillIndex.value = (current + delta + total) % total
+  scrollActiveSkillIntoView()
+}
+
+function selectActiveSkill() {
+  const skill = skillPickerItems.value[activeSkillIndex.value] || skillPickerItems.value[0]
+  if (skill) selectSkill(skill)
 }
 
 function onComposerCompositionStart() {
@@ -213,7 +480,6 @@ function onComposerCompositionStart() {
 
 function onComposerCompositionEnd() {
   isComposingText.value = false
-  mentions.handleInput()
 }
 
 function isImeCompositionKey(event: KeyboardEvent) {
@@ -224,11 +490,18 @@ function clearSelectedSkill() {
   selectedSkill.value = null
 }
 
+function onSkillPickerScroll(event: Event) {
+  const el = event.currentTarget as HTMLElement | null
+  if (!el || skillPickerLoading.value || skillPickerLoadingMore.value || !skillPickerHasMore.value) return
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 24) {
+    loadSelectableSkills(false)
+  }
+}
+
 function onComposerKeydown(event: KeyboardEvent) {
   if (isImeCompositionKey(event)) {
     return
   }
-  if (mentions.keydown(event)) return
   if (skillPickerOpen.value) {
     if (event.key === 'ArrowDown') {
       event.preventDefault()
@@ -257,7 +530,6 @@ function onComposerKeydown(event: KeyboardEvent) {
 }
 
 async function sendMessage() {
-  if (props.blocked) return
   if (props.running) {
     if (props.stopping) return
     emit('stop')
@@ -269,17 +541,9 @@ async function sendMessage() {
   const hasSelectedSkill = !!selectedSkill.value
   if (!hasText && !hasImages && !hasDocuments && !hasSelectedSkill) return
 
-  const rawText = userInput.value
-  const knowledgeRefs = [...mentions.selected.value]
-  mentions.close()
-  mentions.selected.value = []
+  const text = userInput.value
   const imageFiles = pendingImages.value.map((item) => item.file)
-  const documentFiles = pendingDocuments.value.map((item) => ({ ...item }))
-  const skill = selectedSkill.value
-  const text = skill?.entryKind === 'command'
-    ? `/${skill.name}${rawText.trim() ? ` ${rawText.trim()}` : ''}`
-    : rawText
-  const knowledgeEnabled = knowledgeQaEnabled.value
+  const documentFiles = pendingDocuments.value.map((item) => ({ file: item.file, kind: item.kind }))
   closeAttachmentMenu()
   userInput.value = ''
   await nextTick()
@@ -289,25 +553,17 @@ async function sendMessage() {
   }
   pendingImages.value = []
   pendingDocuments.value = []
-  selectedSkill.value = null
   emit('send', {
     text,
-    knowledgeReferences: knowledgeRefs,
     images: imageFiles,
     documents: documentFiles,
     knowledgeQaEnabled: knowledgeQaEnabled.value,
-    selectedSkillId: skill?.id || undefined,
+    selectedSkillId: selectedSkill.value?.id || undefined,
     modelId: props.selectedModelId || undefined,
-    onRejected: () => {
-      userInput.value = userInput.value ? `${rawText}\n\n${userInput.value}` : rawText
-      pendingImages.value.push(...imageFiles.map((file) => ({ file, previewUrl: URL.createObjectURL(file) })))
-      pendingDocuments.value.push(...documentFiles)
-      mentions.selected.value = [...knowledgeRefs, ...mentions.selected.value]
-      if (!selectedSkill.value) selectedSkill.value = skill
-      knowledgeQaEnabled.value = knowledgeEnabled
-      void nextTick(() => { autoResizeComposerInput(); composerInputRef.value?.focus() })
-    },
+    employeeId: selectedEmployeeId.value || undefined,
   })
+  selectedSkill.value = null
+  selectedEmployeeId.value = null
 }
 
 function openPendingImagePreview(src: string, alt: string) {
@@ -321,6 +577,25 @@ async function setTextAndFocus(text: string) {
   composerInputRef.value?.focus()
 }
 
+async function selectShortcutSkill(skillId: string, label: string): Promise<boolean> {
+  if (!props.userId || props.allowSkills === false || props.running) return false
+  const page = await fetchSelectableSkills({
+    userId: props.userId,
+    tenantId: props.tenantId || 'default',
+    keyword: label,
+    limit: 50,
+  })
+  const skill = page.items.find(item => sameSkillId(item.id, skillId))
+  if (!skill) return false
+  selectSkill(skill)
+  return true
+}
+
+function sameSkillId(left: string, right: string): boolean {
+  const normalize = (value: string) => value.startsWith('org_skill:') ? value.slice('org_skill:'.length) : value
+  return normalize(left) === normalize(right)
+}
+
 defineExpose({
   enableKnowledgeQa,
   setTextAndFocus,
@@ -329,27 +604,48 @@ defineExpose({
 
 onMounted(() => {
   document.addEventListener('pointerdown', onGlobalPointerDown)
-  void refreshKnowledgeSource()
+  window.addEventListener('resize', onWindowReposition)
+  window.addEventListener('scroll', onWindowReposition, true)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', onGlobalPointerDown)
+  window.removeEventListener('resize', onWindowReposition)
+  window.removeEventListener('scroll', onWindowReposition, true)
+  if (skillPickerSearchTimer) clearTimeout(skillPickerSearchTimer)
+  for (const item of pendingImages.value) {
+    revokePendingImage(item.previewUrl)
+  }
+  pendingDocuments.value = []
 })
 
 watch(() => props.userId, () => {
-  knowledgeSource.value = { mode: 'movo', displayName: '' }
-  void refreshKnowledgeSource()
+  closeSkillPicker()
+  selectedSkill.value = null
+  skillPickerItems.value = []
+  selectedEmployeeId.value = null
+  employeeOptions.value = []
 })
 
-watch(() => props.allowKnowledge, (allowed) => {
-  if (allowed === false) {
-    knowledgeQaEnabled.value = false
-    for (const item of [...mentions.selected.value]) mentions.remove(item)
-    mentions.close()
+watch(() => props.isNewSessionView, (isNew) => {
+  if (isNew) {
+    void loadEmployeeOptions()
+  } else {
+    employeePickerOpen.value = false
+    selectedEmployeeId.value = null
   }
 })
 
+watch(() => props.allowKnowledge, (allowed) => {
+  if (allowed === false) knowledgeQaEnabled.value = false
+})
 
+watch(() => props.allowSkills, (allowed) => {
+  if (allowed !== false) return
+  closeSkillPicker()
+  selectedSkill.value = null
+  skillPickerItems.value = []
+})
 </script>
 
 <template>
@@ -364,7 +660,7 @@ watch(() => props.allowKnowledge, (allowed) => {
   <input
     ref="documentInputRef"
     type="file"
-    accept=".pdf,.doc,.docx,.ppt,.pptx,.md,.txt,.html,.htm,.xlsx,.xlsm,.csv,.tsv,.xls"
+    accept=".pdf,.doc,.docx,.ppt,.pptx,.md,.txt,.xlsx,.xlsm,.csv,.tsv,.xls"
     multiple
     class="hidden"
     @change="onDocumentSelected"
@@ -377,96 +673,348 @@ watch(() => props.allowKnowledge, (allowed) => {
   >
     <div class="max-w-4xl mx-auto">
       <div v-if="isNewSessionView" class="mb-6 text-center text-4xl font-semibold text-slate-800">
-        {{ welcomeTitle }}
+        {{ t('chat.welcome_title') }}
       </div>
-      <ComposerAttachmentPreviews
-        :images="pendingImages"
-        :documents="pendingDocuments"
-        :doc-icon="docIcon"
-        @image-preview="openPendingImagePreview"
-        @document-preview="emit('document-preview', $event)"
-        @remove-image="removePendingImage"
-        @remove-document="removePendingDocument"
-      />
-      <KnowledgeReferenceChips :items="mentions.selected.value" removable @remove="mentions.remove" />
-      <ComposerSelections
-        :knowledge-qa-enabled="knowledgeQaEnabled"
-        :knowledge-label="knowledgeLabel"
-        :selected-skill="selectedSkill"
-        @disable-knowledge="disableKnowledgeQa"
-        @clear-skill="clearSelectedSkill"
-        @show-feedback="organizationFeedbackVisible = true"
-      />
+      <div v-if="pendingImages.length" class="mb-2 flex flex-wrap gap-2">
+        <div
+          v-for="(item, idx) in pendingImages"
+          :key="`${item.file.name}-${idx}`"
+          class="relative"
+        >
+          <img
+            :src="item.previewUrl"
+            :alt="item.file.name"
+            class="h-16 w-24 cursor-zoom-in rounded-lg border border-gray-200 object-cover"
+            @click="openPendingImagePreview(item.previewUrl, item.file.name)"
+          />
+          <button
+            class="absolute -right-1 -top-1 h-5 w-5 rounded-full bg-black/70 text-xs text-white"
+            @click="removePendingImage(idx)"
+          >
+            x
+          </button>
+        </div>
+      </div>
+      <div v-if="pendingDocuments.length" class="mb-2 flex flex-wrap gap-2">
+        <div
+          v-for="(item, idx) in pendingDocuments"
+          :key="`${item.file.name}-${idx}`"
+          class="relative flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm"
+        >
+          <img :src="docIcon(item.kind)" :alt="item.kind" class="h-8 w-8 object-contain" />
+          <div class="max-w-[180px]">
+            <div class="truncate text-sm font-medium text-slate-700">{{ item.file.name }}</div>
+            <div class="text-xs text-slate-400">{{ item.kind.toUpperCase() }}</div>
+          </div>
+          <button
+            class="absolute -right-1 -top-1 h-5 w-5 rounded-full bg-black/70 text-xs text-white"
+            @click="removePendingDocument(idx)"
+          >
+            x
+          </button>
+        </div>
+      </div>
+      <div v-if="knowledgeQaEnabled" class="mb-2 flex flex-wrap gap-2">
+        <button
+          type="button"
+          class="inline-flex min-h-9 items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 text-sm font-medium text-blue-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-100"
+          @click="disableKnowledgeQa"
+        >
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"></path>
+            <path d="M9 9a3 3 0 0 1 6 0c0 2-3 2-3 4"></path>
+            <path d="M12 17h.01"></path>
+          </svg>
+          <span>{{ t('chat.knowledge_qa_active') }}</span>
+          <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+            <path d="M18 6 6 18"></path>
+            <path d="m6 6 12 12"></path>
+          </svg>
+        </button>
+      </div>
+      <div v-if="selectedSkill" class="mb-2 flex flex-wrap gap-2">
+        <button
+          type="button"
+          class="inline-flex min-h-9 max-w-full items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 text-sm font-medium text-indigo-700 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-100"
+          :title="selectedSkill.name"
+          @click="clearSelectedSkill"
+        >
+          <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3l7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V7l7-4z"></path>
+            <path d="M9 12l2 2 4-5"></path>
+          </svg>
+          <span class="shrink-0">{{ locale === 'zh' ? '已选择' : 'Selected' }}</span>
+          <span class="min-w-0 truncate">{{ selectedSkill.name }}</span>
+          <span class="shrink-0 rounded-full bg-white/70 px-1.5 py-0.5 text-[11px] text-indigo-600">{{ skillSourceLabel(selectedSkill.sourceScope) }}</span>
+          <svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+            <path d="M18 6 6 18"></path>
+            <path d="m6 6 12 12"></path>
+          </svg>
+        </button>
+        <button v-if="selectedSkill.sourceScope === 'organization'" type="button" class="inline-flex min-h-9 items-center rounded-full border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:bg-slate-50" @click="organizationFeedbackVisible = true">
+          {{ t('skills.feedback.title') }}
+        </button>
+      </div>
+      <div v-if="isNewSessionView" class="composer-employee-row">
+        <div ref="employeePickerRef" class="relative">
+          <button
+            type="button"
+            class="inline-flex min-h-9 max-w-full items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 text-sm font-medium text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-100"
+            :disabled="running"
+            :title="t('chat.employee.picker_title')"
+            @click="toggleEmployeePicker"
+          >
+            <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path>
+              <circle cx="10" cy="7" r="4"></circle>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+            </svg>
+            <span class="shrink-0">{{ t('chat.employee.label') }}</span>
+            <span v-if="selectedEmployeeId" class="min-w-0 truncate">{{ selectedEmployeeName }}</span>
+            <span v-else class="text-emerald-500">{{ t('chat.employee.none') }}</span>
+            <svg v-if="selectedEmployeeId" class="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" @click.stop="clearSelectedEmployee">
+              <path d="M18 6 6 18"></path>
+              <path d="m6 6 12 12"></path>
+            </svg>
+          </button>
+          <div
+            v-if="employeePickerOpen"
+            class="absolute bottom-[calc(100%+10px)] left-0 z-30 w-[320px] max-w-[calc(100vw-40px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/12"
+          >
+            <div class="border-b border-slate-100 px-3 py-2 text-sm font-semibold text-slate-800">{{ t('chat.employee.picker_title') }}</div>
+            <div v-if="employeeLoading" class="px-4 py-8 text-center text-sm text-slate-400">{{ t('chat.employee.loading') }}</div>
+            <template v-else>
+              <button
+                v-for="item in employeeOptions"
+                :key="item.id"
+                type="button"
+                class="flex w-full items-center gap-2 px-3 py-2.5 text-left transition hover:bg-slate-50"
+                :class="selectedEmployeeId === item.id ? 'bg-emerald-50/70' : ''"
+                @click="selectEmployee(item.id)"
+              >
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate text-sm font-medium text-slate-800">{{ item.name }}</span>
+                  <span v-if="item.description" class="block truncate text-xs text-slate-500">{{ item.description }}</span>
+                </span>
+                <svg v-if="selectedEmployeeId === item.id" class="h-4 w-4 shrink-0 text-emerald-600" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                  <path d="M5 10.5l3 3L15 6.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </button>
+              <div v-if="!employeeOptions.length" class="px-4 py-6 text-center text-sm text-slate-400">{{ t('chat.employee.empty') }}</div>
+            </template>
+          </div>
+        </div>
+      </div>
       <div class="composer-context-slot"><slot name="context" /></div>
       <div class="composer-card relative flex w-full flex-col border border-gray-200 bg-white px-3 pb-1.5 pt-2.5 rounded-2xl shadow-xl focus-within:ring-1 focus-within:ring-black/5 focus-within:border-gray-300 transition-all duration-300">
-        <ComposerSkillPicker
+        <div
           v-if="skillPickerOpen"
           ref="skillPickerRef"
-          :items="skillPickerItems"
-          :scope="skillPickerScope"
-          :loading="skillPickerLoading"
-          :loading-more="skillPickerLoadingMore"
-          :has-more="skillPickerHasMore"
-          :active-index="activeSkillIndex"
-          @scope="setSkillPickerScope"
-          @select="selectSkill"
-          @active-index="activeSkillIndex = $event"
-          @scroll="onSkillPickerScroll"
-          @load-more="loadSelectableSkills(false)"
-        />
-        <div v-if="mentions.open.value" :ref="element => { mentions.root.value = element as HTMLElement | null }" class="knowledge-picker-root">
-          <KnowledgeMentionPicker :items="mentions.items.value" :scope="mentions.scope.value" :loading="mentions.loading.value" :failed="mentions.failed.value" :active="mentions.active.value" :has-more="mentions.cursor.value !== null" :trail="mentions.trail.value" @scope="mentions.setScope" @select="mentions.select" @browse="mentions.browse" @back="mentions.back" @more="mentions.load(true)" @retry="mentions.load()" @close="mentions.close" />
+          class="absolute bottom-[calc(100%+10px)] left-3 z-30 w-[420px] max-w-[calc(100vw-40px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/12"
+        >
+          <div class="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+            <div class="text-sm font-semibold text-slate-800">{{ locale === 'zh' ? '选择 Skill' : 'Select Skill' }}</div>
+            <div class="flex rounded-full bg-slate-100 p-0.5">
+              <button
+                v-for="option in skillScopeOptions"
+                :key="option.key"
+                type="button"
+                class="rounded-full px-2.5 py-1 text-xs font-medium transition"
+                :class="skillPickerScope === option.key ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
+                @click="setSkillPickerScope(option.key)"
+              >
+                {{ option.label }}
+              </button>
+            </div>
+          </div>
+          <div
+            class="max-h-[300px] overflow-y-auto py-1"
+            role="listbox"
+            :aria-label="locale === 'zh' ? 'Skill 列表' : 'Skill list'"
+            @scroll="onSkillPickerScroll"
+          >
+            <div v-if="skillPickerLoading" class="px-4 py-8 text-center text-sm text-slate-400">
+              {{ locale === 'zh' ? '加载中...' : 'Loading...' }}
+            </div>
+            <template v-else>
+              <button
+                v-for="(skill, index) in skillPickerItems"
+                :key="skill.id"
+                :id="`skill-picker-option-${index}`"
+                :data-skill-index="index"
+                type="button"
+                role="option"
+                :aria-selected="activeSkillIndex === index"
+                class="flex w-full gap-3 px-3 py-2.5 text-left transition"
+                :class="activeSkillIndex === index ? 'bg-blue-50/80' : 'hover:bg-slate-50'"
+                @mouseenter="activeSkillIndex = index"
+                @click="selectSkill(skill)"
+              >
+                <span class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+                  :class="skill.type === 'workflow' ? 'bg-blue-100 text-blue-600' : 'bg-violet-100 text-violet-600'"
+                >
+                  <svg v-if="skill.type === 'workflow'" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M6 3v6"></path>
+                    <path d="M18 15v6"></path>
+                    <path d="M6 9a3 3 0 1 0 0 6h12a3 3 0 1 0 0-6H6z"></path>
+                  </svg>
+                  <svg v-else class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M4 19.5V5a2 2 0 0 1 2-2h8l6 6v10.5a1.5 1.5 0 0 1-1.5 1.5H5.5A1.5 1.5 0 0 1 4 19.5z"></path>
+                    <path d="M14 3v6h6"></path>
+                    <path d="M8 13h8"></path>
+                    <path d="M8 17h5"></path>
+                  </svg>
+                </span>
+                <span class="min-w-0 flex-1">
+                  <span class="flex min-w-0 items-center gap-2">
+                    <span class="truncate text-sm font-semibold text-slate-900">{{ skill.name }}</span>
+                    <span class="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-500">{{ skillSourceLabel(skill.sourceScope) }}</span>
+                    <span class="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-500">{{ skillTypeLabel(skill.type) }}</span>
+                  </span>
+                  <span class="mt-0.5 block truncate text-xs text-slate-500">{{ skill.description || skill.scenario || (locale === 'zh' ? '暂无描述' : 'No description') }}</span>
+                </span>
+              </button>
+              <div v-if="skillPickerItems.length === 0" class="px-4 py-8 text-center text-sm text-slate-400">
+                {{ locale === 'zh' ? '没有找到可用 Skill' : 'No available skills' }}
+              </div>
+              <button
+                v-if="skillPickerHasMore"
+                type="button"
+                class="mx-3 my-2 flex w-[calc(100%-24px)] items-center justify-center rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60"
+                :disabled="skillPickerLoadingMore"
+                @click="loadSelectableSkills(false)"
+              >
+                {{ skillPickerLoadingMore ? (locale === 'zh' ? '加载中...' : 'Loading...') : (locale === 'zh' ? '加载更多' : 'Load more') }}
+              </button>
+            </template>
+          </div>
         </div>
         <textarea
           ref="composerInputRef"
-          data-chat-composer-input="true"
           v-model="userInput"
-          @input="onComposerInput"
+          @input="handleComposerInput"
           @keydown="onComposerKeydown"
           @paste="onComposerPaste"
           @compositionstart="onComposerCompositionStart"
           @compositionend="onComposerCompositionEnd"
           rows="1"
           :placeholder="t('chat.composer.placeholder')"
-          :disabled="running || blocked"
-          :aria-expanded="skillPickerOpen || mentions.open.value"
+          :disabled="running"
+          :aria-expanded="skillPickerOpen"
           aria-haspopup="listbox"
           :aria-activedescendant="skillPickerOpen && activeSkillIndex >= 0 ? `skill-picker-option-${activeSkillIndex}` : undefined"
           class="w-full max-h-[200px] resize-none border-0 bg-transparent px-1 py-1.5 focus:ring-0 outline-none text-slate-800 placeholder:text-slate-400 leading-6"
           style="min-height: 36px;"
         ></textarea>
         <div class="composer-footer flex min-h-8 items-center gap-1.5">
-        <ComposerAttachmentMenu
-          ref="attachmentMenuRef"
-          :open="attachmentMenuOpen"
-          :running="running"
-          :blocked="blocked"
-          :allow-knowledge="allowKnowledge"
-          :knowledge-qa-enabled="knowledgeQaEnabled"
-          :knowledge-label="knowledgeLabel"
-          @toggle="toggleAttachmentMenu"
-          @image="selectImageAttachment"
-          @document="selectDocumentAttachment"
-          @knowledge="toggleKnowledgeQa"
-        />
+        <div ref="attachmentMenuRef" class="relative">
+          <button
+            class="flex h-7 w-7 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-100"
+            :disabled="running"
+            :aria-label="locale === 'zh' ? '添加附件' : 'Add attachment'"
+            @click.stop="toggleAttachmentMenu"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
+          <div
+            v-if="attachmentMenuOpen"
+            class="absolute bottom-9 left-0 min-w-[220px] overflow-hidden rounded-xl border border-gray-200 bg-white py-1 shadow-lg"
+          >
+            <button
+              class="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+              @click="selectImageAttachment"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                <polyline points="21 15 16 10 5 21"></polyline>
+              </svg>
+              {{ t('chat.upload_image') }}
+            </button>
+            <button
+              class="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+              @click="selectDocumentAttachment"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="16" y1="13" x2="8" y2="13"></line>
+                <line x1="16" y1="17" x2="8" y2="17"></line>
+                <line x1="10" y1="9" x2="8" y2="9"></line>
+              </svg>
+              {{ t('chat.upload_document') }}
+            </button>
+            <button
+              v-if="allowKnowledge !== false"
+              class="flex w-full items-center gap-2 whitespace-nowrap px-3 py-2 text-sm hover:bg-slate-50"
+              :class="knowledgeQaEnabled ? 'bg-blue-50 text-blue-700' : 'text-slate-700'"
+              :aria-pressed="knowledgeQaEnabled"
+              @click="toggleKnowledgeQa"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"></path>
+                <path d="M9 9a3 3 0 0 1 6 0c0 2-3 2-3 4"></path>
+                <path d="M12 17h.01"></path>
+              </svg>
+              {{ t('chat.knowledge_qa') }}
+            </button>
+          </div>
+        </div>
         <slot name="model-actions" />
         <div class="flex-1"></div>
-        <ComposerModelPicker
-          ref="modelSelectorRef"
-          :models="chatModels"
-          :selected-model-id="selectedModelId"
-          :model-selector-label="modelSelectorLabel"
-          :model-load-error="modelLoadError"
-          :running="running"
-          :blocked="blocked"
-          :open="modelDropdownOpen"
-          @toggle="toggleModelDropdown"
-          @select="selectChatModel"
-        />
+        <div ref="modelSelectorRef" class="relative min-w-0">
+          <button
+            type="button"
+            class="group flex h-7 max-w-[240px] items-center gap-1 rounded-md px-1.5 text-[11px] font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-100"
+            :class="running ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'"
+            :title="modelLoadError || modelSelectorLabel"
+            :disabled="running"
+            @click="toggleModelDropdown"
+          >
+            <span class="truncate text-left">{{ modelSelectorLabel }}</span>
+            <svg class="h-3 w-3 shrink-0 text-slate-400" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path d="M6 12l4-4 4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </button>
+          <Teleport to="body">
+            <div
+              v-if="modelDropdownOpen"
+              ref="modelDropdownPanelRef"
+              class="mg-model-dropdown fixed z-[100] w-[320px] max-w-[calc(100vw-32px)] overflow-hidden rounded-2xl border shadow-xl"
+              :style="modelDropdownPanelStyle"
+            >
+              <div class="max-h-[min(60vh,420px)] overflow-y-auto py-1.5">
+                <button v-if="chatModels.length === 0" type="button" class="mg-model-option flex w-full items-center gap-3 px-3 py-2.5 text-left" @click="selectChatModel('')">
+                  <span class="min-w-0 flex-1"><span class="mg-model-option-title block truncate text-sm font-medium">{{ modelSelectorLabel }}</span></span>
+                </button>
+                <button
+                  v-for="model in chatModels"
+                  :key="model.id"
+                  type="button"
+                  class="mg-model-option flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors"
+                  :class="model.id === selectedModelId ? 'is-selected' : ''"
+                  @click="selectChatModel(model.id)"
+                >
+                  <span class="min-w-0 flex-1">
+                    <span class="flex min-w-0 items-center gap-2">
+                      <span class="mg-model-option-title truncate text-sm font-medium">{{ model.displayName || model.modelName }}</span>
+                    </span>
+                    <span class="mg-model-option-sub block truncate text-xs">{{ model.providerName }} · {{ model.modelName }}</span>
+                  </span>
+                  <svg v-if="model.id === selectedModelId" class="mg-model-option-check h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 10.5l3 3L15 6.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                </button>
+              </div>
+            </div>
+          </Teleport>
+        </div>
         <ComposerActionButton
           :running="running"
           :stopping="stopping"
-          :disabled="blocked || stopping || (!userInput.trim() && pendingImages.length === 0 && pendingDocuments.length === 0 && !selectedSkill && !running)"
+          :disabled="stopping || (!userInput.trim() && pendingImages.length === 0 && pendingDocuments.length === 0 && !selectedSkill && !running)"
           :locale="locale"
           @activate="sendMessage"
         />
@@ -485,9 +1033,44 @@ watch(() => props.allowKnowledge, (allowed) => {
   display: none;
 }
 
+.composer-employee-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
 .composer-context-slot:not(:empty) + .composer-card {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
+}
+
+/* 模型下拉 Teleport 到 body，不能依赖浅色 Tailwind 类或写死色值：
+   统一走设计令牌，深色/浅色主题自动切换（tokens.css 定义两套 --mg-*）。 */
+.mg-model-dropdown {
+  background-color: var(--mg-bg-surface);
+  border-color: var(--mg-border);
+  box-shadow: 0 12px 36px rgba(4, 8, 16, 0.28);
+}
+
+.mg-model-option:hover {
+  background-color: var(--mg-bg-surface-hover);
+}
+
+.mg-model-option.is-selected {
+  background-color: var(--mg-brand-soft);
+}
+
+.mg-model-option-title {
+  color: var(--mg-text-1);
+}
+
+.mg-model-option-sub {
+  color: var(--mg-text-3);
+}
+
+.mg-model-option-check {
+  color: var(--mg-brand);
 }
 
 </style>

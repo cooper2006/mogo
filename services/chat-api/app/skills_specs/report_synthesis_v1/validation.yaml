@@ -1,0 +1,28 @@
+# Validation contract for the report_synthesis_v1 sub-agent.
+#
+# The parent orchestration (competitor_deep_dive) owns the end-to-end acceptance
+# criteria; this file pins the per-node output shape.
+
+skill: report_synthesis_v1
+role: subagent
+parent_skill: competitor_deep_dive
+output_key: research_report
+
+required_sections:
+  - 执行摘要
+  - 市场情报
+  - 产品功能对比
+  - 财务分析
+  - 舆情监测
+  - 综合判断与决策建议
+  - 附录 · 证据追溯
+
+must_include_fields:
+  - Data window
+  - Skipped sections with reason
+  - Evidence ID per claim
+
+checks:
+  - id: sub-1
+    criterion: 执行摘要
+    test: tests/orchestration/test_competitor_deep_dive.py

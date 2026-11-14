@@ -174,23 +174,20 @@ class IssueFinder:
                 )
             )
 
-        try:
+        log_print(
+            "[content_evaluation][issues] found count=%s severities=%s"
+            % (
+                len(out),
+                json.dumps([i.severity for i in out]),
+            ),
+            flush=True,
+        )
+        for i in out:
             log_print(
-                "[content_evaluation][issues] found count=%s severities=%s"
-                % (
-                    len(out),
-                    json.dumps([i.severity for i in out]),
-                ),
+                "[content_evaluation][issues]   %s [%s] @ %s — %s"
+                % (i.standard_id, i.severity, i.location, i.finding),
                 flush=True,
             )
-            for i in out:
-                log_print(
-                    "[content_evaluation][issues]   %s [%s] @ %s — %s"
-                    % (i.standard_id, i.severity, i.location, i.finding),
-                    flush=True,
-                )
-        except Exception:
-            pass
         return EvaluationStageOutcome(items=out, commentary=decision_commentary_dict(res.commentary))
 
     async def find(

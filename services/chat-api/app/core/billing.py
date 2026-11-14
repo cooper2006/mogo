@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 from app.core.db import get_db
@@ -17,22 +17,38 @@ class ModelConfigError(ValueError):
     pass
 
 
-def _now() -> datetime:
-    return datetime.utcnow()
+class TenantIdRequiredError(ValueError):
+    """058 T021：缺省租户 fail-closed。
 
-
-async def get_or_create_organization(main_id: str, default_org_name: str = "个人空间", owner_id: str = "") -> Dict[str, Any]:
+    ``tenant_id`` 缺失/为 "default" 时不再短路放行。携带稳定的 ``code``
+    （登记在 docs/error-codes.md §3），便于上层映射为 400 而不泄漏内部信息。
+    不使用 ``QuotaExceededError``：后者签名只接受 layer/scope_id/kind，
+    传 ``code=`` 会抛 TypeError，且语义上「入参缺失」≠「配额超限」。
     """
-    Get the organization, creating one with defaults when absent.
+
+    code = "tenant_id_required"
+
+    def __init__(self, message: str = "tenant_id is required") -> None:
+        super().__init__(message)
+
+
+def _now() -> datetime:
+    return datetime.now(tz=timezone.utc)
+
+
+async def get_or_create_organization(tenant_id: str, default_org_name: str = "个人空间", owner_id: str = "") -> Dict[str, Any]:
+    """
+    获取或自动兜底创建组织信息。
     """
     db = get_db()
-    org = await db[ORGANIZATION_COLLECTION].find_one({"main_id": main_id})
+    # Phase 1: match either tenant_id (canonical) or legacy tenant_id.
+    org = await db[ORGANIZATION_COLLECTION].find_one({"tenant_id": tenant_id})
     if not org:
         from app.product.extensions import get_product_extension
 
         defaults = dict(get_product_extension().organization_defaults)
         org = {
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "org_name": default_org_name,
             "owner_user_id": str(owner_id),
             **defaults,
@@ -43,21 +59,24 @@ async def get_or_create_organization(main_id: str, default_org_name: str = "个�
     return org
 
 
-async def check_quota_before_request(main_id: str, config: Dict[str, Any]) -> None:
+async def check_quota_before_request(tenant_id: str, config: Dict[str, Any]) -> None:
     """
-    Check available organization quota before an LLM request.
-    Enforce point balance only for the platform's shared default model.
-    Own-model organizations and user-owned models are exempt.
+    在 LLM 请求发起前，检查当前组织是否仍有可用额度。
+    若模型配置中 tenant_id 是 'default' (使用的是平台默认提供的共享模型)，才需要强制进行点数扣减检验。
+    若当前组织已升级并启用了自有模型 (is_own_model = True)，或模型属于用户自有，不予拦截。
     """
-    if not main_id or main_id == "default":
-        return
+    # 058 T021 fail-closed：空/缺省/纯空白 tenant_id 一律拒绝，且必须在任何 DB
+    # 访问之前生效（否则共享模型额度会被算到 "default" 或空白租户名下）。
+    if not str(tenant_id or "").strip() or str(tenant_id).strip() == "default":
+        raise TenantIdRequiredError()
 
-    # Apply platform quota only to the default shared model.
-    is_shared_model = str(config.get("main_id") or "default").strip() == "default"
+    # 只有当使用的是平台默认提供的共享模型时，才受平台额度限制
+    config_tenant_id = config.get("tenant_id") or "default"
+    is_shared_model = str(config_tenant_id).strip() == "default"
 
-    org = await get_or_create_organization(main_id)
+    org = await get_or_create_organization(tenant_id)
 
-    # Enforce point balance for shared models without own-model privileges.
+    # 如果是共享模型，并且没有开启自有模型特权，则强校验点数
     if is_shared_model and not org.get("is_own_model", False):
         used = org.get("used_points", 0)
         total = org.get("total_points", 1000000)
@@ -68,21 +87,23 @@ async def check_quota_before_request(main_id: str, config: Dict[str, Any]) -> No
             )
 
 
-async def deduct_points_after_request(main_id: str, total_tokens: int) -> None:
+async def deduct_points_after_request(tenant_id: str, total_tokens: int) -> None:
     """
-    Record token consumption asynchronously after a request.
-    Bill free organizations or those without own-model access.
+    当请求产生 Token 消费后，异步将其累计扣减。
+    如果该组织是免费版（或者未开启 is_own_model），就计入系统账单；
     """
-    if not main_id or main_id == "default" or total_tokens <= 0:
-        return
+    # 058 T021 fail-closed：空/缺省/纯空白 tenant_id 一律拒绝，且必须在任何 DB
+    # 访问之前生效（否则共享模型额度会被算到 "default" 或空白租户名下）。
+    if not str(tenant_id or "").strip() or str(tenant_id).strip() == "default":
+        raise TenantIdRequiredError()
 
     db = get_db()
-    org = await get_or_create_organization(main_id)
+    org = await get_or_create_organization(tenant_id)
 
-    # Count point usage only for the default model or when own models are disabled.
+    # 只有在使用系统默认模型，或者未启用自有模型时才累计额度点数消耗
     if org.get("tier") == "free" or not org.get("is_own_model", False):
         await db[ORGANIZATION_COLLECTION].update_one(
-            {"main_id": main_id},
+            {"tenant_id": tenant_id},
             {
                 "$inc": {"used_points": total_tokens},
                 "$set": {"updated_at": _now()}
@@ -90,24 +111,24 @@ async def deduct_points_after_request(main_id: str, total_tokens: int) -> None:
         )
         logger.info(
             "organization token points deducted",
-            extra={"main_id": main_id, "tokens_deducted": total_tokens}
+            extra={"tenant_id": tenant_id, "tokens_deducted": total_tokens}
         )
 
 
-async def check_member_limit(main_id: str) -> None:
+async def check_member_limit(tenant_id: str) -> None:
     """
-    Check the organization's member limit before adding a member.
+    添加成员时，前置校验当前组织的成员总数是否超限。
     """
     db = get_db()
-    org = await get_or_create_organization(main_id)
+    org = await get_or_create_organization(tenant_id)
     limit = member_limit(org)
 
     if limit is None:
         return
 
-    # Count end_users belonging to this main_id.
+    # 统计 end_users 中本 tenant_id 的成员总数
     from app.api.endpoints.auth import USER_COLLECTION
-    current_count = await db[USER_COLLECTION].count_documents({"main_id": main_id})
+    current_count = await db[USER_COLLECTION].count_documents({"tenant_id": tenant_id})
 
     if current_count >= limit:
         tier_label = "个人免费版"

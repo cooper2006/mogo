@@ -1,8 +1,10 @@
 """Translate DSH model calls to ASKAI's existing configured-model clients."""
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from collections.abc import AsyncIterator, Awaitable, Callable
+import logging
 import re
 from typing import Any
 
@@ -12,16 +14,17 @@ from app.llm.base import BaseLLMClient
 from app.llm.configured_models import (
     ModelConfigError,
     build_llm_client_from_config,
+    get_llm_client_by_model_id,
     get_model_config,
 )
 from app.llm.types import Message, Role
 
-from .message_compat import normalize_tool_history
-from .stream_guard import EmptyModelStreamError, nonempty_model_stream
+from .project_id import ProjectIdResolver
 from .token import ModelGatewayClaims
 from .tool_schema import to_openai_chat_tools
-from .tool_diagnostics import log_tool_error, log_tool_offer, log_tool_result
 from .tool_visibility import visible_tools
+
+logger = logging.getLogger(__name__)
 
 
 class ModelGatewayRequest(BaseModel):
@@ -36,7 +39,10 @@ class ModelGatewayRequest(BaseModel):
     tools: list[dict[str, Any]] | None = None
     maxTokens: int | None = Field(default=None, ge=1)
     sessionId: str | None = None
-    knowledgeQaEnabled: bool = False
+    # 046+：runtime-host（himovo 移植）在新契约中携带 knowledge QA 开关。
+    # chat-api 侧知识检索语义尚未接线，先接受该字段保证旧/新客户端契约兼容
+    # （extra="forbid" 会拒绝未知字段导致 422）；语义落地后再消费。
+    knowledgeQaEnabled: bool | None = None
 
 
 class ModelGatewayResponse(BaseModel):
@@ -53,12 +59,20 @@ class ModelGatewayFailure(RuntimeError):
         self.retryable = retryable
 
 
-ClientFactory = Callable[[str, str, ModelGatewayRequest, str], Awaitable[BaseLLMClient]]
+ClientFactory = Callable[
+    [str, str, ModelGatewayRequest, ModelGatewayClaims], Awaitable[BaseLLMClient]
+]
 
 
 class ModelGatewayService:
-    def __init__(self, client_factory: ClientFactory | None = None) -> None:
+    def __init__(
+        self,
+        client_factory: ClientFactory | None = None,
+        *,
+        project_resolver: ProjectIdResolver | None = None,
+    ) -> None:
         self._client_factory = client_factory or self._configured_client
+        self._project_resolver = project_resolver
 
     async def generate(
         self,
@@ -67,22 +81,19 @@ class ModelGatewayService:
     ) -> ModelGatewayResponse:
         self._validate_scope(request, claims)
         try:
-            client = await self._client_factory(claims.model_instance_id, claims.tenant_id, request, claims.user_id)
+            client = await self._client_factory(
+                claims.model_instance_id, claims.tenant_id, request, claims
+            )
             messages = self._messages(request)
             kwargs: dict[str, Any] = {}
             if request.maxTokens:
                 kwargs["max_tokens"] = request.maxTokens
             tools = await visible_tools(
-                request.tools, session_id=request.sessionId or "", tenant_id=claims.tenant_id,
-                messages=request.messages,
-                knowledge_only=request.knowledgeQaEnabled,
+                request.tools, session_id=request.sessionId or "", tenant_id=claims.tenant_id
             )
             if tools:
                 kwargs["tools"] = to_openai_chat_tools(tools)
                 kwargs["tool_choice"] = "auto"
-            log_tool_offer(session_id=request.sessionId or "", profile_version=request.profileVersion,
-                           model_id=request.modelInstanceId, model_name=request.model,
-                           incoming=request.tools, visible=tools, knowledge_only=request.knowledgeQaEnabled)
             response = await client.ainvoke(messages, **kwargs)
         except ModelConfigError as exc:
             raise ModelGatewayFailure(
@@ -111,7 +122,9 @@ class ModelGatewayService:
         """Prepare an authenticated provider stream and expose incremental chunks."""
         self._validate_scope(request, claims)
         try:
-            client = await self._client_factory(claims.model_instance_id, claims.tenant_id, request, claims.user_id)
+            client = await self._client_factory(
+                claims.model_instance_id, claims.tenant_id, request, claims
+            )
         except ModelConfigError as exc:
             raise ModelGatewayFailure(
                 "model_configuration_invalid", self._safe_message(exc), retryable=False
@@ -125,33 +138,24 @@ class ModelGatewayService:
         if request.maxTokens:
             kwargs["max_tokens"] = request.maxTokens
         tools = await visible_tools(
-            request.tools, session_id=request.sessionId or "", tenant_id=claims.tenant_id,
-            messages=request.messages,
-            knowledge_only=request.knowledgeQaEnabled,
+            request.tools, session_id=request.sessionId or "", tenant_id=claims.tenant_id
         )
         if tools:
             kwargs["tools"] = to_openai_chat_tools(tools)
             kwargs["tool_choice"] = "auto"
-        log_tool_offer(session_id=request.sessionId or "", profile_version=request.profileVersion,
-                       model_id=request.modelInstanceId, model_name=request.model,
-                       incoming=request.tools, visible=tools, knowledge_only=request.knowledgeQaEnabled)
 
         async def iterator() -> AsyncIterator[dict[str, Any]]:
             usage: dict[str, int] = {}
             tool_calls: dict[int, dict[str, str]] = {}
-            raw_count = 0
             try:
-                saw_text = False
-                async for chunk in nonempty_model_stream(client, messages, kwargs, model=request.model):
+                async for chunk in client.astream(messages, **kwargs):
                     content = chunk.content
                     text = content if isinstance(content, str) else str(content or "")
                     if text:
-                        saw_text = True
                         yield {"type": "text-delta", "text": text}
                     for raw_call in list(chunk.tool_calls or []):
                         if not isinstance(raw_call, dict):
                             continue
-                        raw_count += 1
                         index = int(raw_call.get("index") or 0)
                         current = tool_calls.setdefault(index, {"id": "", "name": "", "arguments": ""})
                         current["id"] = str(raw_call.get("id") or current["id"])
@@ -162,27 +166,16 @@ class ModelGatewayService:
                             current["arguments"] += str(raw_call.get("arguments_delta") or "")
                     if chunk.usage:
                         usage = self._usage(chunk.usage)
-                valid_calls = [tool_calls[index] for index in sorted(tool_calls)
-                               if tool_calls[index]["id"] and tool_calls[index]["name"]]
-                incomplete_calls = [tool_calls[index] for index in sorted(tool_calls)
-                                    if not tool_calls[index]["id"] or not tool_calls[index]["name"]]
-                log_tool_result(session_id=request.sessionId or "", model_id=request.modelInstanceId,
-                                saw_text=saw_text, raw_count=raw_count, calls=valid_calls,
-                                incomplete_calls=incomplete_calls)
-                if not saw_text and not valid_calls:
-                    raise EmptyModelStreamError("Model returned no usable text or tool calls")
-                for call in valid_calls:
-                    yield {"type": "tool-call", **call}
+                for index in sorted(tool_calls):
+                    call = tool_calls[index]
+                    if call["id"] and call["name"]:
+                        yield {"type": "tool-call", **call}
                 if usage:
                     yield {"type": "usage", "usage": usage}
-                yield {"type": "finish", "reason": {"kind": "tool-calls" if valid_calls else "stop"}}
+                yield {"type": "finish", "reason": {"kind": "tool-calls" if tool_calls else "stop"}}
             except Exception as exc:
-                code, retryable = (
-                    ("empty_model_response", True)
-                    if isinstance(exc, EmptyModelStreamError)
-                    else self._classify_provider_failure(exc)
-                )
-                log_tool_error(session_id=request.sessionId or "", model_id=request.modelInstanceId, code=code)
+                log_print(f"[dsh_runtime.model_gateway.service.iterator] suppressed {type(exc).__name__}: {exc}", flush=True)
+                code, retryable = self._classify_provider_failure(exc)
                 yield {
                     "type": "error",
                     "error": {
@@ -194,28 +187,44 @@ class ModelGatewayService:
 
         return iterator()
 
-    @staticmethod
+    async def _project_id(self, request: ModelGatewayRequest, claims: ModelGatewayClaims) -> str:
+        """FR-006: 网关按 sessionId 反查 project_id；无 resolver 时返回空串（不写键）。"""
+        if self._project_resolver is None or not request.sessionId:
+            return ""
+        return await self._project_resolver.resolve(
+            request.sessionId,
+            tenant_id=claims.tenant_id,
+            user_id=claims.user_id,
+        )
+
     async def _configured_client(
+        self,
         model_instance_id: str,
         tenant_id: str,
         request: ModelGatewayRequest,
-        user_id: str,
+        claims: ModelGatewayClaims,
     ) -> BaseLLMClient:
-        config = await get_model_config(model_instance_id, tenant_id)
-        if config is None:
-            raise ModelConfigError("模型配置不存在")
-        return build_llm_client_from_config(
-            config,
+        # 007：走 get_llm_client_by_model_id，自动包含 wrap_resilient 与 fallback；
+        # user_id 经 claims 传入（FR-006），由配额层独立校验而非跳过；
+        # project_id 由 ProjectIdResolver 按 sessionId 反查权威绑定（FR-006），
+        # 绝不采用请求体上报的 workspace id。
+        project_id = await self._project_id(request, claims)
+        output_spec: dict[str, Any] = {
+            "tenant_id": tenant_id,
+            "user_id": claims.user_id,
+            "model_instance_id": model_instance_id,
+            "session_id": request.sessionId or "",
+            "profile_version": request.profileVersion,
+        }
+        if project_id:
+            output_spec["project_id"] = project_id
+        return await get_llm_client_by_model_id(
+            model_instance_id,
+            tenant_id=tenant_id,
             streaming=True,
-            stage="dsh_agent_turn",
             intent="chat",
-            output_spec={
-                "main_id": tenant_id,
-                "user_id": user_id,
-                "model_instance_id": model_instance_id,
-                "session_id": request.sessionId or "",
-                "profile_version": request.profileVersion,
-            },
+            stage="dsh_agent_turn",
+            output_spec=output_spec,
         )
 
     @staticmethod
@@ -228,34 +237,35 @@ class ModelGatewayService:
             raise ModelGatewayFailure("provider_scope_mismatch", "provider scope mismatch", retryable=False)
 
     @staticmethod
+    def _call_id(raw: dict[str, Any], block: dict[str, Any] | None = None) -> str:
+        """Resolve the tool-call identity DSH correlates a tool result with.
+
+        DSH puts the id on the message itself (``toolCallId``); older/other
+        producers inline it in the content block. OpenAI-compatible providers
+        reject a tool-role message without ``tool_call_id``, so both shapes are
+        accepted instead of silently yielding an empty string.
+        """
+        sources = [raw, block or {}]
+        for source in sources:
+            for key in ("toolCallId", "tool_call_id", "tool_use_id", "callId", "call_id"):
+                value = str(source.get(key) or "").strip()
+                if value:
+                    return value
+        return ""
+
+    @staticmethod
     def _messages(request: ModelGatewayRequest) -> list[Message]:
         result: list[Message] = []
         if request.system:
             result.append(Message(role=Role.SYSTEM, content=request.system))
-        for raw in normalize_tool_history(request.messages):
+        for raw in request.messages:
             role_value = str(raw.get("role") or "user")
             try:
                 role = Role(role_value)
             except ValueError:
                 role = Role.USER
             content = raw.get("content")
-            if role == Role.TOOL:
-                # DSH v4 sends a first-class tool message; older sessions put
-                # the same call id inside a user-role tool-result block below.
-                source = raw.get("source") if isinstance(raw.get("source"), dict) else {}
-                call_id = str(raw.get("toolCallId") or raw.get("tool_call_id") or source.get("callId") or "")
-                if not call_id:
-                    raise ValueError("DSH tool message is missing toolCallId")
-                if isinstance(content, list):
-                    text = "\n".join(
-                        str(block.get("text") or "")
-                        for block in content
-                        if isinstance(block, dict) and block.get("type") == "text"
-                    )
-                else:
-                    text = str(content or "")
-                result.append(Message(role=Role.TOOL, content=text, tool_call_id=call_id))
-                continue
+            message_call_id = ModelGatewayService._call_id(raw)
             if isinstance(content, list):
                 blocks = [block for block in content if isinstance(block, dict)]
                 tool_results = [block for block in blocks if block.get("type") == "tool-result"]
@@ -269,11 +279,10 @@ class ModelGatewayService:
                         result.append(Message(
                             role=Role.TOOL,
                             content=result_text,
-                            tool_call_id=str(block.get("toolCallId") or block.get("tool_call_id") or ""),
+                            tool_call_id=ModelGatewayService._call_id(raw, block),
                         ))
                     continue
                 text = "\n".join(str(block.get("text") or "") for block in blocks if block.get("type") == "text")
-                image_blocks = [block for block in blocks if block.get("type") == "image_url"]
                 calls = [
                     {
                         "id": str(block.get("id") or ""),
@@ -288,9 +297,20 @@ class ModelGatewayService:
             else:
                 text = str(content or "")
                 calls = []
-                image_blocks = []
-            content: Any = ([{"type": "text", "text": text}, *image_blocks] if image_blocks and role == Role.USER else text)
-            result.append(Message(role=role, content=content, tool_calls=calls or None))
+            if role is Role.TOOL and not message_call_id:
+                # OpenAI-compatible providers reject a tool-role message without
+                # tool_call_id. Log the raw shape instead of turning an unknown
+                # producer format into an opaque 400 on the next request.
+                logger.warning(
+                    "model_gateway_tool_message_without_call_id keys=%s",
+                    sorted(str(key) for key in raw.keys()),
+                )
+            result.append(Message(
+                role=role,
+                content=text,
+                tool_calls=calls or None,
+                tool_call_id=message_call_id if role is Role.TOOL else None,
+            ))
         return result
 
     @staticmethod

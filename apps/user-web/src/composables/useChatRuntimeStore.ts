@@ -1,50 +1,28 @@
-import type { KnowledgeReference } from '../api/knowledgeReferences'
-import { computed, markRaw, reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { fetchOrgBilling } from '../api/auth'
-import { chatRuntimeMessages } from '../locales/chatRuntimeMessages'
 import { uploadChatDocument, uploadChatImage, type UploadedDocument, type UploadedImage } from '../api/chat'
-import { getSession, type ChatMessage, type ChatMessageAuthor, type SessionDetail, type SessionSummary } from '../api/sessions'
-import { fetchChatMessageEvents, startChatStream, ChatStreamHttpError, SESSION_ALREADY_RUNNING, type ChatStreamHandle } from './useChatStream'
-import {
-  applyEffectiveUserMessageId,
-  bufferPreHeaderEvent,
-  createPreHeaderBufferState,
-  drainPreHeaderEvents,
-  isManualOnlyConflict,
-  mergeAuthoritativeMessages,
-  shouldIgnoreSessionExecution,
-  shouldReleaseToDurableRecovery,
-  utf8ByteLength,
-  withoutMessages,
-  type PreHeaderBufferState,
-} from './sessionLiveProjection'
+import { getSession, type ChatMessage, type SessionDetail } from '../api/sessions'
+import { fetchChatMessageEvents, startChatStream, type ChatStreamHandle } from './useChatStream'
+import { startSessionLiveStream, type SessionLiveAccessRevokedReason, type SessionLiveExecutionEvent, type SessionLiveStreamHandle } from './useSessionLiveStream'
 import { getLocale, t } from './i18n'
 import { resumeBrowserInterventionTaskUntilSettled } from './tasks/browserInterventionTaskFlow'
 import {
   browserInterventionTransition,
   normalizeBrowserIntervention,
+  type BrowserInterventionTransition,
 } from './browser/browserInterventionProjection'
 import type { ExecutionStoreV3 } from '../features/execution-v3/stores/executionStore'
 import type { DshTaskChangeSet } from '../platform/types'
 import { isExecutionEventV3, type ExecutionEventV3 } from '../features/execution-v3/domain/protocol'
-import { ensureMessageExecutionV3, reconcileMessageExecutionSnapshot } from '../features/execution-v3/stores/messageExecution'
+import { ensureMessageExecutionV3 } from '../features/execution-v3/stores/messageExecution'
 import { refreshAfterRun } from './chatRuntimeRefresh'
 import { applyAssistantContentEvent } from '../features/execution-v3/domain/assistantContent'
 import type { BrowserAssistanceHandoff } from './browser/useBrowserWorkspace'
 import { stopChatGeneration } from './chatCancellation'
-import { foreignRunForViewer, type ForeignRun } from './sessionRunPresence'
-import {
-  noteSessionLiveControlFrame,
-  noteSessionLiveData,
-  startSessionLiveStream,
-  type SessionLiveAccessRevokedReason,
-  type SessionLiveExecutionEvent,
-  type SessionLiveStreamHandle,
-} from './useSessionLiveStream'
 
 export type RuntimeDocumentInfo = {
   id?: string
-  type: 'pdf' | 'docx' | 'ppt' | 'pptx' | 'md' | 'html' | 'xlsx' | 'presentation_preview_bundle'
+  type: 'pdf' | 'docx' | 'ppt' | 'pptx' | 'md' | 'txt' | 'html' | 'xlsx' | 'presentation_preview_bundle'
   url: string
   filename?: string
   title?: string
@@ -65,29 +43,16 @@ export type RuntimeImageInfo = {
 }
 
 export type RuntimeMessage = {
-  knowledge_references?: KnowledgeReference[]
   role: 'user' | 'assistant'
   content: string
   plan?: any
   progress?: { content: string; timestamp?: string }[]
   _id?: string
   _execV3?: ExecutionStoreV3
-  _connectionLostAt?: number
   _provisionalTextByItem?: Record<string, string>
   _backendSid?: string
   message_id?: string
-  /** Message author (todo 28): the viewer's own user_id on optimistic pushes,
-   *  the author's user_id preserved from session-GET messages by
-   *  normalizeMessages. Absent on legacy/system-shaped messages. */
-  user_id?: string
-  /** T5: stable server-computed merge identity, consumed verbatim. */
-  legacy_key?: string
-  /** T5: allocated message sequence; `0` marks a DEGRADED unsequenced row. */
-  seq?: number
-  /** T5: authoritative user-message author projection; T9 renders this. */
-  author?: ChatMessageAuthor | null
   execution_events?: any[]
-  question_answers?: import('../components/chat/questionAnswerHistory').QuestionAnswerEntry[]
   documents?: RuntimeDocumentInfo[]
   images?: RuntimeImageInfo[]
   evidence_bundles?: any[]
@@ -102,8 +67,6 @@ export type RuntimeMessage = {
 export type PendingRuntimeDocument = {
   file: File
   kind: RuntimeDocumentInfo['type']
-  uploaded?: UploadedDocument
-  uploadPromise?: Promise<UploadedDocument>
 }
 
 export type RuntimeIntervention = {
@@ -139,65 +102,32 @@ export type ChatRuntimePane = {
   runtimePresetId: string
   modelInstanceId: string
   codeProject: { workspace_id: string; git_branch: string; worktree: boolean } | null
-  foreignRun: ForeignRun | null
-  foreignRunFinished: boolean
-  refreshingSession: boolean
-  /** T7 access-loss latch: the ONLY writer is markAccessLost; once true it stays true. */
-  accessLost: boolean
-  /** T7: the typed reason of the latch above, retained for the access-lost notice. */
-  accessLostReason: SessionLiveAccessRevokedReason | null
-  /** T7: increments on every members.changed; drives header/dialog participant refreshes. */
-  membersRevision: number
-  /** T7: the single session live SSE stream bound to this pane while it is viewed. */
-  liveStream: SessionLiveStreamHandle | null
-  /** T7: bumped on every bind/teardown; stale stream callbacks compare it. */
-  liveGeneration: number
-  /** T7: authoritative identity used to mint snapshot refreshes after invalidations. */
-  liveAuth: PaneLiveAuth | null
-  /** T7: sequence guard for overlapping authoritative snapshot refreshes. */
-  liveRefreshSeq: number
-  /** T8/T9: authoritative shared-pane flag from detail.access/participant_count. */
-  shared: boolean
-  /** T8: true while a local POST holds this pane's turn before its headers. */
-  localPostPending: boolean
-  /** T8: assistant message_id established by the local POST headers; the pane
-   *  ignores session-SSE execution for that id. Separate from a resumed
-   *  recovery handle. */
-  localPostMessageId: string | null
-  /** T8: transient top-of-conversation notice for a manual-only 409; the ONLY
-   *  writer is notifySessionBusy. Never appended to `messages`. */
-  busyNotice: string | null
-  /** T8: monotonic token so a re-trigger resets the auto-dismiss timer. */
-  busyNoticeToken: number
-  /** T8: pre-header session execution buffer (200 rows / 256 KiB caps). */
-  preHeader: PreHeaderBufferState<SessionLiveExecutionEvent>
-  /** T8: foreign early-turn execution buffer (200 rows / 256 KiB caps, same
-   *  whole-drop policy as preHeader). A foreign frame whose assistant row has
-   *  not merged yet waits here instead of being silently dropped; the
-   *  snapshot flush applies it in stream order. Never appended to `messages`
-   *  directly, so it cannot create a row. */
-  pendingForeign: PreHeaderBufferState<SessionLiveExecutionEvent>
-  /** T8: session-SSE malformed-frame counter; diagnostics only, never UI. */
-  malformedFrameCount: number
+  /**
+   * Session-level view tab (028): 'chat' = conversation, 'trajectory' = process.
+   * Kept per-pane so switching sessions never leaks the selected tab.
+   */
+  activeView: 'chat' | 'trajectory'
+  /**
+   * P3 SSE：共享会话（access='shared'）的实时订阅句柄；owner 或非共享会话为
+   * null。会话关闭/重置时 stop()。
+   */
+  sessionLiveHandle: SessionLiveStreamHandle | null
 }
-
-/** T7: caller identity captured at bind time for the invalidation snapshot refresh. */
-export type PaneLiveAuth = { userId: string; mainId?: string; authToken?: string | null }
 
 type SendInput = {
   text: string
   images: File[]
   documents: PendingRuntimeDocument[]
   knowledgeQaEnabled: boolean
-  knowledgeReferences?: KnowledgeReference[]
   selectedSkillId?: string
   modelId?: string
-  onRejected?: () => void
+  /** 会话归属的项目 ID；新建会话时由后端写入 session.project_id。 */
+  projectId?: string
+  /** 051 FR-003：新建会话时绑定的数字员工；已存在会话不可重绑。 */
+  employeeId?: string
   authToken: string | null
   userId: string | null
-  mainId: string | null
-  /** T8: authenticated viewer identity for the optimistic user row. */
-  viewerAuthor: ChatMessageAuthor | null
+  tenantId: string | null
   locale: 'zh' | 'en'
   timezone: string
 }
@@ -208,13 +138,14 @@ type RuntimeCallbacks = {
   onSessionUpdated?: (sessionId: string) => void | Promise<void>
   onQuotaRefresh?: () => void | Promise<void>
   onLoginRequired?: () => void
-  onSessionBusy?: () => void
+  /** P3 SSE：共享会话实时流检测到访问被撤销/成员退出（participant_removed /
+   *  participant_left）。宿主应提示并退出该共享会话。 */
+  onSharedAccessLost?: (sessionId: string, reason: SessionLiveAccessRevokedReason) => void
 }
 
 export type ExternalTurnHandle = {
   pane: ChatRuntimePane
   assistant: RuntimeMessage
-  bindMessageId(messageId: string): void
   apply(event: ExecutionEventV3): boolean
   finish(): void
   setCodeChanges(changes: DshTaskChangeSet): void
@@ -227,7 +158,6 @@ const state = reactive({
 })
 
 let localSeq = 0
-let runtimeCallbacks: RuntimeCallbacks = {}
 let messageSeq = 0
 const MAX_CACHED_PANES = 8
 
@@ -251,7 +181,7 @@ function normalizeMessages(raw: ChatMessage[] | RuntimeMessage[] | undefined): R
   const result: RuntimeMessage[] = []
   for (const item of raw) {
     const role = item.role === 'user' ? 'user' : 'assistant'
-    const msg = ensureMessageId({ ...(item as RuntimeMessage), role, content: item.content || '', user_id: item.user_id })
+    const msg = ensureMessageId({ ...(item as RuntimeMessage), role, content: item.content || '' })
     result.push(msg)
   }
   return result
@@ -276,35 +206,9 @@ function createPane(input: { key?: string; sessionId: string | null; messages?: 
     runtimePresetId: 'askai-enterprise',
     modelInstanceId: '',
     codeProject: null,
-    foreignRun: null,
-    foreignRunFinished: false,
-    refreshingSession: false,
-    accessLost: false,
-    accessLostReason: null,
-    membersRevision: 0,
-    liveStream: null,
-    liveGeneration: 0,
-    liveAuth: null,
-    liveRefreshSeq: 0,
-    shared: false,
-    localPostPending: false,
-    localPostMessageId: null,
-    busyNotice: null,
-    busyNoticeToken: 0,
-    preHeader: createPreHeaderBufferState<SessionLiveExecutionEvent>(),
-    pendingForeign: createPreHeaderBufferState<SessionLiveExecutionEvent>(),
-    malformedFrameCount: 0,
+    activeView: 'chat',
+    sessionLiveHandle: null,
   }
-}
-
-function updateForeignRun(pane: ChatRuntimePane, activeRun: SessionSummary['active_run'], viewerUserId: string) {
-  const next = foreignRunForViewer(activeRun, viewerUserId)
-  if (next) {
-    if (pane.foreignRun?.messageId !== next.messageId) pane.foreignRunFinished = false
-  } else if (pane.foreignRun) {
-    pane.foreignRunFinished = true
-  }
-  pane.foreignRun = next
 }
 
 function findPaneByKey(key: string) {
@@ -322,7 +226,6 @@ function activePane() {
 function setActivePane(pane: ChatRuntimePane) {
   pane.lastActivatedAt = Date.now()
   state.activeKey = pane.key
-  syncPaneLiveStream()
 }
 
 function pruneInactivePanes() {
@@ -342,11 +245,7 @@ function pruneInactivePanes() {
     keepBySession.add(pane.key)
   }
 
-  const kept = state.panes.filter((pane) => mustKeep.has(pane.key) || keepBySession.has(pane.key))
-  for (const pane of state.panes) {
-    if (!kept.includes(pane)) stopPaneLiveStream(pane)
-  }
-  state.panes = kept
+  state.panes = state.panes.filter((pane) => mustKeep.has(pane.key) || keepBySession.has(pane.key))
 }
 
 function clearUnread(sessionId: string | null) {
@@ -356,13 +255,6 @@ function clearUnread(sessionId: string | null) {
   state.unreadSessionIds = next
 }
 
-// T30: this in-memory set is the OWNER rows' unread mechanism (App.vue's
-// sessionIsUnread). Shared rows render from the server's shared_unread field
-// via the separate sharedSessions ref and never read this set, so a shared
-// id landing here (a shared pane stopping while inactive) cannot render a
-// dot there. Never wire sessionIsUnread into the shared dot's condition —
-// the set retains the id until clearUnread and would re-render a dot after
-// the server cursor has cleared.
 function markUnread(sessionId: string) {
   if (!sessionId) return
   const next = new Set(state.unreadSessionIds)
@@ -379,285 +271,47 @@ function setPaneRunning(pane: ChatRuntimePane, running: boolean) {
   if (!running) pruneInactivePanes()
 }
 
+/** 目标字段为空时，用另一个 pane 的同名字段填充（保留 keeper 已有运行态）。 */
+function copyPaneFieldIfAbsent<K extends 'activeStream' | 'abortController' | 'activeAssistantMessageId' | 'activeIntervention' | 'authResumeController'>(
+  keeper: ChatRuntimePane,
+  removed: ChatRuntimePane,
+  field: K,
+): void {
+  if (!keeper[field] && removed[field]) keeper[field] = removed[field]
+}
+
+/** 同会话两个 pane 合并：保留仍在运行的那一个，迁移运行态并从列表移除被丢弃者。 */
+function mergeDuplicatePane(pane: ChatRuntimePane, duplicate: ChatRuntimePane, sessionId: string, callbacks: RuntimeCallbacks): void {
+  const keepRunningPane = pane.running || !duplicate.running
+  const keeper = keepRunningPane ? pane : duplicate
+  const removed = keepRunningPane ? duplicate : pane
+  keeper.sessionId = sessionId
+  keeper.modelInstanceId = pane.modelInstanceId || keeper.modelInstanceId || duplicate.modelInstanceId
+  keeper.lastActivatedAt = Math.max(keeper.lastActivatedAt, removed.lastActivatedAt)
+  if (!keeper.messages.length && removed.messages.length) keeper.messages = removed.messages
+  copyPaneFieldIfAbsent(keeper, removed, 'activeStream')
+  copyPaneFieldIfAbsent(keeper, removed, 'abortController')
+  copyPaneFieldIfAbsent(keeper, removed, 'activeAssistantMessageId')
+  copyPaneFieldIfAbsent(keeper, removed, 'activeIntervention')
+  copyPaneFieldIfAbsent(keeper, removed, 'authResumeController')
+  if (state.activeKey === removed.key) state.activeKey = keeper.key
+  state.panes = state.panes.filter((item) => item !== removed)
+  callbacks.onSessionResolved?.(sessionId)
+}
+
 function resolvePaneSession(pane: ChatRuntimePane, sessionId: string, callbacks: RuntimeCallbacks = {}) {
   if (!sessionId) return
   const duplicate = state.panes.find((item) => item !== pane && item.sessionId === sessionId)
   if (duplicate) {
-    const keepRunningPane = pane.running || !duplicate.running
-    const keeper = keepRunningPane ? pane : duplicate
-    const removed = keepRunningPane ? duplicate : pane
-    keeper.sessionId = sessionId
-    if (pane.modelInstanceId) keeper.modelInstanceId = pane.modelInstanceId
-    else if (!keeper.modelInstanceId) keeper.modelInstanceId = duplicate.modelInstanceId
-    keeper.lastActivatedAt = Math.max(keeper.lastActivatedAt, removed.lastActivatedAt)
-    if (!keeper.messages.length && removed.messages.length) keeper.messages = removed.messages
-    if (!keeper.activeStream && removed.activeStream) keeper.activeStream = removed.activeStream
-    if (!keeper.abortController && removed.abortController) keeper.abortController = removed.abortController
-    if (!keeper.activeAssistantMessageId && removed.activeAssistantMessageId) keeper.activeAssistantMessageId = removed.activeAssistantMessageId
-    if (!keeper.activeIntervention && removed.activeIntervention) keeper.activeIntervention = removed.activeIntervention
-    if (!keeper.authResumeController && removed.authResumeController) keeper.authResumeController = removed.authResumeController
-    if (!keeper.liveAuth && removed.liveAuth) keeper.liveAuth = removed.liveAuth
-    if (state.activeKey === removed.key) state.activeKey = keeper.key
-    stopPaneLiveStream(removed)
-    state.panes = state.panes.filter((item) => item !== removed)
-    callbacks.onSessionResolved?.(sessionId)
-    if (state.activeKey === keeper.key) startPaneLiveStream(keeper)
+    mergeDuplicatePane(pane, duplicate, sessionId, callbacks)
     return
   }
   pane.sessionId = sessionId
   callbacks.onSessionResolved?.(sessionId)
-  syncPaneLiveStream()
-}
-
-function stopPaneLiveStream(pane: ChatRuntimePane) {
-  pane.liveGeneration += 1
-  const handle = pane.liveStream
-  pane.liveStream = null
-  handle?.stop()
-  noteSessionLiveData(pane.key)
-}
-
-function paneLiveCallbackValid(pane: ChatRuntimePane, generation: number, sessionId: string) {
-  return findPaneByKey(pane.key) === pane && pane.liveGeneration === generation && pane.sessionId === sessionId
-}
-
-async function refreshPaneLiveState(pane: ChatRuntimePane, generation: number, sessionId: string, reopen: boolean) {
-  const auth = pane.liveAuth
-  if (!auth || !paneLiveCallbackValid(pane, generation, sessionId)) return
-  const sequence = pane.liveRefreshSeq + 1
-  pane.liveRefreshSeq = sequence
-  let detail: SessionDetail
-  try {
-    detail = await getSession(sessionId, auth.userId, auth.mainId, auth.authToken)
-  } catch {
-    return
-  }
-  if (!paneLiveCallbackValid(pane, generation, sessionId) || pane.liveRefreshSeq !== sequence) return
-  if (detail.execution_location) pane.executionLocation = detail.execution_location
-  if (detail.runtime_preset_id) pane.runtimePresetId = detail.runtime_preset_id
-  if (detail.model_instance_id !== undefined && detail.model_instance_id !== null) pane.modelInstanceId = detail.model_instance_id
-  if (detail.code_project !== undefined) pane.codeProject = detail.code_project
-  pane.shared = detail.access === 'shared' || (detail.participant_count ?? 0) > 0
-  pane.messages = mergeAuthoritativeMessages(pane.messages, detail.messages || []).messages
-  for (const message of pane.messages) {
-    if (message.role === 'assistant') reconcileMessageExecutionSnapshot(message)
-  }
-  updateForeignRun(pane, detail.active_run, auth.userId)
-  if (!pane.foreignRun) pane.foreignRunFinished = false
-  // T8: the snapshot may have materialized rows for early foreign frames;
-  // apply them in stream order (event_id-deduped, rows are never created here).
-  flushPendingForeignExecutions(pane)
-  await refreshAfterRun(runtimeCallbacks, sessionId)
-  if (!reopen || !paneLiveCallbackValid(pane, generation, sessionId)) return
-  // T6 contract: every control invalidation counts toward the three-frame cap,
-  // even when the authoritative payload carries no cursor to reopen from.
-  const delay = noteSessionLiveControlFrame(pane.key)
-  if (delay > 0) await new Promise<void>((resolve) => { setTimeout(resolve, delay) })
-  const handle = pane.liveStream
-  const cursor = typeof detail.live_cursor === 'string' && detail.live_cursor ? detail.live_cursor : null
-  if (!handle || !cursor) return
-  if (pane.liveStream !== handle || !paneLiveCallbackValid(pane, generation, sessionId)) return
-  handle.openFreshStream(cursor)
-}
-
-/**
- * T8 removed-member 404: a 401/404/410 close carries no revocable frame, so
- * the pane probes readability exactly once — an unreadable session latches
- * access loss, a readable one reopens fresh. Never loops, never toasts; the
- * transport owns reconnect.
- */
-async function handlePaneLiveStreamError(
-  pane: ChatRuntimePane,
-  generation: number,
-  sessionId: string,
-  status: number,
-) {
-  if (!paneLiveCallbackValid(pane, generation, sessionId)) return
-  if (status !== 401 && status !== 404 && status !== 410) return
-  const auth = pane.liveAuth
-  if (!auth) return
-  let detail: SessionDetail | null = null
-  try {
-    detail = await getSession(sessionId, auth.userId, auth.mainId, auth.authToken)
-  } catch {
-    detail = null
-  }
-  if (!paneLiveCallbackValid(pane, generation, sessionId)) return
-  if (!detail) {
-    markAccessLost(pane.key, 'participant_removed')
-    return
-  }
-  const handle = pane.liveStream
-  if (!handle) return
-  const cursor = typeof detail.live_cursor === 'string' && detail.live_cursor ? detail.live_cursor : null
-  if (cursor) {
-    handle.openFreshStream(cursor)
-    return
-  }
-  // Readable but cursorless: cold re-attach instead of parking on the dead handle.
-  stopPaneLiveStream(pane)
-  startPaneLiveStream(pane)
-}
-
-function startPaneLiveStream(pane: ChatRuntimePane) {
-  if (pane.liveStream) return
-  if (!pane.sessionId || !pane.liveAuth || pane.accessLost) return
-  if (pane.key !== state.activeKey) return
-  const sessionId = pane.sessionId
-  const generation = pane.liveGeneration + 1
-  pane.liveGeneration = generation
-  // T8: the transport settles after a terminal HTTP error, so at most one
-  // onError fires per close; the flag guards even that single call.
-  let errorSuspicionFired = false
-  const refresh = (reopen: boolean) => {
-    void refreshPaneLiveState(pane, generation, sessionId, reopen).catch(() => undefined)
-  }
-  const liveProgress = () => {
-    if (!paneLiveCallbackValid(pane, generation, sessionId)) return false
-    noteSessionLiveData(pane.key)
-    return true
-  }
-  const handle = startSessionLiveStream({
-    sessionId,
-    paneKey: pane.key,
-    authToken: pane.liveAuth.authToken,
-    onThreadChanged: () => { refresh(true) },
-    onMembersChanged: (paneKey) => {
-      // members.changed is a CONTROL frame: it counts toward the cap (inside
-      // the control-frame refresh) and must not reset the streak via liveProgress.
-      if (!paneLiveCallbackValid(pane, generation, sessionId)) return
-      notifyMembersChanged(paneKey)
-      refresh(true)
-    },
-    onTurnStarted: () => { if (liveProgress()) refresh(false) },
-    onExecution: (event) => { if (liveProgress()) consumeSessionExecution(pane, event) },
-    onTurnCompleted: (event) => {
-      if (!liveProgress()) return
-      if (pane.foreignRun?.messageId === event.message_id) {
-        pane.foreignRun = null
-        pane.foreignRunFinished = true
-      }
-      refresh(false)
-    },
-    onAccessLost: (paneKey, reason) => markAccessLost(paneKey, reason),
-    // T8: malformed frames count diagnostics only — no UI surface.
-    onMalformedFrame: () => { pane.malformedFrameCount += 1 },
-    onError: (error) => {
-      if (errorSuspicionFired) return
-      errorSuspicionFired = true
-      void handlePaneLiveStreamError(pane, generation, sessionId, error.status).catch(() => undefined)
-    },
-  })
-  pane.liveStream = markRaw(handle)
-}
-
-function syncPaneLiveStream() {
-  const active = activePane()
-  for (const pane of state.panes) {
-    if (pane !== active && pane.liveStream) stopPaneLiveStream(pane)
-  }
-  if (active) startPaneLiveStream(active)
-}
-
-/** T7: bump the pane's membersRevision on members.changed; never a fetch. */
-function notifyMembersChanged(paneKey: string) {
-  const pane = findPaneByKey(paneKey)
-  if (pane) pane.membersRevision += 1
-}
-
-/** T7: pane-scoped counter by session id for the single-instance header call site. */
-function membersRevisionFor(sessionId: string | null): number {
-  if (!sessionId) return 0
-  const pane = findPaneBySessionId(sessionId)
-  return pane ? pane.membersRevision : 0
-}
-
-/**
- * T7 access-loss latch — the ONLY writer of `accessLost`. Exactly once per pane
- * key it aborts the session SSE stream, the local POST handle, and the recovery
- * controller; later calls for the same key are no-ops that never touch an
- * already-aborted handle. T8's POST path calls this same action; T10 only reads
- * the flag.
- */
-function markAccessLost(paneKey: string, reason: SessionLiveAccessRevokedReason) {
-  const pane = findPaneByKey(paneKey)
-  if (!pane || pane.accessLost) return
-  pane.accessLost = true
-  pane.accessLostReason = reason
-  stopPaneLiveStream(pane)
-  pane.activeStream?.abort()
-  pane.activeStream = null
-  pane.abortController?.abort()
-  pane.abortController = null
-  pane.authResumeController?.abort()
-  pane.authResumeController = null
 }
 
 function ensureExecV3(msg: RuntimeMessage): ExecutionStoreV3 {
   return ensureMessageExecutionV3(msg)
-}
-
-/** Apply one V3 event to a message row; false when it was a duplicate. */
-function applyExecutionEventToMessage(
-  pane: ChatRuntimePane,
-  msg: RuntimeMessage,
-  ev: ExecutionEventV3,
-): boolean {
-  if (!isExecutionEventV3(ev)) return false
-  const store = ensureExecV3(msg)
-  const before = store.state.rawEvents.length
-  store.applyEvent(ev)
-  if (store.state.rawEvents.length === before) return false
-  applyAssistantContentEvent(msg, ev)
-  const transition = browserInterventionTransition(ev)
-  if (transition.kind === 'cleared') pane.activeIntervention = null
-  if (transition.kind === 'activated') pane.activeIntervention = transition.intervention
-  return true
-}
-
-/** T8 ownership: session-SSE execution is buffered until the local POST's
- *  headers exist, then foreign frames are consumed while the POST's own
- *  frames (same message_id) stay ignored. A foreign frame whose assistant
- *  row has not merged yet waits in pendingForeign for the snapshot flush
- *  instead of being silently dropped. */
-function consumeSessionExecution(pane: ChatRuntimePane, frame: SessionLiveExecutionEvent) {
-  if (pane.localPostPending && !pane.localPostMessageId) {
-    bufferPreHeaderEvent(pane.preHeader, frame, utf8ByteLength(JSON.stringify(frame)))
-    return
-  }
-  if (shouldIgnoreSessionExecution(pane.localPostMessageId, frame.message_id)) return
-  const target = pane.messages.find(
-    (msg) => msg.role === 'assistant' && msg.message_id === frame.message_id,
-  )
-  if (target) {
-    applyExecutionEventToMessage(pane, target, frame.event)
-    return
-  }
-  bufferPreHeaderEvent(pane.pendingForeign, frame, utf8ByteLength(JSON.stringify(frame)))
-}
-
-/** T8: apply buffered foreign frames to rows the snapshot just merged, in
- *  stream order. Still-rowless frames are dropped with containment (no UI);
- *  `messages` itself is never touched, so no duplicate row can appear. */
-function flushPendingForeignExecutions(pane: ChatRuntimePane) {
-  for (const frame of drainPreHeaderEvents(pane.pendingForeign, pane.localPostMessageId)) {
-    const target = pane.messages.find(
-      (msg) => msg.role === 'assistant' && msg.message_id === frame.message_id,
-    )
-    if (target) applyExecutionEventToMessage(pane, target, frame.event)
-  }
-}
-
-/** T8: header arrived — adopt local-POST ownership and flush the pre-header
- *  buffer, consuming only the foreign frames. */
-function adoptLocalPostMessageId(pane: ChatRuntimePane, messageId: string) {
-  pane.localPostMessageId = messageId
-  for (const frame of drainPreHeaderEvents(pane.preHeader, messageId)) {
-    const target = pane.messages.find(
-      (msg) => msg.role === 'assistant' && msg.message_id === frame.message_id,
-    )
-    if (target) applyExecutionEventToMessage(pane, target, frame.event)
-  }
 }
 
 async function uploadImages(userId: string, files: File[], authToken?: string | null): Promise<UploadedImage[]> {
@@ -671,7 +325,7 @@ async function uploadImages(userId: string, files: File[], authToken?: string | 
 async function uploadDocuments(userId: string, docs: PendingRuntimeDocument[], authToken?: string | null): Promise<RuntimeDocumentInfo[]> {
   const uploaded: RuntimeDocumentInfo[] = []
   for (const item of docs) {
-    const result: UploadedDocument = item.uploaded || await (item.uploadPromise || uploadChatDocument(userId, item.file, authToken))
+    const result: UploadedDocument = await uploadChatDocument(userId, item.file, authToken)
     uploaded.push({
       type: item.kind,
       url: result.url || result.signed_url || '',
@@ -690,136 +344,246 @@ function resetPanePreview(pane: ChatRuntimePane) {
   pane.activeIntervention = null
 }
 
-const SESSION_BUSY_NOTICE_MS = 5000
-
-// T8: a manual-only 409 is surfaced as a transient top-of-conversation notice
-// owned by the pane itself — never a thread message, never an error bubble,
-// never a retry or queue. The token makes a re-trigger restart the timer so the
-// notice cannot dismiss early under a newer trigger.
-function notifySessionBusy(pane: ChatRuntimePane, code: string | null) {
-  pane.busyNotice = code === 'session_already_running'
-    ? t('app.chat.session_busy_notice')
-    : t('app.sidebar.session_running')
-  pane.busyNoticeToken += 1
-  const token = pane.busyNoticeToken
-  window.setTimeout(() => {
-    if (pane.busyNoticeToken === token) pane.busyNotice = null
-  }, SESSION_BUSY_NOTICE_MS)
+/** 判断输入是否包含可发送内容（文本、图片、附件或已选技能）。 */
+function hasSendContent(input: SendInput, text: string): boolean {
+  return Boolean(text || input.images.length > 0 || input.documents.length > 0 || input.selectedSkillId)
 }
 
-async function sendMessage(key: string, input: SendInput, callbacks: RuntimeCallbacks = {}) {
-  const pane = findPaneByKey(key)
-  if (!pane) return
-  pane.authResumeController?.abort()
-  pane.authResumeController = null
-  if (pane.foreignRun || pane.foreignRunFinished) {
-    input.onRejected?.()
-    callbacks.onSessionBusy?.()
-    return
-  }
-  if (pane.running) {
-    await stopGeneration(key)
-    return
-  }
+/** 具备发送所需基础身份（令牌、用户与非 default 空间）的发送输入。 */
+type SendInputReady = SendInput & { authToken: string; userId: string; tenantId: string }
 
-  const text = input.text.trim()
-  const hasImages = input.images.length > 0
-  const hasDocuments = input.documents.length > 0
-  const hasSelectedSkill = !!input.selectedSkillId
-  if (!text && !hasImages && !hasDocuments && !hasSelectedSkill) return
-  if (!input.authToken || !input.userId || !input.mainId || input.mainId === 'default') {
-    callbacks.onLoginRequired?.()
-    return
-  }
+/** 判断当前输入是否具备发送所需的基础身份。 */
+function hasSendIdentity(input: SendInput): input is SendInputReady {
+  const hasBase = input.authToken && input.userId && input.tenantId
+  return Boolean(hasBase) && input.tenantId !== 'default'
+}
 
-  pane.operationId += 1
-  const operationId = pane.operationId
-  setPaneRunning(pane, true)
-  pane.activeAuthToken = input.authToken
-  pane.liveAuth = { userId: input.userId, mainId: input.mainId, authToken: input.authToken }
-  let uploadedImages: UploadedImage[] = []
-  let uploadedDocuments: RuntimeDocumentInfo[] = []
-  try {
-    const quota = await fetchOrgBilling(input.authToken)
-    if (pane.operationId !== operationId) return
-    const remaining = Number(quota.data?.remainingPoints || 0)
-    if (!quota.ok || remaining <= 0) {
-      const isEnterprise = quota.data?.spaceType === 'enterprise'
-      pane.messages.push({
-        _id: nextMessageId(),
-        role: 'assistant',
-        content: chatRuntimeMessages[isEnterprise ? 'enterpriseQuota' : 'personalQuota'][input.locale],
-      })
-      setPaneRunning(pane, false)
-      return
-    }
-
-    uploadedImages = await uploadImages(input.userId, input.images, input.authToken)
-    if (pane.operationId !== operationId) return
-    uploadedDocuments = await uploadDocuments(input.userId, input.documents, input.authToken)
-  } catch (uploadErr) {
-    pane.messages.push({
-      _id: nextMessageId(),
-      role: 'assistant',
-      content: `[Error: ${chatRuntimeMessages.uploadFailed[input.locale]}: ${uploadErr}]`,
-    })
-    setPaneRunning(pane, false)
-    pane.activeAuthToken = null
-    return
-  }
-  if (pane.operationId !== operationId) return
-
-  const viewerAuthor: ChatMessageAuthor = input.viewerAuthor ?? {
-    user_id: input.userId || '',
-    display_name: null,
-    avatar_url: null,
-  }
-  const localPostUserMessageId = nextMessageId()
-  const userMessage: RuntimeMessage = {
-    _id: nextMessageId(),
-    message_id: localPostUserMessageId,
-    role: 'user',
-    content: text,
-    user_id: viewerAuthor.user_id || input.userId || undefined,
-    author: viewerAuthor,
-    images: uploadedImages as RuntimeImageInfo[],
-    documents: uploadedDocuments,
-    knowledge_references: input.knowledgeReferences,
-    created_at: new Date().toISOString(),
-  }
-  pane.messages.push(userMessage)
-
-  const assistantMsg: RuntimeMessage = {
+/** 额度或附件链路失败时写入错误消息并复位 running 状态。 */
+function pushSendFailure(pane: ChatRuntimePane, input: SendInput, uploadErr: unknown): void {
+  pane.messages.push({
     _id: nextMessageId(),
     role: 'assistant',
-    content: '',
+    content: `[Error: ${input.locale === 'zh' ? '附件上传失败' : 'Failed to upload attachments'}: ${uploadErr}]`,
+  })
+  setPaneRunning(pane, false)
+  pane.activeAuthToken = null
+}
+
+/** 校验可用额度；不足时写入提示消息并复位 running，返回是否可继续发送。 */
+async function checkSendQuota(pane: ChatRuntimePane, operationId: number, input: SendInputReady): Promise<boolean> {
+  const quota = await fetchOrgBilling(input.authToken).catch((uploadErr) => {
+    pushSendFailure(pane, input, uploadErr)
+    return null
+  })
+  if (!quota || pane.operationId !== operationId) return false
+  const remaining = Number(quota.data?.remainingPoints ?? 0)
+  const unlimited = quota.data?.unlimited === true
+  if (quota.ok && (unlimited || remaining > 0)) return true
+  const isEnterprise = quota.data?.spaceType === 'enterprise'
+  pane.messages.push({
+    _id: nextMessageId(),
+    role: 'assistant',
+    content: isEnterprise
+      ? '当前企业分派额度已用尽，请联系企业管理员调整额度。'
+      : '个人赠送额度已用尽，请升级或切换到有可用额度的空间。',
+  })
+  setPaneRunning(pane, false)
+  return false
+}
+
+type PreparedAttachments = { images: UploadedImage[]; documents: RuntimeDocumentInfo[] }
+
+/** 上传本轮附件；失败时写入错误消息并复位 running，返回 null 表示不可继续。 */
+async function prepareSendAttachments(
+  pane: ChatRuntimePane,
+  operationId: number,
+  input: SendInputReady,
+): Promise<PreparedAttachments | null> {
+  try {
+    const uploadedImages = await uploadImages(input.userId, input.images, input.authToken)
+    if (pane.operationId !== operationId) return null
+    const uploadedDocuments = await uploadDocuments(input.userId, input.documents, input.authToken)
+    return { images: uploadedImages, documents: uploadedDocuments }
+  } catch (uploadErr) {
+    pushSendFailure(pane, input, uploadErr)
+    return null
   }
+}
+
+function buildUserMessage(text: string, images: UploadedImage[], documents: RuntimeDocumentInfo[]): RuntimeMessage {
+  return {
+    _id: nextMessageId(),
+    role: 'user',
+    content: text,
+    images: images as RuntimeImageInfo[],
+    documents,
+    created_at: new Date().toISOString(),
+  }
+}
+
+/** 追加空的 assistant 占位消息并复位执行态，返回该消息。 */
+function appendAssistantMessage(pane: ChatRuntimePane): RuntimeMessage {
+  const assistantMsg: RuntimeMessage = { _id: nextMessageId(), role: 'assistant', content: '' }
   pane.messages.push(assistantMsg)
   pane.activeAssistantMessageId = assistantMsg._id || null
   ensureExecV3(assistantMsg).reset()
   resetPanePreview(pane)
+  return assistantMsg
+}
 
+type ApiChatMessage = {
+  role: RuntimeMessage['role']
+  content: string
+  images: RuntimeImageInfo[]
+  documents: RuntimeDocumentInfo[]
+}
+
+function toApiChatMessage(m: RuntimeMessage): ApiChatMessage {
+  return { role: m.role, content: m.content, images: m.images || [], documents: m.documents || [] }
+}
+
+/** 组装发给后端的聊天补全请求体。 */
+function buildChatStreamRequest(pane: ChatRuntimePane, input: SendInput) {
+  return {
+    modelId: input.modelId || undefined,
+    knowledgeQaEnabled: input.knowledgeQaEnabled,
+    timezone: input.timezone,
+    messages: pane.messages.slice(0, -1).map(toApiChatMessage),
+    output_spec: {
+      user_id: input.userId || undefined,
+      tenant_id: input.tenantId || undefined,
+      task_id: pane.sessionId || undefined,
+      selected_skill_id: input.selectedSkillId || undefined,
+      manual_skill_selected: Boolean(input.selectedSkillId) || undefined,
+      // 会话归属项目：新建会话时后端写入 session.project_id（默认 'default'）。
+      project_id: input.projectId || undefined,
+      // 051 FR-003：新建会话绑定的数字员工（backend SessionCreate 校验别名 employeeId/employee_id）。
+      employee_id: input.employeeId || undefined,
+    },
+  }
+}
+
+/** 流首帧带回会话 id 时，同步 model 绑定并解析 pane 归属。 */
+function handleStreamSessionId(pane: ChatRuntimePane, input: SendInput, assistantMsg: RuntimeMessage, sid: string, callbacks: RuntimeCallbacks): void {
+  if (input.modelId) pane.modelInstanceId = input.modelId
+  assistantMsg._backendSid = sid
+  resolvePaneSession(pane, sid, callbacks)
+}
+
+/** 后端流的游标与终止态，供同一轮内的恢复逻辑共享。 */
+type BackendStreamState = { cursor: number; terminalReceived: boolean }
+
+function findRuntimeMessage(pane: ChatRuntimePane, messageId: string | undefined): RuntimeMessage | undefined {
+  return pane.messages.find((item) => item._id === messageId)
+}
+
+/** 应用 V3 事件，返回 store 是否真的接受了它。 */
+function applyRuntimeV3Event(store: ExecutionStoreV3, ev: ExecutionEventV3): boolean {
+  const before = store.state.rawEvents.length
+  store.applyEvent(ev)
+  return store.state.rawEvents.length > before
+}
+
+function isTerminalRunEvent(ev: ExecutionEventV3): boolean {
+  return ev.type === 'run.completed' || ev.type === 'run.failed' || ev.type === 'run.cancelled'
+}
+
+/** 记录后端流的终止事件，供 EOF 后判定是否需要主动恢复。 */
+function markBackendTerminal(state: BackendStreamState, ev: ExecutionEventV3, fromBackend: boolean): void {
+  if (fromBackend && isTerminalRunEvent(ev)) state.terminalReceived = true
+}
+
+/** 按事件流序列号推进后端游标。 */
+function advanceBackendCursor(state: BackendStreamState, ev: ExecutionEventV3): void {
+  const sequence = Number(ev.stream_seq_end || ev.stream_seq || 0)
+  state.cursor = sequence > 0 ? Math.max(state.cursor, sequence) : state.cursor + 1
+}
+
+/** 按浏览器接管迁移结果更新 pane 当前干预。 */
+function applyInterventionTransition(pane: ChatRuntimePane, transition: BrowserInterventionTransition): void {
+  if (transition.kind === 'cleared') pane.activeIntervention = null
+  if (transition.kind === 'activated') pane.activeIntervention = transition.intervention
+}
+
+/** 后端流失败且无法恢复时，向本地 assistant 消息写入错误事件。 */
+async function recordLocalStreamError(
+  assistantMsg: RuntimeMessage,
+  ctrl: AbortController,
+  input: SendInput,
+  error: unknown,
+  recovered: boolean,
+): Promise<void> {
+  if (recovered || ctrl.signal.aborted) return
+  const detail = error as { message?: string } | null
+  const errText = String(detail?.message || error || (input.locale === 'zh' ? '请求失败' : 'Request failed'))
+  const localErrorId = 'err_' + Math.random().toString(36).slice(2)
+  ensureExecV3(assistantMsg).applyEvent({
+    v: 3,
+    event_id: localErrorId,
+    id: localErrorId,
+    ts: Date.now(),
+    type: 'item.failed',
+    item_kind: 'error',
+    item_id: 'local_error',
+    revision: 1,
+    payload: { message: errText },
+  } as ExecutionEventV3)
+}
+
+/** 复位本轮流的运行态标记（调用前需确认操作未被后续操作取代）。 */
+function cleanupStreamState(pane: ChatRuntimePane): void {
+  pane.activeStream = null
+  pane.abortController = null
+  pane.activeAssistantMessageId = null
+  const authCtrl = pane.authResumeController as AbortController | null
+  if (authCtrl && authCtrl.signal.aborted) pane.authResumeController = null
+  setPaneRunning(pane, false)
+}
+
+/** 将 execV3 的产物、事件与证据包写回 assistant 消息。 */
+function finalizeAssistantArtifacts(assistantMsg: RuntimeMessage): void {
+  const artifacts = assistantMsg._execV3?.state.artifacts || []
+  const docs: RuntimeDocumentInfo[] = artifacts.map((a) => ({
+    type: a.kind as RuntimeDocumentInfo['type'],
+    url: a.url || '',
+    signed_url: a.signed_url,
+    object_path: a.object_path,
+    filename: a.filename,
+    title: a.title,
+    content_type: a.content_type,
+    size: a.size,
+    bundle: a.bundle,
+  }))
+  if (docs.length) assistantMsg.documents = docs
+  assistantMsg.execution_events = assistantMsg._execV3?.state.rawEvents || undefined
+  assistantMsg.evidence_bundles = assistantMsg._execV3?.state.evidenceBundles || undefined
+}
+
+type ChatTurnContext = {
+  pane: ChatRuntimePane
+  input: SendInput
+  callbacks: RuntimeCallbacks
+  assistantMsg: RuntimeMessage
+  operationId: number
+}
+
+/** 执行一次完整的后端聊天流：发起、事件回流、断线恢复与浏览器接管续跑。 */
+async function executeChatStreamTurn(ctx: ChatTurnContext): Promise<void> {
+  const { pane, input, callbacks, assistantMsg, operationId } = ctx
   const ctrl = new AbortController()
   pane.abortController = ctrl
+  const backendStream: BackendStreamState = { cursor: 0, terminalReceived: false }
   let activeHandle: ChatStreamHandle | null = null
-  let backendEventCursor = 0
-  let backendTerminalReceived = false
 
   const applyAssistantEvent = (ev: ExecutionEventV3, options: { fromBackend?: boolean } = {}) => {
-    const msg = pane.messages.find((item) => item._id === assistantMsg._id)
+    const msg = findRuntimeMessage(pane, assistantMsg._id)
     if (!msg || !isExecutionEventV3(ev)) return
-    if (options.fromBackend) msg._connectionLostAt = undefined
-    if (
-      options.fromBackend &&
-      (ev.type === 'run.completed' || ev.type === 'run.failed' || ev.type === 'run.cancelled')
-    ) {
-      backendTerminalReceived = true
-    }
-    const accepted = applyExecutionEventToMessage(pane, msg, ev)
-    if (accepted && options.fromBackend) {
-      const sequence = Number(ev.stream_seq_end || ev.stream_seq || 0)
-      backendEventCursor = sequence > 0 ? Math.max(backendEventCursor, sequence) : backendEventCursor + 1
-    }
+    const accepted = applyRuntimeV3Event(ensureExecV3(msg), ev)
+    markBackendTerminal(backendStream, ev, Boolean(options.fromBackend))
+    if (!accepted) return
+    if (options.fromBackend) advanceBackendCursor(backendStream, ev)
+    applyAssistantContentEvent(msg, ev)
+    applyInterventionTransition(pane, browserInterventionTransition(ev))
   }
 
   const recoverDisconnectedStream = async (showRecoveryEvent = true): Promise<boolean> => {
@@ -836,18 +600,17 @@ async function sendMessage(key: string, input: SendInput, callbacks: RuntimeCall
         item_id: `recover_${messageId}`,
         revision: 1,
         payload: {
-          message: chatRuntimeMessages.recovering[input.locale],
+          message: input.locale === 'zh' ? '连接中断，正在恢复进度' : 'Connection interrupted, recovering progress',
         },
       })
     }
-    let after = backendEventCursor
+    let after = backendStream.cursor
     while (!ctrl.signal.aborted) {
       try {
         const recovered = await fetchChatMessageEvents(messageId, after, { authToken: input.authToken })
-        assistantMsg._connectionLostAt = undefined
         for (const ev of recovered.events) applyAssistantEvent(ev, { fromBackend: true })
         after = recovered.next_cursor
-        backendEventCursor = recovered.next_cursor
+        backendStream.cursor = recovered.next_cursor
         if (!recovered.live && recovered.status !== 'live') return true
       } catch {
         // The recovery endpoint can be unavailable during the same network outage.
@@ -857,63 +620,21 @@ async function sendMessage(key: string, input: SendInput, callbacks: RuntimeCall
     return false
   }
 
-  pane.localPostPending = true
-  pane.localPostMessageId = null
-  pane.preHeader = createPreHeaderBufferState<SessionLiveExecutionEvent>()
   try {
     const handle = startChatStream(
-      {
-        modelId: input.modelId || undefined,
-        knowledgeQaEnabled: input.knowledgeQaEnabled,
-        timezone: input.timezone,
-        messages: pane.messages.slice(0, -1).map((m) => ({
-          role: m.role,
-          content: m.content,
-          images: m.images || [],
-          documents: m.documents || [],
-          knowledge_references: m.knowledge_references || [],
-        })),
-        output_spec: {
-          user_id: input.userId || undefined,
-          main_id: input.mainId || undefined,
-          task_id: pane.sessionId || undefined,
-          selected_skill_id: input.selectedSkillId || undefined,
-          manual_skill_selected: Boolean(input.selectedSkillId) || undefined,
-        },
-      },
-      (ev) => {
-        applyAssistantEvent(ev, { fromBackend: true })
-      },
+      buildChatStreamRequest(pane, input),
+      (ev) => applyAssistantEvent(ev, { fromBackend: true }),
       {
         authToken: input.authToken,
-        userMessageId: localPostUserMessageId,
-        onSessionId: (sid) => {
-          if (input.modelId) pane.modelInstanceId = input.modelId
-          assistantMsg._backendSid = sid
-          resolvePaneSession(pane, sid, callbacks)
-        },
-        onMessageId: (mid) => {
-          assistantMsg.message_id = mid
-          adoptLocalPostMessageId(pane, mid)
-        },
-        onUserMessageId: (mid) => {
-          applyEffectiveUserMessageId(userMessage, mid)
-        },
-        onAccessRevoked: (event) => {
-          markAccessLost(pane.key, event.reason)
-        },
+        onSessionId: (sid) => handleStreamSessionId(pane, input, assistantMsg, sid, callbacks),
+        onMessageId: (mid) => { assistantMsg.message_id = mid },
       },
     )
     activeHandle = handle
     pane.activeStream = handle
     ctrl.signal.addEventListener('abort', () => handle.abort())
     await handle.done
-    if (!backendTerminalReceived && shouldReleaseToDurableRecovery({
-      accessLost: pane.accessLost,
-      paneAlive: findPaneByKey(pane.key) === pane,
-      aborted: ctrl.signal.aborted,
-    })) {
-      assistantMsg._connectionLostAt = Date.now()
+    if (!ctrl.signal.aborted && !backendStream.terminalReceived) {
       // A proxy may close a streaming response cleanly. Verify the backend run
       // reached a terminal state instead of treating EOF as task completion.
       await recoverDisconnectedStream(true)
@@ -927,13 +648,7 @@ async function sendMessage(key: string, input: SendInput, callbacks: RuntimeCall
         locale: input.locale,
         signal: ctrl.signal,
         getIntervention: () => pane.activeIntervention,
-        getMessages: () => pane.messages.slice(0, -1).map((m) => ({
-          role: m.role,
-          content: m.content,
-          images: m.images || [],
-          documents: m.documents || [],
-          knowledge_references: m.knowledge_references || [],
-        })),
+        getMessages: () => pane.messages.slice(0, -1).map(toApiChatMessage),
         setWaitController: (controller) => { pane.authResumeController = controller },
         setRunning: (running) => setPaneRunning(pane, running),
         setActiveHandle: (resumed) => {
@@ -943,89 +658,62 @@ async function sendMessage(key: string, input: SendInput, callbacks: RuntimeCall
         clearIntervention: () => { pane.activeIntervention = null },
         onEvent: (ev) => applyAssistantEvent(ev, { fromBackend: true }),
         onMessageId: (mid) => {
-          backendEventCursor = 0
-          backendTerminalReceived = false
+          backendStream.cursor = 0
+          backendStream.terminalReceived = false
           assistantMsg.message_id = mid
         },
       })
     }
   } catch (error: any) {
-    if (error instanceof ChatStreamHttpError && error.status === 409 && isManualOnlyConflict(error.code)) {
-      // Manual-only 409 (concurrent run or rejected user-message id): remove
-      // BOTH optimistic bubbles, show the transient top-of-conversation notice,
-      // and leave the composer enabled for a later retry — never an error
-      // bubble, never an automatic retry, never a queue.
-      pane.messages = withoutMessages(pane.messages, [userMessage._id, assistantMsg._id])
-      // Reconciled 409 trigger: the pane-owned transient busy notice is the
-      // single visible surface for this event (per-pane, auto-dismiss, never
-      // a thread message). input.onRejected restores the composer's draft;
-      // the foreign-run snapshot below keeps main's run-notice accurate.
-      // callbacks.onSessionBusy (global shareToast) is deliberately NOT fired
-      // here to avoid a duplicate surface on the same event.
-      input.onRejected?.()
-      notifySessionBusy(pane, error.code)
-      if (pane.sessionId && input.userId) {
-        try {
-          const detail = await getSession(pane.sessionId, input.userId, input.mainId || undefined, input.authToken)
-          updateForeignRun(pane, detail.active_run, input.userId)
-        } catch {
-          // The sidebar poll will reconcile the visible run state.
-        }
-      }
-    } else if (error?.name !== 'AbortError') {
-      if (!(error instanceof ChatStreamHttpError) && !ctrl.signal.aborted) assistantMsg._connectionLostAt = Date.now()
+    if (error?.name !== 'AbortError') {
       const recovered = await recoverDisconnectedStream().catch(() => false)
-      if (!recovered && !ctrl.signal.aborted) {
-        const errText = error instanceof ChatStreamHttpError && error.code === 'topic_admission_denied'
-          ? chatRuntimeMessages.admissionDenied[input.locale]
-          : String(error?.message || error || chatRuntimeMessages.requestFailed[input.locale])
-        const localErrorId = 'err_' + Math.random().toString(36).slice(2)
-        ensureExecV3(assistantMsg).applyEvent({
-          v: 3,
-          event_id: localErrorId,
-          id: localErrorId,
-          ts: Date.now(),
-          type: 'item.failed',
-          item_kind: 'error',
-          item_id: 'local_error',
-          revision: 1,
-          payload: { message: errText },
-        } as ExecutionEventV3)
-      }
+      await recordLocalStreamError(assistantMsg, ctrl, input, error, recovered)
     }
   } finally {
+    // Returning here intentionally overrides any error/value from the try block
+    // only when this operation was superseded; see control-flow note above.
+    // eslint-disable-next-line no-unsafe-finally -- intentional early return when operation superseded
     if (pane.operationId !== operationId) return
-    pane.localPostPending = false
-    pane.localPostMessageId = null
-    pane.preHeader = createPreHeaderBufferState<SessionLiveExecutionEvent>()
     // Transport completion owns the running flag. Clear it before any optional
     // refresh callback so a slow or failed sidebar/billing request can never
     // leave the composer stuck in its loading state.
-    pane.activeStream = null
-    pane.abortController = null
-    pane.activeAssistantMessageId = null
-    if (pane.authResumeController?.signal.aborted) pane.authResumeController = null
-    setPaneRunning(pane, false)
-
-    const artifacts = assistantMsg._execV3?.state.artifacts || []
-    const docs: RuntimeDocumentInfo[] = artifacts.map((a) => ({
-      type: a.kind as RuntimeDocumentInfo['type'],
-      url: a.url || '',
-      signed_url: a.signed_url,
-      object_path: a.object_path,
-      filename: a.filename,
-      title: a.title,
-      content_type: a.content_type,
-      size: a.size,
-      bundle: a.bundle,
-    }))
-    if (docs.length) assistantMsg.documents = docs
-    assistantMsg.execution_events = assistantMsg._execV3?.state.rawEvents || undefined
-    assistantMsg.evidence_bundles = assistantMsg._execV3?.state.evidenceBundles || undefined
-
-    const resolvedSessionId = assistantMsg._backendSid || pane.sessionId
-    await refreshAfterRun(callbacks, resolvedSessionId)
+    cleanupStreamState(pane)
+    finalizeAssistantArtifacts(assistantMsg)
+    await refreshAfterRun(callbacks, assistantMsg._backendSid || pane.sessionId)
   }
+}
+
+async function sendMessage(key: string, input: SendInput, callbacks: RuntimeCallbacks = {}) {
+  const pane = findPaneByKey(key)
+  if (!pane) return
+  pane.authResumeController?.abort()
+  pane.authResumeController = null
+  if (pane.running) {
+    await stopGeneration(key)
+    return
+  }
+
+  const text = input.text.trim()
+  if (!hasSendContent(input, text)) return
+  if (!hasSendIdentity(input)) {
+    callbacks.onLoginRequired?.()
+    return
+  }
+
+  pane.operationId += 1
+  const operationId = pane.operationId
+  setPaneRunning(pane, true)
+  pane.activeAuthToken = input.authToken
+
+  if (!(await checkSendQuota(pane, operationId, input))) return
+
+  const prepared = await prepareSendAttachments(pane, operationId, input)
+  if (!prepared) return
+  if (pane.operationId !== operationId) return
+
+  pane.messages.push(buildUserMessage(text, prepared.images, prepared.documents))
+  const assistantMsg = appendAssistantMessage(pane)
+  await executeChatStreamTurn({ pane, input, callbacks, assistantMsg, operationId })
 }
 
 async function stopGeneration(key: string) {
@@ -1035,7 +723,6 @@ async function stopGeneration(key: string) {
 }
 
 export function useChatRuntimeStore(callbacks: RuntimeCallbacks = {}) {
-  runtimeCallbacks = callbacks
   const panes = computed(() => state.panes)
   const activeChatKey = computed(() => state.activeKey)
   const activeChatPane = computed(() => activePane())
@@ -1051,10 +738,10 @@ export function useChatRuntimeStore(callbacks: RuntimeCallbacks = {}) {
 
   function reset() {
     for (const pane of state.panes) {
-      stopPaneLiveStream(pane)
       pane.activeStream?.abort()
       pane.abortController?.abort()
       pane.authResumeController?.abort()
+      pane.sessionLiveHandle?.stop()
     }
     state.panes = []
     state.activeKey = ''
@@ -1069,15 +756,140 @@ export function useChatRuntimeStore(callbacks: RuntimeCallbacks = {}) {
     return pane
   }
 
-  async function selectSession(sessionId: string, userId: string, mainId?: string, authToken?: string | null) {
+  // -- P3 SSE：共享会话实时流 ---------------------------------------------
+  // 本地无 himovo 的 pane-live 骨架，也不搬其 T5/T8/T9 投影；这里只在
+  // 「共享参与者（access='shared'）」打开会话时叠加一条 SSE 订阅，把
+  // 收到的 V3 执行事件增量应用到本地已有的 _execV3 行（幂等），控制帧
+  // 触发权威刷新（重新 getSession 合并）后以 COLD_ATTACH 重新开流。
+
+  /** Carry local-only row state onto the server row so re-renders stay stable. */
+  function carryLocalRowState(msg: RuntimeMessage, prev: RuntimeMessage | undefined): RuntimeMessage {
+    if (!prev) return msg
+    if (prev._id) msg._id = prev._id // 复用 _id 防渲染闪烁
+    if (prev._execV3) msg._execV3 = prev._execV3 // 保留已应用执行事件
+    if (prev._provisionalTextByItem) msg._provisionalTextByItem = prev._provisionalTextByItem
+    return msg
+  }
+
+  function toRuntimeMessage(item: ChatMessage, prev: RuntimeMessage | undefined): RuntimeMessage {
+    const msg = ensureMessageId({
+      ...(item as RuntimeMessage),
+      role: item.role === 'user' ? 'user' : 'assistant',
+      content: item.content || '',
+    })
+    return carryLocalRowState(msg, prev)
+  }
+
+  function indexByMessageId(rows: RuntimeMessage[]): Map<string, RuntimeMessage> {
+    const index = new Map<string, RuntimeMessage>()
+    for (const row of rows) {
+      if (row.message_id) index.set(row.message_id, row)
+    }
+    return index
+  }
+
+  function mergeSessionMessages(existing: RuntimeMessage[], incoming: ChatMessage[] | undefined): RuntimeMessage[] {
+    if (!incoming?.length) return existing
+    const byMessageId = indexByMessageId(existing)
+    const incomingIds = new Set<string>()
+    const merged = incoming.map((item) => {
+      if (item.message_id) incomingIds.add(item.message_id)
+      const prev = item.message_id ? byMessageId.get(item.message_id) : undefined
+      return toRuntimeMessage(item, prev)
+    })
+    // 保留本地乐观/未持久化行（无 message_id 或后端暂未提及），避免刷新丢行。
+    const orphans = existing.filter((row) => !row.message_id || !incomingIds.has(row.message_id))
+    return orphans.length ? [...merged, ...orphans] : merged
+  }
+
+  function applyLiveExecution(pane: ChatRuntimePane, event: SessionLiveExecutionEvent): void {
+    const row = pane.messages.find(
+      (m) => m.role === 'assistant' && m.message_id === event.message_id,
+    )
+    if (!row) return
+    const store = ensureExecV3(row)
+    const before = store.state.rawEvents.length
+    store.applyEvent(event.event)
+    if (store.state.rawEvents.length === before) return
+    applyAssistantContentEvent(row, event.event)
+  }
+
+  async function refreshSharedSessionPane(
+    pane: ChatRuntimePane,
+    sessionId: string,
+    userId: string,
+    tenantId: string | undefined,
+    authToken: string | null,
+  ): Promise<void> {
+    try {
+      const detail = await getSession(sessionId, userId, tenantId, authToken)
+      pane.messages = mergeSessionMessages(pane.messages, detail.messages)
+      if (detail.runtime_preset_id) pane.runtimePresetId = detail.runtime_preset_id
+      if (detail.model_instance_id !== undefined && detail.model_instance_id !== null) pane.modelInstanceId = detail.model_instance_id
+      if (detail.code_project !== undefined) pane.codeProject = detail.code_project
+    } catch {
+      // 网络/权限失败：保留现有消息，等待下一次触发。
+    }
+  }
+
+  function reopenSharedSessionLive(
+    pane: ChatRuntimePane,
+    sessionId: string,
+    userId: string,
+    tenantId: string | undefined,
+    authToken: string | null,
+  ): void {
+    pane.sessionLiveHandle?.stop()
+    pane.sessionLiveHandle = null
+    startSharedSessionLive(pane, sessionId, userId, tenantId, authToken)
+  }
+
+  function startSharedSessionLive(
+    pane: ChatRuntimePane,
+    sessionId: string,
+    userId: string,
+    tenantId: string | undefined,
+    authToken: string | null,
+  ): void {
+    pane.sessionLiveHandle?.stop()
+    const handle = startSessionLiveStream({
+      sessionId,
+      paneKey: pane.key,
+      authToken,
+      onExecution: (event) => applyLiveExecution(pane, event),
+      // thread.changed：控制帧，游标有 gap/溢出/非法 → 权威刷新后 COLD_ATTACH 重开。
+      onThreadChanged: () => {
+        void refreshSharedSessionPane(pane, sessionId, userId, tenantId, authToken)
+          .then(() => reopenSharedSessionLive(pane, sessionId, userId, tenantId, authToken))
+      },
+      // members.changed：成员变化 → 权威刷新（列表由宿主 onSessionUpdated 刷新）。
+      onMembersChanged: () => {
+        void refreshSharedSessionPane(pane, sessionId, userId, tenantId, authToken)
+      },
+      onTurnStarted: () => {
+        void refreshSharedSessionPane(pane, sessionId, userId, tenantId, authToken)
+      },
+      onTurnCompleted: () => {
+        void refreshSharedSessionPane(pane, sessionId, userId, tenantId, authToken)
+        void refreshAfterRun(callbacks, sessionId)
+      },
+      // session.access.revoked：终止流，通知宿主提示并退出共享会话。
+      onAccessLost: (_paneKey, reason) => {
+        pane.sessionLiveHandle = null
+        callbacks.onSharedAccessLost?.(sessionId, reason)
+      },
+    })
+    pane.sessionLiveHandle = handle
+  }
+
+  async function selectSession(sessionId: string, userId: string, tenantId?: string, authToken?: string | null) {
     clearUnread(sessionId)
     const existing = findPaneBySessionId(sessionId)
     if (existing) {
-      existing.liveAuth = { userId, mainId, authToken }
       setActivePane(existing)
       return existing
     }
-    const detail: SessionDetail = await getSession(sessionId, userId, mainId, authToken)
+    const detail: SessionDetail = await getSession(sessionId, userId, tenantId, authToken)
     const pane = createPane({
       key: `session_${detail.id}`,
       sessionId: detail.id,
@@ -1087,30 +899,25 @@ export function useChatRuntimeStore(callbacks: RuntimeCallbacks = {}) {
     pane.runtimePresetId = detail.runtime_preset_id || 'askai-enterprise'
     pane.modelInstanceId = detail.model_instance_id || ''
     pane.codeProject = detail.code_project || null
-    updateForeignRun(pane, detail.active_run, userId)
-    pane.shared = detail.access === 'shared' || (detail.participant_count ?? 0) > 0
-    pane.liveAuth = { userId, mainId, authToken }
     state.panes = [...state.panes, pane]
     setActivePane(pane)
     pruneInactivePanes()
+    // P3 SSE：共享参与者（access='shared'）打开会话即订阅实时流，owner 由
+    // 本地 POST 流/恢复循环负责，不在此叠加。
+    if (detail.access === 'shared' && authToken) {
+      startSharedSessionLive(pane, detail.id, userId, tenantId, authToken)
+    }
     if (detail.active_run?.message_id && authToken) {
       const assistant = [...pane.messages].reverse().find(
         (item) => item.role === 'assistant' && item.message_id === detail.active_run?.message_id,
       )
       if (assistant) {
-        // Todo 29: the stop control is the composer's running button, shown
-        // only while the pane runs. A foreign run — another member's, or a
-        // legacy run with no recorded initiator — must not offer stop: the
-        // server denies cancel for every non-initiator (403
-        // session_cancel_initiator_required; fail-closed for legacy rows).
-        // The poll below still follows the run's progress for every viewer.
-        const runInitiatorUserId = detail.active_run.initiator_user_id || ''
         const restoredStore = ensureExecV3(assistant)
         pane.activeIntervention = normalizeBrowserIntervention(restoredStore.state.intervention)
         const controller = new AbortController()
         pane.abortController = controller
         pane.activeAssistantMessageId = assistant._id || null
-        if (runInitiatorUserId === userId) setPaneRunning(pane, true)
+        setPaneRunning(pane, true)
         void (async () => {
           const store = restoredStore
           store.resumeLive()
@@ -1119,7 +926,6 @@ export function useChatRuntimeStore(callbacks: RuntimeCallbacks = {}) {
             try {
               while (!controller.signal.aborted) {
                 const recovered = await fetchChatMessageEvents(detail.active_run!.message_id, cursor, { authToken })
-                assistant._connectionLostAt = undefined
                 for (const event of recovered.events) {
                   if (!isExecutionEventV3(event)) continue
                   store.applyEvent(event)
@@ -1133,7 +939,6 @@ export function useChatRuntimeStore(callbacks: RuntimeCallbacks = {}) {
                 await new Promise((resolve) => setTimeout(resolve, 2000))
               }
             } catch {
-              assistant._connectionLostAt = Date.now()
               // Sidebar polling and a future re-open provide another recovery path.
             }
             if (pane.activeIntervention) {
@@ -1171,37 +976,10 @@ export function useChatRuntimeStore(callbacks: RuntimeCallbacks = {}) {
     return pane
   }
 
-  function syncActiveRuns(summaries: SessionSummary[], viewerUserId: string) {
-    for (const summary of summaries) {
-      const pane = findPaneBySessionId(summary.id)
-      if (!pane || pane.running) continue
-      const hadForeignRun = Boolean(pane.foreignRun || pane.foreignRunFinished)
-      updateForeignRun(pane, summary.active_run, viewerUserId)
-      if (hadForeignRun && !pane.foreignRun && pane.key === state.activeKey && pane.liveAuth) {
-        void refreshPaneLiveState(pane, pane.liveGeneration, summary.id, false).catch(() => undefined)
-      }
-    }
-  }
-
-  async function refreshSession(sessionId: string, userId: string, mainId?: string, authToken?: string | null) {
-    const pane = findPaneBySessionId(sessionId)
-    if (!pane || pane.running || pane.refreshingSession) return
-    pane.refreshingSession = true
-    try {
-      const detail = await getSession(sessionId, userId, mainId, authToken)
-      pane.messages = normalizeMessages(detail.messages)
-      updateForeignRun(pane, detail.active_run, userId)
-      pane.foreignRunFinished = false
-      clearUnread(sessionId)
-    } finally {
-      pane.refreshingSession = false
-    }
-  }
-
   function removeSession(sessionId: string) {
     const pane = findPaneBySessionId(sessionId)
-    if (pane) stopPaneLiveStream(pane)
     pane?.authResumeController?.abort()
+    pane?.sessionLiveHandle?.stop()
     state.panes = state.panes.filter((item) => item.sessionId !== sessionId)
     clearUnread(sessionId)
     if (currentSessionId.value === sessionId) {
@@ -1225,6 +1003,12 @@ export function useChatRuntimeStore(callbacks: RuntimeCallbacks = {}) {
   function setPanePreviewExpanded(_key: string, _expanded: boolean) {
     // Kept as an API boundary for future sidecar persistence; current expansion
     // remains local to ChatWindow because it is visual-only state.
+  }
+
+  /** Switch a pane between the conversation view and the trajectory view (028). */
+  function setPaneView(key: string, view: 'chat' | 'trajectory') {
+    const pane = findPaneByKey(key)
+    if (pane) pane.activeView = view
   }
 
   /**
@@ -1251,13 +1035,6 @@ export function useChatRuntimeStore(callbacks: RuntimeCallbacks = {}) {
     return {
       pane,
       assistant,
-      bindMessageId(messageId: string) {
-        assistant.message_id = messageId
-        user.message_id = `user-${messageId}`
-        // A live snapshot may have arrived before the send call returned.
-        // Reconcile it now so the optimistic row keeps its execution state.
-        pane.messages = mergeAuthoritativeMessages(pane.messages, []).messages
-      },
       apply(event: ExecutionEventV3) {
         if (!isExecutionEventV3(event)) return false
         const store = ensureExecV3(assistant)
@@ -1273,8 +1050,7 @@ export function useChatRuntimeStore(callbacks: RuntimeCallbacks = {}) {
         void refreshAfterRun(callbacks, pane.sessionId)
       },
       setCodeChanges(changes: DshTaskChangeSet) {
-        const target = pane.messages.find(message => message.role === 'assistant' && message.message_id === changes.task_id)
-          || pane.messages.find(message => message._id === assistant._id)
+        const target = pane.messages.find(message => message._id === assistant._id)
         if (target) target._codeChanges = changes
       },
     }
@@ -1290,17 +1066,13 @@ export function useChatRuntimeStore(callbacks: RuntimeCallbacks = {}) {
     reset,
     startLocalSession,
     selectSession,
-    syncActiveRuns,
-    refreshSession,
     removeSession,
-    markAccessLost,
-    notifyMembersChanged,
-    membersRevisionFor,
     sessionIsRunning,
     sessionIsUnread,
     clearUnread,
     clearPaneIntervention,
     setPanePreviewExpanded,
+    setPaneView,
     beginExternalTurn,
     sendMessage: (key: string, input: SendInput) => sendMessage(key, input, callbacks),
     stopGeneration,

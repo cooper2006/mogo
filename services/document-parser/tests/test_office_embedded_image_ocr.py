@@ -69,7 +69,7 @@ def test_embedded_image_text_reaches_searchable_chunks(tmp_path: Path, text_imag
 
     assert any(MARKER in chunk["text"] for chunk in image_chunks)
     assert any(MARKER in chunk["text"] for chunk in rag)
-    assert parsed.raw["movoOfficeImageOcr"]["recognizedImageCount"] == 1
+    assert parsed.raw["mogoOfficeImageOcr"]["recognizedImageCount"] == 1
     assert source.read_bytes() == before
     if ext == "pptx":
         assert image_chunks[0]["pageNo"] == 1

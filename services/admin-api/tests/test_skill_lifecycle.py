@@ -35,18 +35,41 @@ class Database:
     def __getitem__(self, name): return getattr(self, name)
 
 
+def _pass_eval_gate(monkeypatch):
+    """032-eval-gate: this test covers draft/publish semantics, not the gate.
+
+    ``publish()`` now runs the eval gate first, so stub it out here instead of
+    seeding a full golden test set (the gate itself is covered by
+    ``tests/test_eval_gate.py``).
+    """
+    from app.services.eval_gate import gate as gate_module
+
+    async def _run_gate(**kwargs):
+        return {
+            "runId": "stub-run",
+            "dryRun": bool(kwargs.get("dry_run")),
+            "passed": True,
+            "metrics": {},
+            "thresholds": {},
+            "failedMetrics": [],
+        }
+
+    monkeypatch.setattr(gate_module, "run_gate", _run_gate)
+
+
 def test_enterprise_draft_does_not_replace_runtime_until_publish(monkeypatch):
     db = Database()
-    db.skills.rows["skill"] = {"_id": "skill", "main_id": "tenant", "name": "Published", "type": "workflow", "enabled": True}
+    db.skills.rows["skill"] = {"_id": "skill", "tenant_id": "tenant", "name": "Published", "type": "workflow", "enabled": True}
     monkeypatch.setattr(lifecycle_module, "get_db", lambda: db)
+    _pass_eval_gate(monkeypatch)
     lifecycle = OrganizationSkillLifecycle()
 
-    asyncio.run(lifecycle.save(main_id="tenant", skill_id="skill", draft={"name": "Draft", "type": "workflow", "config": {}}))
+    asyncio.run(lifecycle.save(tenant_id="tenant", skill_id="skill", draft={"name": "Draft", "type": "workflow", "config": {}}))
     assert db.skills.rows["skill"]["name"] == "Published"
     assert db.skills.rows["skill"]["draft"]["name"] == "Draft"
     assert db.skills.rows["skill"]["published_version"] == "1.0.0"
 
-    published, release = asyncio.run(lifecycle.publish(main_id="tenant", skill_id="skill", notes="ready"))
+    published, release = asyncio.run(lifecycle.publish(tenant_id="tenant", skill_id="skill", notes="ready"))
     assert published["name"] == "Draft"
     assert published["published_version"] == "1.0.1"
     assert release["release_notes"] == "ready"
@@ -54,10 +77,32 @@ def test_enterprise_draft_does_not_replace_runtime_until_publish(monkeypatch):
 
 def test_enterprise_release_history_lazily_migrates_existing_skill(monkeypatch):
     db = Database()
-    db.skills.rows["skill"] = {"_id": "skill", "main_id": "tenant", "name": "Legacy", "type": "writing_style"}
+    db.skills.rows["skill"] = {"_id": "skill", "tenant_id": "tenant", "name": "Legacy", "type": "writing_style"}
     monkeypatch.setattr(lifecycle_module, "get_db", lambda: db)
 
-    releases = asyncio.run(OrganizationSkillLifecycle().releases(main_id="tenant", skill_id="skill"))
-
+    releases = asyncio.run(OrganizationSkillLifecycle().releases(tenant_id="tenant", skill_id="skill"))
     assert [release["version"] for release in releases] == ["1.0.0"]
     assert db.skills.rows["skill"]["published_version"] == "1.0.0"
+
+
+def test_verify_release_detects_tampered_digest():
+    """004 FR-5: a stored release whose digest no longer matches its snapshot is
+    rejected, and the release view now exposes its digest for verification."""
+    from app.services.skill_lifecycle import OrganizationSkillLifecycle, digest as compute_digest
+
+    lifecycle = OrganizationSkillLifecycle()
+    snapshot = {"name": "Skill", "type": "workflow", "config": {}}
+    row = {"_id": "rel-1", "tenant_id": "tenant", "skill_id": "skill",
+           "version": "1.0.0", "snapshot": snapshot, "digest": compute_digest(snapshot)}
+    assert lifecycle.verify_release(row=row) is True
+
+    # Tamper the snapshot: the stored digest no longer matches.
+    tampered = dict(row)
+    tampered["snapshot"] = dict(snapshot, name="Hijacked")
+    assert lifecycle.verify_release(row=tampered) is False
+    # An empty digest can never verify.
+    assert lifecycle.verify_release(row={"_id": "x", "snapshot": snapshot, "digest": ""}) is False
+
+    # The caller can verify candidate content against a known digest.
+    assert lifecycle.verify_release(digest=compute_digest(snapshot), snapshot=snapshot) is True
+    assert lifecycle.verify_release(digest=compute_digest(snapshot), snapshot={"name": "Nope"}) is False

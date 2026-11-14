@@ -17,8 +17,8 @@ from app.integrations.storage import get_storage_adapter
 from app.repositories.job_repository import mark_job_succeeded, update_job_progress
 from app.services.pdf_ocr_policy import PdfOcrPolicy, inspect_pdf_ocr_policy
 from app.services.office_image_ocr import add_office_image_ocr
-from app.services.rag_chunk_optimizer import RagChunkOptions, build_rag_chunks
 from app.services.chunk_identifiers import extract_identifiers
+from app.services.rag_chunk_optimizer import RagChunkOptions, build_rag_chunks
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,12 @@ def run_document_parse(job_id: str, request: ParseDocumentJobRequest) -> None:
                 output.write(chunk)
 
         update_job_progress(job_id, 25)
-        parsed = parse_document(source_path, request.source.filename or request.source.storageKey)
+        parsed = parse_document(
+            source_path,
+            request.source.filename or request.source.storageKey,
+            chunk_size=request.chunkSize,
+            chunk_overlap=request.chunkOverlap,
+        )
         update_job_progress(job_id, 55)
         raw_chunks = parsed.raw_chunks if parsed.raw_chunks is not None else chunk_markdown(parsed.markdown, request.chunkSize, request.chunkOverlap)
         rag_chunks = parsed.rag_chunks if parsed.rag_chunks is not None else build_rag_chunks(
@@ -78,8 +83,8 @@ def run_document_parse(job_id: str, request: ParseDocumentJobRequest) -> None:
         _write_json_artifact(artifact_storage, rag_chunks_key, {"chunkStage": "rag", "chunks": rag_chunks})
         _write_json_artifact(artifact_storage, chunks_key, {"chunkStage": "rag", "chunks": rag_chunks})
 
-    parse_quality = dict(parsed.raw.get("movoParseQuality") or {})
-    if office_image_quality := parsed.raw.get("movoOfficeImageOcr"):
+    parse_quality = dict(parsed.raw.get("mogoParseQuality") or {})
+    if office_image_quality := parsed.raw.get("mogoOfficeImageOcr"):
         parse_quality["officeEmbeddedImages"] = office_image_quality
     result = {
         "markdownKey": markdown_key,
@@ -106,7 +111,13 @@ def run_document_parse(job_id: str, request: ParseDocumentJobRequest) -> None:
     mark_job_succeeded(job_id, result)
 
 
-def parse_document(path: Path, filename: str) -> ParsedDocument:
+def parse_document(
+    path: Path,
+    filename: str,
+    *,
+    chunk_size: int = 1500,
+    chunk_overlap: int = 80,
+) -> ParsedDocument:
     ext = Path(filename).suffix.lower().lstrip(".")
     if ext in LEGACY_OFFICE_EXTENSIONS:
         converted_path = convert_legacy_office_to_modern(path, path.parent)
@@ -118,13 +129,17 @@ def parse_document(path: Path, filename: str) -> ParsedDocument:
     if ext in SPREADSHEET_EXTENSIONS:
         from app.services.spreadsheet_ingest import parse_spreadsheet
 
-        return add_office_image_ocr(parse_spreadsheet(path), path, ext)
+        return add_office_image_ocr(
+            _ensure_raw_chunks(parse_spreadsheet(path), chunk_size, chunk_overlap), path, ext
+        )
 
     try:
         from docling.document_converter import DocumentConverter  # type: ignore
     except ImportError:
         parsed = parse_with_fallback(path, ext)
-        return add_office_image_ocr(parsed, path, ext) if ext in {"docx", "pptx"} else parsed
+        if ext not in {"docx", "pptx"}:
+            return parsed
+        return add_office_image_ocr(_ensure_raw_chunks(parsed, chunk_size, chunk_overlap), path, ext)
     else:
         pdf_ocr_policy = inspect_pdf_ocr_policy(path) if ext == "pdf" else None
         converter = _build_docling_converter(ext, pdf_ocr_policy=pdf_ocr_policy)
@@ -149,12 +164,27 @@ def parse_document(path: Path, filename: str) -> ParsedDocument:
             from app.services.pdf_text_recovery import supplement_pdf_chunks
 
             raw_chunks, quality = supplement_pdf_chunks(path, raw_chunks)
-            raw["movoParseQuality"] = quality
+            raw["mogoParseQuality"] = quality
             if quality.get("reviewPages"):
                 logger.warning("PDF pages remain unreadable after recovery: %s", quality["reviewPages"])
             markdown = "\n\n".join([markdown, *[item["text"] for item in raw_chunks if item.get("metadata", {}).get("sourceKind") == "native_text_recovery"]]).strip()
         parsed = ParsedDocument(markdown=markdown, raw=raw, raw_chunks=raw_chunks)
-        return add_office_image_ocr(parsed, path, ext) if ext in {"docx", "pptx"} else parsed
+        if ext not in {"docx", "pptx"}:
+            return parsed
+        return add_office_image_ocr(_ensure_raw_chunks(parsed, chunk_size, chunk_overlap), path, ext)
+
+
+def _ensure_raw_chunks(parsed: ParsedDocument, chunk_size: int, chunk_overlap: int) -> ParsedDocument:
+    """Materialize markdown chunks before OCR chunks are appended.
+
+    ``raw_chunks is None`` is the contract for "the caller still has to chunk the
+    markdown". ``add_office_image_ocr`` appends to that list, so leaving it as
+    ``None`` would make it a list holding *only* the OCR chunks and the body text
+    would never be chunked — the document body silently disappears from search.
+    """
+    if parsed.raw_chunks is None:
+        parsed.raw_chunks = chunk_markdown(parsed.markdown, chunk_size, chunk_overlap)
+    return parsed
 
 
 def _build_docling_converter(ext: str, *, pdf_ocr_policy: PdfOcrPolicy | None = None) -> Any:
@@ -281,6 +311,26 @@ def chunk_docling_document(document: Any, *, image_ocr_pages: set[int] | None = 
             }
         )
     return chunks
+
+
+def _pdf_image_ocr_pages(path: Path) -> set[int]:
+    """Identify scanned pages that have no meaningful native PDF text layer."""
+    try:
+        from pypdf import PdfReader  # type: ignore
+
+        reader = PdfReader(str(path))
+    except Exception:
+        return set()
+
+    image_pages: set[int] = set()
+    for page_number, page in enumerate(reader.pages, start=1):
+        try:
+            native_text = re.sub(r"\s+", "", page.extract_text() or "")
+        except Exception:
+            native_text = ""
+        if len(native_text) < 20:
+            image_pages.add(page_number)
+    return image_pages
 
 
 def _docling_table_row_chunks(
@@ -749,7 +799,87 @@ def parse_with_fallback(path: Path, ext: str) -> ParsedDocument:
         markdown = "\n\n".join(f"## Page {item['page']}\n\n{item['text']}" for item in pages if item["text"].strip())
         return ParsedDocument(markdown=markdown, raw={"parser": "pypdf", "pages": pages})
 
+    if ext in SPREADSHEET_EXTENSIONS:
+        try:
+            from openpyxl import load_workbook  # type: ignore
+        except ImportError as exc:
+            raise RuntimeError("Docling 未安装，且 openpyxl 不可用，无法解析 XLSX") from exc
+        return parse_xlsx(path, ext)
+
+    if ext == "pptx":
+        try:
+            from pptx import Presentation  # type: ignore
+        except ImportError as exc:
+            raise RuntimeError("Docling 未安装，且 python-pptx 不可用，无法解析 PPTX") from exc
+        return parse_pptx(path)
+
     raise RuntimeError("Docling 未安装，当前文件类型没有可用的轻量解析器")
+
+
+def parse_xlsx(path: Path, ext: str) -> ParsedDocument:
+    """Parse XLSX/XLSM spreadsheets to markdown tables (003 audit fallback)."""
+    from openpyxl import load_workbook  # type: ignore
+
+    workbook = load_workbook(str(path), read_only=True, data_only=True)
+    sheets: list[dict[str, Any]] = []
+    markdown_parts: list[str] = []
+
+    for sheet_name in workbook.sheetnames:
+        sheet = workbook[sheet_name]
+        rows: list[list[str]] = []
+        for row in sheet.iter_rows(values_only=True):
+            cells = [str(cell) if cell is not None else "" for cell in row]
+            if any(cell.strip() for cell in cells):
+                rows.append(cells)
+
+        if not rows:
+            markdown_parts.append(f"## Sheet: {sheet_name}\n\n(empty)")
+            sheets.append({"sheet": sheet_name, "rows": 0})
+            continue
+
+        # Convert to markdown table
+        if len(rows) > 1:
+            headers = rows[0]
+            table_lines = ["| " + " | ".join(headers) + " |", "| " + " | ".join(["---"] * len(headers)) + " |"]
+            for row in rows[1:]:
+                # Pad row to match header width
+                padded = row + [""] * (len(headers) - len(row))
+                table_lines.append("| " + " | ".join(padded[: len(headers)]) + " |")
+            table_md = "\n".join(table_lines)
+            markdown_parts.append(f"## Sheet: {sheet_name}\n\n{table_md}")
+        else:
+            markdown_parts.append(f"## Sheet: {sheet_name}\n\n(empty)")
+
+        sheets.append({"sheet": sheet_name, "rows": len(rows)})
+
+    workbook.close()
+    markdown = "\n\n".join(markdown_parts)
+    return ParsedDocument(markdown=markdown, raw={"parser": "openpyxl", "format": ext, "sheets": sheets})
+
+
+def parse_pptx(path: Path) -> ParsedDocument:
+    """Parse PPTX presentations to markdown text (003 audit fallback)."""
+    from pptx import Presentation  # type: ignore
+
+    prs = Presentation(str(path))
+    slides: list[dict[str, Any]] = []
+    markdown_parts: list[str] = []
+
+    for index, slide in enumerate(prs.slides, start=1):
+        texts: list[str] = []
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                for paragraph in shape.text_frame.paragraphs:
+                    text = paragraph.text.strip()
+                    if text:
+                        texts.append(text)
+
+        slide_md = f"## Slide {index}\n\n" + "\n\n".join(texts) if texts else f"## Slide {index}\n\n(empty)"
+        markdown_parts.append(slide_md)
+        slides.append({"slide": index, "texts": texts})
+
+    markdown = "\n\n".join(markdown_parts)
+    return ParsedDocument(markdown=markdown, raw={"parser": "python-pptx", "format": "pptx", "slides": slides})
 
 
 def parse_plain_text(path: Path, ext: str) -> ParsedDocument:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from .contracts import SuspensionRecord, SuspensionStatus
@@ -71,7 +71,7 @@ class SuspensionService:
         current = await self.store.get(suspension_id)
         if not current or current.user_id != user_id or current.status != SuspensionStatus.READY:
             return None
-        if current.expires_at and current.expires_at < datetime.utcnow():
+        if current.expires_at and current.expires_at < datetime.now(tz=timezone.utc):
             await self.store.transition(
                 suspension_id=suspension_id,
                 user_id=user_id,

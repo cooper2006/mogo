@@ -1,4 +1,4 @@
-"""Private, streamed Skill archive delivery to the MOVO DSH host adapter."""
+"""Private, streamed Skill archive delivery to the MOGO DSH host adapter."""
 
 from __future__ import annotations
 

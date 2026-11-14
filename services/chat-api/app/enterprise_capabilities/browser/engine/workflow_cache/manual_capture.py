@@ -9,7 +9,7 @@ async def capture_manual_recording(
     *,
     cache: BrowserWorkflowCacheService,
     user_id: str,
-    main_id: str,
+    tenant_id: str,
     recording_id: str,
     operation: str,
     events: Iterable[Dict[str, Any]],
@@ -34,7 +34,7 @@ async def capture_manual_recording(
     plan.node.node_id = f"manual-recording:{recording_id}"
     accepted = await cache.capture_success(
         user_id=user_id,
-        main_id=main_id,
+        tenant_id=tenant_id,
         node=plan.node,
         input_context=plan.context,
         history=plan.history,

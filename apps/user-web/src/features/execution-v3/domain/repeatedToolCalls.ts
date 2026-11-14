@@ -4,6 +4,13 @@ export type ExecutionTimelineEntry =
   | { type: 'item'; key: string; item: ExecutionItemV3 }
   | { type: 'tool-group'; key: string; items: ExecutionItemV3[]; statusItems: ExecutionItemV3[] }
 
+export function latestToolGroupKey(entries: ExecutionTimelineEntry[]): string | null {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    if (entries[index].type === 'tool-group') return entries[index].key
+  }
+  return null
+}
+
 const SENSITIVE_ARGUMENT = /(?:token|secret|password|authorization|cookie|api[_-]?key)/i
 const INTERNAL_FILE_ARGUMENT = /^(?:object_path|signed_url|download_url|local_path|storage_path|blueprint_object_path)$/i
 const FILE_ARGUMENT = /^(?:artifact|artifacts|file|files|file_path|path|document|documents|image|images|filename)$/i
@@ -22,7 +29,7 @@ export type ToolCapabilityKey =
   | 'execution.v3.activity.call_tools'
 
 function toolCapability(item: ExecutionItemV3): ToolCapabilityKey | null {
-  const name = String(item.payload?.name || item.payload?.display_name || '').toLowerCase().replace(/[^a-z0-9]+/g, '_')
+  const name = toolName(item).toLowerCase().replace(/[^a-z0-9]+/g, '_')
   if (/(?:^|_)(todo_write|update_plan|write_plan)(?:_|$)/.test(name)) return 'execution.v3.activity.update_plan'
   if (/(?:^|_)(browser|navigate|click|fill|press|screenshot)(?:_|$)/.test(name)) return 'execution.v3.activity.use_browser'
   if (/(?:^|_)(web_search|search_web|internet_search|external_search)(?:_|$)/.test(name)) return 'execution.v3.activity.search_web'
@@ -44,36 +51,8 @@ export function toolCapabilityKeys(items: ExecutionItemV3[]): ToolCapabilityKey[
   return keys.length ? keys : ['execution.v3.activity.call_tools']
 }
 
-/** Represent a mixed tool group by its active operation or most frequent capability. */
-export function groupToolCapability(items: ExecutionItemV3[]): ToolCapabilityKey {
-  const active = [...items].reverse().find(item => item.status === 'running')
-  if (active) return toolActionLabelKey(active)
-  const counts = new Map<ToolCapabilityKey, number>()
-  for (const item of items) {
-    const key = toolActionLabelKey(item)
-    counts.set(key, (counts.get(key) || 0) + 1)
-  }
-  return [...counts].sort((left, right) => right[1] - left[1])[0]?.[0]
-    || 'execution.v3.activity.call_tools'
-}
-
 export function toolName(item: ExecutionItemV3): string {
   return String(item.payload?.display_name || item.payload?.name || '').trim() || 'tool'
-}
-
-/** Prefer the Tool Profile's user-facing name, but never surface an adapter identifier as a title. */
-export function toolDisplayName(item: ExecutionItemV3): string {
-  const displayName = String(item.payload?.display_name || '').replace(/\s+/g, ' ').trim()
-  const adapterName = String(item.payload?.name || '').trim()
-  const pluginName = String(item.payload?.plugin_name || '').trim()
-  if (pluginName && /^[a-z][a-z0-9_]{1,79}$/i.test(adapterName)) return adapterName
-  // DSH plugin tools can have only a short native name (for example, greet).
-  // Show that name for otherwise anonymous "call tool" activities, while
-  // keeping internal adapter identifiers and built-in action labels hidden.
-  if ((!displayName || displayName === adapterName) && toolCapability(item) === null
-    && /^[a-z][a-z0-9]{1,39}$/i.test(adapterName)) return adapterName
-  if (!displayName || displayName === adapterName || /^[a-z][a-z0-9]*(?:[_.:-][a-z0-9]+)+$/i.test(displayName)) return ''
-  return displayName.slice(0, 80)
 }
 
 /** Localized, user-facing action label; raw adapter tool names remain audit metadata only. */
@@ -125,18 +104,6 @@ function compactValue(value: unknown): string {
     return visible.join(' · ')
   }
   return ''
-}
-
-function commandSummary(value: unknown): string {
-  const command = typeof value === 'string' ? value.trim() : ''
-  if (!command) return ''
-  return command
-    .replace(/((?:^|\s)(?:--?(?:token|password|passwd|secret|api-key)|--header|-H)\s+)(?:"[^"]*"|'[^']*'|[^\s;&|]+)/gi, '$1[redacted]')
-    .replace(/(\b(?:authorization|x-api-key|api[_-]?key|access[_-]?token|token|password|passwd|secret)\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s;&|]+)/gi, '$1[redacted]')
-    .replace(/(https?:\/\/)[^\s/@]+:[^\s/@]+@/gi, '$1[redacted]@')
-    .replace(/([?&](?:token|api[_-]?key|password|secret)=)[^\s&#]+/gi, '$1[redacted]')
-    .replace(/\s+/g, ' ')
-    .slice(0, DETAIL_LIMIT)
 }
 
 function narrativeText(item: ExecutionItemV3): string {
@@ -227,36 +194,37 @@ export function collapseRepeatedToolCalls(items: ExecutionItemV3[]): ExecutionTi
   return output
 }
 
+/** 是否为文件读写类动作。 */
+function isFileEditingAction(action: ToolCapabilityKey): boolean {
+  return action === 'execution.v3.activity.read_files' || action === 'execution.v3.activity.edit_files'
+}
+
+/** 按候选键顺序取参数中的文件位置。 */
+function filePathArgumentValue(args: Record<string, unknown>): unknown {
+  return args.file_path ?? args.path ?? args.filename ?? args.file ?? args.files
+    ?? args.document ?? args.documents ?? args.image ?? args.images ?? args.artifact ?? args.artifacts
+}
+
+/** 代码检索动作的参数摘要。 */
+function searchCodeSummary(args: Record<string, unknown>): string {
+  const pattern = compactValue(args.pattern)
+  const location = friendlyFileValue(args.path)
+  return [pattern, location && location !== '.' ? location : ''].filter(Boolean).join(' · ')
+}
+
 export function toolCallSummary(item: ExecutionItemV3): string {
   const args = normalizedArguments(item)
   if (!args) return ''
   const action = toolActionLabelKey(item)
-  const fileValue = args.file_path ?? args.path ?? args.filename ?? args.file ?? args.files
-    ?? args.document ?? args.documents ?? args.image ?? args.images ?? args.artifact ?? args.artifacts
-  if ((action === 'execution.v3.activity.read_files' || action === 'execution.v3.activity.edit_files') && fileValue) {
-    return friendlyFileValue(fileValue)
+  if (isFileEditingAction(action)) {
+    const fileValue = filePathArgumentValue(args)
+    if (fileValue) return friendlyFileValue(fileValue)
   }
-  if (action === 'execution.v3.activity.search_code') {
-    const pattern = compactValue(args.pattern)
-    const location = friendlyFileValue(args.path)
-    return [pattern, location && location !== '.' ? location : ''].filter(Boolean).join(' · ')
-  }
-  if (action === 'execution.v3.activity.run_commands') {
-    const command = commandSummary(args.command)
-    const description = compactValue(args.description)
-    return [command, description].filter(Boolean).join(' · ').slice(0, DETAIL_LIMIT)
-  }
+  if (action === 'execution.v3.activity.search_code') return searchCodeSummary(args)
+  if (action === 'execution.v3.activity.run_commands') return compactValue(args.description).slice(0, DETAIL_LIMIT)
   if (action === 'execution.v3.activity.update_plan') return ''
-  if (fileValue) return friendlyFileValue(fileValue).slice(0, DETAIL_LIMIT)
   const description = compactValue(args.description)
-  return description.slice(0, DETAIL_LIMIT)
-}
-
-export function commandStatusLabelKey(item: ExecutionItemV3): string | null {
-  if (toolActionLabelKey(item) !== 'execution.v3.activity.run_commands') return null
-  if (item.status === 'running') return 'execution.v3.command_running'
-  if (item.status === 'failed') return 'execution.v3.command_failed'
-  return 'execution.v3.command_completed'
+  return description || toolCallDetail(item)
 }
 
 /** A schema-agnostic, redacted view of supplied call arguments for the detail list. */

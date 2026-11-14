@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import asyncio
 import json
@@ -19,7 +20,6 @@ from app.enterprise_capabilities.data.script_engine.message_ops import last_user
 from app.utils.oss_uploader import AliyunOSSUploader
 from app.enterprise_capabilities.data.script_engine.error_summary import execution_error_summary
 from app.enterprise_capabilities.data.script_engine.artifact_export import export_script_artifacts
-from app.enterprise_capabilities.data.script_engine.personal_outputs import save_outputs
 from app.execution_isolation.script_backend import child_path, container_backend_enabled, run_script_job, script_workspace
 from app.execution_isolation.skill_bundle import SkillBundle, cache_skill_bundle, stage_skill_bundle
 from app.execution_isolation.runner_source import runner_source
@@ -54,9 +54,10 @@ class ScriptPluginExecutor(BaseExecutor):
                 inputs=inputs,
                 task_id=task_id,
                 run_id=run_id,
-                skill_bundle=skills.get("_movo_selected_skill_bundle"),
+                skill_bundle=skills.get("_mogo_selected_skill_bundle"),
             )
         except Exception as exc:
+            log_print(f"[enterprise_capabilities.data.script_engine.executor.execute] suppressed {type(exc).__name__}: {exc}", flush=True)
             error = execution_error_summary(exc)
             yield {
                 "type": "runtime_status",
@@ -167,12 +168,7 @@ class ScriptPluginExecutor(BaseExecutor):
                     "node_id": node.node_id,
                     "node_goal": getattr(node, "goal", "") or "",
                     "config": config,
-                    "work_dir": "/job/home/work" if task_scope else child_path(work_dir, work_dir),
-                    "home_dir": "/job/home" if task_scope else "",
-                    "conversation_dir": (
-                        f"/job/home/conversations/{(inputs.output_spec or {}).get('personal_conversation_key')}"
-                        if task_scope and (inputs.output_spec or {}).get("personal_conversation_key") else ""
-                    ),
+                    "work_dir": child_path(work_dir, work_dir),
                     "input_dir": child_path(input_dir, work_dir),
                     "output_dir": child_path(output_dir, work_dir),
                     "skill_dir": str(skill_dir) if skill_digest else (
@@ -208,14 +204,6 @@ class ScriptPluginExecutor(BaseExecutor):
                 if completed.returncode != 0:
                     raise RuntimeError(f"script plugin exited with code {completed.returncode}: {stderr or stdout}")
                 result = self._parse_stdout(stdout)
-                conversation_key = str((inputs.output_spec or {}).get("personal_conversation_key") or "")
-                if task_scope and conversation_key:
-                    personal_key = (work_dir.parent / "personal-space-key").read_text(encoding="ascii")
-                    save_outputs(
-                        output_dir,
-                        work_dir.parent.parent / "personal" / personal_key / "conversations" / conversation_key,
-                        call_id,
-                    )
                 artifacts = self._build_artifacts(
                     result=result,
                     output_dir=output_dir,
@@ -262,7 +250,8 @@ class ScriptPluginExecutor(BaseExecutor):
                     shutil.copyfile(local_path, target)
                 else:
                     continue
-            except Exception:
+            except Exception as exc:
+                log_print(f"[enterprise_capabilities.data.script_engine.executor._materialize_input_files] suppressed {type(exc).__name__}: {exc}", flush=True)
                 continue
             files.append(
                 {
@@ -611,7 +600,8 @@ class ScriptPluginExecutor(BaseExecutor):
         for limit, value in limits:
             try:
                 resource.setrlimit(limit, value)
-            except Exception:
+            except Exception as exc:
+                log_print(f"[enterprise_capabilities.data.script_engine.executor._limit_child_process] suppressed {type(exc).__name__}: {exc}", flush=True)
                 continue
 
     @staticmethod

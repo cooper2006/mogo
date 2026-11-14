@@ -1,5 +1,5 @@
-import { join, resolve } from 'node:path'
-import { chmod, mkdir } from 'node:fs/promises'
+import { resolve } from 'node:path'
+import { mkdir } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -18,7 +18,6 @@ import { hasConfiguredWebSearch } from './web-search-availability.mjs'
 import { RuntimeTemporalContext } from './runtime-temporal-context.mjs'
 import { RuntimeTurnContext } from './runtime-turn-context.mjs'
 import { OfficialDshHostComposition } from './official-host/composition.mjs'
-import { globalPluginCapabilities, sessionPluginCapabilities } from './official-host/plugin-capability-snapshot.mjs'
 import { compatibleSessionEvents } from './official-host/event-compat.mjs'
 import { LiveAssistantStream } from './official-host/live-assistant-stream.mjs'
 import { ASKAI_ENTERPRISE_PRESET_ID } from './official-host/overlay.mjs'
@@ -40,10 +39,6 @@ import { registerAskaiSkillProvider } from './askai-skill-provider.mjs'
 import { invokeSelectedSkill, resolveSkillTurnContext } from './skill-turn-selection.mjs'
 import { SkillInvocationTracker } from './skill-invocation-tracker.mjs'
 import { registerSkillResourceTool } from './skill-resource-tool.mjs'
-import { validConversationSpaceKey } from './personal-space.mjs'
-import { resolvePluginCommand, requireCurrentCommand } from './plugin-command-selection.mjs'
-import { NativePluginWeb } from './native-plugin-web.mjs'
-import { migrateLegacyHostStorage } from './plugin-user-home.mjs'
 
 export class KernelRuntime {
   #ctx
@@ -59,7 +54,6 @@ export class KernelRuntime {
   #webSearchDispose
   #temporalContext = new RuntimeTemporalContext()
   #turnContext = new RuntimeTurnContext()
-  #agentIdentityDispose
   #composition
   #sessionComposer
   #workspaces
@@ -69,7 +63,6 @@ export class KernelRuntime {
   #skillProvider
   #skillResourceToolDispose
   #skillInvocations
-  #nativePluginWeb
 
   constructor({ runtimeId, isolationKey, profileVersion, storageRoot, modelProfile }) {
     this.runtimeId = runtimeId
@@ -83,34 +76,23 @@ export class KernelRuntime {
 
   async start() {
     await mkdir(this.storageRoot, { recursive: true })
-    const durableStorageRoot = process.env.MOVO_DSH_PLUGIN_CHILD === '1' &&
-      this.modelProfile?.subjectUserId ? process.env.HOME : undefined
-    if (durableStorageRoot) await migrateLegacyHostStorage(durableStorageRoot, this.storageRoot)
     this.#composition = new OfficialDshHostComposition({
       storageRoot: this.storageRoot,
-      durableStorageRoot,
       webSearchProvider: hasConfiguredWebSearch(this.modelProfile) ? 'askai-enterprise' : undefined,
       plugins: this.modelProfile?.plugins,
-      pluginModelName: this.modelProfile?.modelName,
     })
     const ctx = await this.#composition.start()
     if (this.#composition.unavailablePlugins.length > 0) {
-      console.warn('MOVO Runtime omitted incompatible DSH plugins:', this.#composition.unavailablePlugins)
+      console.warn('MOGO Runtime omitted incompatible DSH plugins:', this.#composition.unavailablePlugins)
       this.modelProfile = Object.freeze({
         ...this.modelProfile,
         plugins: this.#composition.availablePlugins,
       })
     }
     this.#ctx = ctx
-    this.#nativePluginWeb = new NativePluginWeb(ctx, this.modelProfile?.plugins)
     this.#managedPlugins = new ManagedPluginBridge(ctx)
     this.#temporalContext.install(ctx)
     this.#turnContext.install(ctx, { visionEnabled: this.modelProfile?.visionEnabled === true })
-    this.#agentIdentityDispose = ctx.systemPrompt.section({
-      name: 'deployment:agent-identity',
-      order: 1,
-      text: `Your public assistant name is ${JSON.stringify(this.modelProfile?.agentName || 'MOVO')}. Use this name when asked who you are.`,
-    })
     const skillProviderRegistration = registerAskaiSkillProvider(
       ctx, this.modelProfile?.skillProfile, {
         storageRoot: this.storageRoot,
@@ -152,7 +134,6 @@ export class KernelRuntime {
     this.#sessionComposer = new OfficialSessionComposer(ctx, {
       agentOptions: this.#agentOptions(),
       enterpriseTools: enterpriseToolNames(this.modelProfile),
-      plugins: this.modelProfile?.plugins,
     })
     this.#workspaces = new DshWorkspaceService(ctx.workspaceRegistry)
 
@@ -173,35 +154,17 @@ export class KernelRuntime {
     })
   }
 
-  async proxyPluginUi(pluginId, path, request, response) {
-    this.#assertStarted()
-    await this.#nativePluginWeb.proxy(pluginId, path, request, response)
-  }
-
-  async proxyPluginUiUpgrade(pluginId, request, socket, head) {
-    this.#assertStarted()
-    await this.#nativePluginWeb.proxyUpgrade(pluginId, request, socket, head)
-  }
-
   async createSession({
-    sessionId, cwd, workspaceId, personalConversationKey, presetId = ASKAI_ENTERPRISE_PRESET_ID,
+    sessionId, cwd, workspaceId, presetId = ASKAI_ENTERPRISE_PRESET_ID,
     permissionPreset, approvalReviewer, approvalPolicy, seed, parentSessionId,
   }) {
     this.#assertStarted()
     if (this.#handles.has(sessionId)) throw new Error(`session already live: ${sessionId}`)
     if (cwd !== undefined && workspaceId !== undefined) throw new Error('session cannot specify both cwd and workspaceId')
-    if (personalConversationKey && process.env.MOVO_PERSONAL_SPACE_ROOT && workspaceId === undefined) {
-      if (!validConversationSpaceKey(personalConversationKey)) throw new Error('invalid personal conversation key')
-      cwd = join(process.env.MOVO_PERSONAL_SPACE_ROOT, 'conversations', personalConversationKey)
-      await mkdir(cwd, { recursive: true })
-      await chmod(cwd, 0o777)
-    }
     const workspace = workspaceId === undefined
       ? undefined
       : (await this.#workspaces.get(workspaceId, { requireAvailable: true })).workspace
-    const composition = await this.#sessionComposer.prepare(presetId, {
-      hasWorkspace: workspace !== undefined || cwd !== undefined,
-    })
+    const composition = await this.#sessionComposer.prepare(presetId)
     const lineage = sessionCreationLineage(seed, parentSessionId)
     const handle = await this.#ctx.agents.create({
       sessionId: SessionId(sessionId),
@@ -237,18 +200,12 @@ export class KernelRuntime {
     return structuredClone(liveSessionEvents(agent.session))
   }
 
-  async resumeSession(sessionId, cursorFloor = 0) {
+  async resumeSession(sessionId) {
     this.#assertStarted()
-    if (!Number.isSafeInteger(cursorFloor) || cursorFloor < 0) throw new TypeError('invalid cursor floor')
     const live = this.#handles.get(sessionId)
-    if (live !== undefined) {
-      this.#journal.ensureCursorFloor(sessionId, cursorFloor)
-      return await this.describeSession(live.agent)
-    }
+    if (live !== undefined) return await this.describeSession(live.agent)
     const persisted = await this.#sessionComposer.persistedIdentity(sessionId)
-    const composition = await this.#sessionComposer.prepare(persisted.presetId, {
-      hasWorkspace: Boolean(persisted.cwd),
-    })
+    const composition = await this.#sessionComposer.prepare(persisted.presetId)
     const handle = await this.#ctx.agents.resume({
       resumeSessionId: SessionId(sessionId),
       agentOptions: this.#agentOptions(),
@@ -259,7 +216,6 @@ export class KernelRuntime {
       sessionId,
       persisted.events.flatMap(event => compatibleSessionEvents(event)),
     )
-    this.#journal.ensureCursorFloor(sessionId, cursorFloor)
     this.#journal.append(sessionId, 'agent/status', { status: handle.agent.status })
     return await this.describeSession(handle.agent)
   }
@@ -273,21 +229,10 @@ export class KernelRuntime {
       this.#desktopApprovals.setReviewer(sessionId, policy.approvalReviewer)
     }
     if (temporalContext === undefined || temporalContext === null) {
-      throw new TypeError('temporalContext is required for every MOVO turn')
+      throw new TypeError('temporalContext is required for every MOGO turn')
     }
     this.#temporalContext.update(sessionId, temporalContext)
     const resolvedTurnContext = resolveSkillTurnContext(this.modelProfile, turnContext)
-    if (resolvedTurnContext.selectedSkill?.sourceScope === 'plugin') {
-      const selected = resolvedTurnContext.selectedSkill
-      const current = (await this.#ctx.skills.list({
-        scope: scopeOf(agent.ctx),
-        ...(agent.session.header.cwd ? { cwd: agent.session.header.cwd } : {}),
-      })).find(item => item.name === resolvedTurnContext.skillName)
-      if (!current || current.invocation?.userInvocable !== true ||
-          current.provider !== selected.provider || current.source !== selected.source) {
-        throw new Error('selected plugin Skill is not provided by the authorized plugin in this Session')
-      }
-    }
     this.#turnContext.update(sessionId, resolvedTurnContext.context)
     this.#modelAdapter?.setKnowledgeMode(sessionId, resolvedTurnContext.context?.knowledge_qa_enabled === true)
     const promptParts = content.map((block, index) => {
@@ -317,30 +262,6 @@ export class KernelRuntime {
       throw error
     }
     return { accepted: true, messageId: message.id }
-  }
-
-  async executePluginCommand(sessionId, selectedId, line) {
-    const agent = this.#requireAgent(sessionId)
-    const selected = resolvePluginCommand(this.modelProfile, selectedId, line)
-    const commands = this.#ctx.get('commands')
-    if (!commands) throw new Error('DSH command registry is unavailable')
-    requireCurrentCommand(commands, agent, selected)
-    await agent.whenIdle()
-    const execution = await commands.execute(agent, line, [], AbortSignal.timeout(120_000))
-    if (!execution) throw new Error('selected plugin command did not resolve in this Session')
-    let idleTimer
-    try {
-      await Promise.race([
-        agent.whenIdle(),
-        new Promise((_, reject) => {
-          idleTimer = setTimeout(() => reject(new Error('selected plugin command did not become idle')), 120_000)
-          idleTimer.unref?.()
-        }),
-      ])
-    } finally {
-      clearTimeout(idleTimer)
-    }
-    return { commandId: execution.commandId, result: execution.result }
   }
 
   async cancel(sessionId, cause) {
@@ -384,14 +305,14 @@ export class KernelRuntime {
   }
 
   refreshModelCredential(credential) {
-    if (this.#modelAdapter === undefined) throw new Error('runtime does not use MOVO Model Gateway')
+    if (this.#modelAdapter === undefined) throw new Error('runtime does not use MOGO Model Gateway')
     this.#modelAdapter.updateCredential(credential)
     this.#skillProvider?.materializer?.updateCredential(credential.accessToken)
     return { refreshed: true }
   }
 
   refreshToolCredential(credential) {
-    if (this.#toolBridge === undefined) throw new Error('runtime does not use MOVO Tool Gateway')
+    if (this.#toolBridge === undefined) throw new Error('runtime does not use MOGO Tool Gateway')
     this.#toolBridge.updateCredential(credential.accessToken)
     this.#webSearchProvider?.updateCredential(credential.accessToken)
     return { refreshed: true }
@@ -421,6 +342,37 @@ export class KernelRuntime {
 
   async describeLiveSession(sessionId) {
     return await this.describeSession(this.#requireAgent(sessionId))
+  }
+
+  // Multi-replica ownership probe (§12.4 option B). A replica that does not
+  // hold a session must answer false instead of throwing, so the caller can
+  // probe every replica and learn which one owns the session.
+  ownsSession(sessionId) {
+    return this.#handles.has(sessionId)
+  }
+
+  // Graceful drain support (R1): how many live sessions still have a busy
+  // agent (an in-flight turn). Draining waits for this count to reach zero
+  // (or a timeout) before disposing, so rolling upgrades no longer cancel
+  // active turns. A session that is idle is not a hazard: dispose() is safe
+  // for it and its state is persisted on disk.
+  activeSessionCount() {
+    let busy = 0
+    for (const handle of this.#handles.values()) {
+      if (handle.agent.status === 'busy') busy += 1
+    }
+    return busy
+  }
+
+  // Resolve when every live session is idle. `onTick` is called after each
+  // poll with the remaining busy count; returning true ends the wait early.
+  async whenSessionsIdle({ intervalMs = 200, timeoutMs = 60_000 } = {}) {
+    const deadline = Date.now() + timeoutMs
+    while (this.activeSessionCount() > 0) {
+      if (Date.now() >= deadline) return false
+      await new Promise(resolve => setTimeout(resolve, intervalMs))
+    }
+    return true
   }
 
   async upgradeContractInventory(sessionId) {
@@ -463,17 +415,10 @@ export class KernelRuntime {
   async managedPluginList() {
     return {
       ...(await this.#managedPlugins.list()),
-      dshVersion: this.#composition.inventory().dshVersion,
       globalTools: this.#ctx.tools.schemas().map(tool => tool.name),
-      ...(await globalPluginCapabilities(this.#ctx)),
     }
   }
-
-  async managedSessionCapabilities(sessionId) {
-    return await sessionPluginCapabilities(this.#ctx, this.#requireAgent(sessionId))
-  }
   managedPluginInspect(spec, registry) { return this.#managedPlugins.inspect(spec, registry) }
-  managedPluginManifest(name) { return this.#managedPlugins.manifest(name) }
   managedPluginInstall(spec, options) { return this.#managedPlugins.install(spec, options) }
   managedPluginEnable(name, enabled) { return this.#managedPlugins.enable(name, enabled) }
   managedPluginRemove(name) { return this.#managedPlugins.remove(name) }
@@ -501,8 +446,6 @@ export class KernelRuntime {
     this.#skillProviderDispose?.()
     this.#temporalContext.dispose()
     this.#turnContext.dispose()
-    this.#agentIdentityDispose?.()
-    this.#agentIdentityDispose = undefined
     await this.#composition?.dispose()
     this.#ctx = undefined
   }

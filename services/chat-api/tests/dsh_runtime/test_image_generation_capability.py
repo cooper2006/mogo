@@ -89,7 +89,7 @@ def test_image_generation_reuses_configured_service_and_returns_embeddable_markd
     assert "provider_type" not in result["assets"][0]
     assert "model_name" not in result["assets"][0]
     assert calls[0]["user_id"] == "user-a"
-    assert calls[0]["output_spec"] == {"main_id": "tenant-a"}
+    assert calls[0]["output_spec"] == {"tenant_id": "tenant-a"}
     assert [row["payload"]["text"] for row in progress] == [
         "正在生成第 1/2 张图片", "第 1/2 张图片已生成",
         "正在生成第 2/2 张图片", "第 2/2 张图片已生成",

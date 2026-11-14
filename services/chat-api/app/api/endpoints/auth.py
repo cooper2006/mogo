@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import base64
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
 import json
@@ -11,23 +11,52 @@ import time
 import uuid
 from typing import Any, Optional
 
-from bson import ObjectId
+from app.core.ids import is_valid_backend_id, to_backend_id
+
 from fastapi import APIRouter, File, Header, HTTPException, Request, UploadFile
-from pydantic import BaseModel, Field
+from app.security.service_token import ServiceTokenHeader
+from pydantic import BaseModel, Field, ConfigDict
 
 from app.core.config import get_settings
-from app.api.auth_messages import localized_auth_message
 from app.core.db import get_db
-from app.core.end_user_auth import build_session_token, parse_and_verify_session_token, verify_password
-from app.core.tenant import DEFAULT_MAIN_ID, add_main_scope, resolve_main_id
+from app.core.end_user_auth import build_session_token, hash_password, parse_and_verify_session_token, verify_password
+# 022 FR-1（T009）：注册链路统一口令策略（与 admin-api 共用同一套模块）
+from app.security.password_policy import (
+    MIN_CLASSES,
+    MIN_PASSWORD_LENGTH,
+    validate_password as validate_password_policy,
+)
+from app.core.tenant import DEFAULT_TENANT_ID, add_tenant_scope, resolve_tenant_id
 from app.utils.oss_uploader import ObjectStorageClient
 from app.utils.uploads import read_upload_with_limit
 from app.governance.position_policy import MongoEmployeePolicyResolver
-from app.services.end_user_tenant_access import load_tenant_candidates, resolve_space_type
+from app.services.end_user_tenant_access import (
+    is_tenant_selectable,
+    load_tenant_candidates,
+    resolve_space_type,
+    selectable_tenant_ids,
+)
 from app.services.end_user_session import resolve_session_user as _resolve_session_user
+# 029：门户 SSO 接收方——一次性票据签发/验签/幂等消费。
+from app.core.portal_sso import (
+    PortalTicketInvalid,
+    create_portal_ticket,
+    mark_ticket_exchanged,
+    verify_portal_ticket,
+)
+from app.security.gatekeeper import (
+    GatekeeperDenied,
+    SCOPE_PORTAL_ISSUE_TICKET,
+    build_issuer_from_env,
+    verify_service_call,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# 029：调用 portal-ticket 的外部服务身份（门户）。其服务令牌密钥经
+# ServiceCredentialVault.from_env 读取环境变量 MOGO_PORTAL_TOKEN（前缀 MOGO）。
+EXPECTED_PORTAL_SERVICE_ID = "portal"
 
 USER_COLLECTION = "end_users"
 USER_SESSION_COLLECTION = "end_user_sessions"
@@ -62,24 +91,106 @@ async def _check_org_name_duplicate(org_name: str) -> bool:
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=1, max_length=128)
-    mainId: str = Field(default="", max_length=64)
+    # Accept both snake_case ``tenant_id`` and camelCase ``tenantId`` keys.
+    tenant_id: str = Field(default="", max_length=64, alias="tenantId")
+    tenantId: str = Field(default="", max_length=64, alias="tenantId")
+
+    model_config = {"populate_by_name": True}
+
+    @property
+    def effective_tenant_id(self) -> str:
+        return (self.tenant_id or self.tenantId).strip()
+
+
+class RegisterRequest(BaseModel):
+    tenant_id: str = Field(min_length=1, max_length=64, alias="tenantId")
+    # T041：tenantId 与 tenant_id 的 alias 同为 "tenantId"，OpenAPI 的 required 会出现重复
+    # 元素（uniqueItems 违规，openapi-spec-validator 报 INVALID）。本字段仅作兼容读取保留，
+    # 因 alias 冲突实际永远为 None（JSON "tenantId" 已映射到 tenant_id），故设为 Optional 使
+    # 其不再进入 required；必填校验仍由 tenant_id（required str）把关。
+    tenantId: Optional[str] = Field(default=None, max_length=64, alias="tenantId")
+    email: str = Field(min_length=3, max_length=320)
+    # 022 FR-1（T009）：最小长度 12（原 8），与 password_policy 的 FR-1 基线一致。
+    password: str = Field(min_length=MIN_PASSWORD_LENGTH, max_length=128)
+    nickname: str = Field(default="", max_length=64)
+    departmentId: str = Field(default="", max_length=64)
+
+    model_config = {"populate_by_name": True}
+
+    @property
+    def effective_tenant_id(self) -> str:
+        return (self.tenant_id or self.tenantId).strip()
 
 
 class SelectTenantRequest(BaseModel):
     challengeToken: str = Field(min_length=8, max_length=256)
-    mainId: str = Field(min_length=1, max_length=64)
+    tenant_id: str = Field(min_length=1, max_length=64, alias="tenantId")
+    # T041：tenantId 与 tenant_id 的 alias 同为 "tenantId"，OpenAPI 的 required 会出现重复
+    # 元素（uniqueItems 违规，openapi-spec-validator 报 INVALID）。本字段仅作兼容读取保留，
+    # 因 alias 冲突实际永远为 None（JSON "tenantId" 已映射到 tenant_id），故设为 Optional 使
+    # 其不再进入 required；必填校验仍由 tenant_id（required str）把关。
+    tenantId: Optional[str] = Field(default=None, max_length=64, alias="tenantId")
+
+    model_config = {"populate_by_name": True}
+
+    @property
+    def effective_tenant_id(self) -> str:
+        return (self.tenant_id or self.tenantId).strip()
+
+
+class PortalTicketRequest(BaseModel):
+    # 029：门户以服务身份请求为某 MOGO 终端用户签发一次性票据。
+    # 匹配键为共享主键 end_users._id；不接受 email / login_name，杜绝 JIT。
+    user_id: Optional[str] = Field(default=None, max_length=64, alias="userId")
+    userId: Optional[str] = Field(default=None, max_length=64, alias="userId")
+    tenant_id: Optional[str] = Field(default=None, max_length=64, alias="tenantId")
+    tenantId: Optional[str] = Field(default=None, max_length=64, alias="tenantId")
+
+    model_config = {"populate_by_name": True}
+
+    @property
+    def effective_user_id(self) -> str:
+        return (self.user_id or self.userId or "").strip()
+
+    @property
+    def effective_tenant_id(self) -> str:
+        return (self.tenant_id or self.tenantId or "").strip()
+
+
+class PortalExchangeRequest(BaseModel):
+    # 029：user-web 前端把票据放进请求体 POST 换票（票据绝不下落 URL）。
+    portal_token: Optional[str] = Field(default=None, max_length=4096, alias="portalToken")
+    portalToken: Optional[str] = Field(default=None, max_length=4096, alias="portalToken")
+
+    model_config = {"populate_by_name": True}
+
+    @property
+    def effective_portal_token(self) -> str:
+        return (self.portal_token or self.portalToken or "").strip()
 
 
 class SwitchTenantRequest(BaseModel):
-    mainId: str = Field(min_length=1, max_length=64)
+    tenant_id: str = Field(min_length=1, max_length=64, alias="tenantId")
+    # T041：tenantId 与 tenant_id 的 alias 同为 "tenantId"，OpenAPI 的 required 会出现重复
+    # 元素（uniqueItems 违规，openapi-spec-validator 报 INVALID）。本字段仅作兼容读取保留，
+    # 因 alias 冲突实际永远为 None（JSON "tenantId" 已映射到 tenant_id），故设为 Optional 使
+    # 其不再进入 required；必填校验仍由 tenant_id（required str）把关。
+    tenantId: Optional[str] = Field(default=None, max_length=64, alias="tenantId")
+
+    model_config = {"populate_by_name": True}
+
+    @property
+    def effective_tenant_id(self) -> str:
+        return (self.tenant_id or self.tenantId).strip()
 
 
 class ProfileUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     name: str = Field(..., min_length=1, max_length=64)
 
 
 def _now() -> datetime:
-    return datetime.utcnow()
+    return datetime.now(tz=timezone.utc)
 
 
 def _extract_token(authorization: str | None) -> str:
@@ -96,14 +207,14 @@ def _space_type_from_user(user: dict[str, Any]) -> str:
     return resolve_space_type(user)
 
 
-def _is_valid_tenant_main_id(main_id: str) -> bool:
-    value = str(main_id or "").strip()
-    return bool(value) and value != DEFAULT_MAIN_ID
+def _is_valid_tenant_id(tenant_id: str) -> bool:
+    value = str(tenant_id or "").strip()
+    return bool(value) and value != DEFAULT_TENANT_ID
 
 
 def _profile_from_user(
     user: dict[str, Any],
-    main_id: str,
+    tenant_id: str,
     tenant: dict[str, Any],
     available_tenants: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -112,8 +223,8 @@ def _profile_from_user(
     if avatar_object_path:
         try:
             avatar = ObjectStorageClient().sign_url(avatar_object_path)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("[auth] avatar sign_url failed: %s", exc)
     return {
         "userId": str(user.get("_id") or ""),
         "name": str(user.get("name") or ""),
@@ -121,8 +232,8 @@ def _profile_from_user(
         "phone": str(user.get("mobile") or ""),
         "email": str(user.get("email") or ""),
         "avatar": avatar,
-        "mainId": resolve_main_id(main_id),
-        "orgName": str(tenant.get("orgName") or user.get("org_name") or resolve_main_id(main_id)),
+        "tenantId": resolve_tenant_id(tenant_id),
+        "orgName": str(tenant.get("orgName") or user.get("org_name") or resolve_tenant_id(tenant_id)),
         "spaceType": str(tenant.get("spaceType") or _space_type_from_user(user)),
         "canAccessAdmin": bool(tenant.get("canAccessAdmin")),
         "edition": str(tenant.get("edition") or "cloud"),
@@ -132,16 +243,16 @@ def _profile_from_user(
     }
 
 
-async def _profile_with_policy(user: dict[str, Any], main_id: str, available_tenants: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+async def _profile_with_policy(user: dict[str, Any], tenant_id: str, available_tenants: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     tenant = (await load_tenant_candidates(get_db(), [user]))[0]
     normalized_tenants = [
-        tenant if resolve_main_id(item.get("mainId")) == resolve_main_id(main_id) else {**item, "canAccessAdmin": bool(item.get("canAccessAdmin"))}
+        tenant if resolve_tenant_id(item.get("tenantId")) == resolve_tenant_id(tenant_id) else {**item, "canAccessAdmin": bool(item.get("canAccessAdmin"))}
         for item in list(available_tenants or [])
     ]
-    if not any(resolve_main_id(item.get("mainId")) == resolve_main_id(main_id) for item in normalized_tenants):
+    if not any(resolve_tenant_id(item.get("tenantId")) == resolve_tenant_id(tenant_id) for item in normalized_tenants):
         normalized_tenants.append(tenant)
-    profile = _profile_from_user(user, main_id, tenant, normalized_tenants)
-    policy = await MongoEmployeePolicyResolver().resolve(resolve_main_id(main_id), str(user.get("_id") or ""))
+    profile = _profile_from_user(user, tenant_id, tenant, normalized_tenants)
+    policy = await MongoEmployeePolicyResolver().resolve(resolve_tenant_id(tenant_id), str(user.get("_id") or ""))
     profile["agentPolicy"] = policy.public_snapshot()
     return profile
 
@@ -173,10 +284,10 @@ async def _backfill_missing_avatar(
         target_user_id = str(target_user.get("_id") or "")
         for candidate in available_tenants:
             candidate_user_id = str(candidate.get("userId") or "")
-            if candidate_user_id == target_user_id or not ObjectId.is_valid(candidate_user_id):
+            if candidate_user_id == target_user_id or not is_valid_backend_id(candidate_user_id):
                 continue
             candidate_user = await db[USER_COLLECTION].find_one(
-                {"_id": ObjectId(candidate_user_id), "status": "active"}
+                {"_id": to_backend_id(candidate_user_id), "status": "active"}
             )
             source_fields = _avatar_fields_from_user(candidate_user)
             if source_fields:
@@ -207,7 +318,7 @@ async def _backfill_missing_avatar(
     return target_user
 
 
-async def _find_verified_users(username: str, password: str, preferred_main_id: str | None) -> list[dict[str, Any]]:
+async def _find_verified_users(username: str, password: str, preferred_tenant_id: str | None) -> list[dict[str, Any]]:
     db = get_db()
     identity = str(username or "").strip()
     query: dict[str, Any] = {
@@ -217,8 +328,8 @@ async def _find_verified_users(username: str, password: str, preferred_main_id: 
             {"email": identity.lower()},
         ],
     }
-    if preferred_main_id:
-        query = add_main_scope(query, preferred_main_id)
+    if preferred_tenant_id:
+        query = add_tenant_scope(query, preferred_tenant_id)
     rows = await db[USER_COLLECTION].find(query).to_list(length=200)
     matched: list[dict[str, Any]] = []
     for row in rows:
@@ -239,13 +350,14 @@ async def _create_session(user_doc: dict[str, Any], available_tenants: list[dict
     token_id = secrets.token_urlsafe(24)
     token = build_session_token(settings.END_USER_AUTH_SECRET, token_id)
     expires_at = now + timedelta(seconds=ttl_seconds)
-    main_id = resolve_main_id(user_doc.get("main_id"))
+    tenant_id = resolve_tenant_id(user_doc.get("tenant_id"))
+    # Phase 1 dual-write: persist both keys (tenant_id is canonical going forward).
     await db[USER_SESSION_COLLECTION].insert_one(
         {
             "token_id": token_id,
             "user_id": str(user_doc["_id"]),
             "username": str(user_doc.get("login_name") or ""),
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "available_tenants": available_tenants,
             "status": "active",
             "created_at": now,
@@ -260,7 +372,7 @@ async def _create_session(user_doc: dict[str, Any], available_tenants: list[dict
     )
     return {
         "token": token,
-        "profile": await _profile_with_policy(user_doc, main_id, available_tenants),
+        "profile": await _profile_with_policy(user_doc, tenant_id, available_tenants),
         "expiresAt": expires_at.isoformat(),
     }
 
@@ -285,31 +397,32 @@ async def _create_login_challenge(username: str, candidates: list[dict[str, Any]
 
 
 @router.post("/auth/login", response_model=ApiResponse)
-async def login(payload: LoginRequest, accept_language: str | None = Header(default=None)) -> ApiResponse:
+async def login(payload: LoginRequest) -> ApiResponse:
     db = get_db()
     setup_state = await db["system_bootstrap"].find_one({"_id": "singleton"}, {"completed": 1})
     if not setup_state or not bool(setup_state.get("completed")):
-        return ApiResponse(code=1, message=localized_auth_message("系统尚未完成初始化，请先在管理后台执行 Setup", accept_language))
+        return ApiResponse(code=1, message="系统尚未完成初始化，请先在管理后台执行 Setup")
 
     username = payload.username.strip()
-    preferred_main_id = resolve_main_id(payload.mainId) if str(payload.mainId or "").strip() else None
-    matched_users = await _find_verified_users(username=username, password=payload.password, preferred_main_id=preferred_main_id)
-    if not matched_users and preferred_main_id:
-        matched_users = await _find_verified_users(username=username, password=payload.password, preferred_main_id=None)
+    preferred_tenant_id = payload.effective_tenant_id
+    preferred_tenant_id = resolve_tenant_id(preferred_tenant_id) if preferred_tenant_id else None
+    matched_users = await _find_verified_users(username=username, password=payload.password, preferred_tenant_id=preferred_tenant_id)
+    if not matched_users and preferred_tenant_id:
+        matched_users = await _find_verified_users(username=username, password=payload.password, preferred_tenant_id=None)
     if not matched_users:
-        return ApiResponse(code=1, message=localized_auth_message("用户名或密码错误", accept_language))
+        return ApiResponse(code=1, message="用户名或密码错误")
 
     # End-user runtime does not accept fallback tenant id "default".
-    matched_users = [item for item in matched_users if _is_valid_tenant_main_id(resolve_main_id(item.get("main_id")))]
+    matched_users = [item for item in matched_users if _is_valid_tenant_id(resolve_tenant_id(item.get("tenant_id")))]
     if not matched_users:
-        return ApiResponse(code=1, message=localized_auth_message("当前账号未绑定有效组织，请联系管理员配置租户ID", accept_language))
+        return ApiResponse(code=1, message="当前账号未绑定有效组织，请联系管理员配置租户ID")
 
     candidates = await load_tenant_candidates(db, matched_users)
-    if len(candidates) > 1 and not preferred_main_id:
+    if len(candidates) > 1 and not preferred_tenant_id:
         challenge = await _create_login_challenge(username=username, candidates=candidates)
         return ApiResponse(
             code=1001,
-            message=localized_auth_message("请选择要进入的组织", accept_language),
+            message="请选择要进入的组织",
             data={
                 "requiresTenantSelection": True,
                 "challengeToken": challenge["challengeToken"],
@@ -318,47 +431,200 @@ async def login(payload: LoginRequest, accept_language: str | None = Header(defa
             },
         )
 
-    main_id = preferred_main_id or candidates[0]["mainId"]
-    if not _is_valid_tenant_main_id(main_id):
-        return ApiResponse(code=1, message=localized_auth_message("组织ID无效，请联系管理员配置租户ID", accept_language))
-    target = next((item for item in matched_users if resolve_main_id(item.get("main_id")) == main_id), matched_users[0])
+    tenant_id = preferred_tenant_id or candidates[0]["tenantId"]
+    if not _is_valid_tenant_id(tenant_id):
+        return ApiResponse(code=1, message="组织ID无效，请联系管理员配置租户ID")
+    target = next((item for item in matched_users if resolve_tenant_id(item.get("tenant_id")) == tenant_id), matched_users[0])
     session_payload = await _create_session(target, candidates)
     return ApiResponse(code=0, data=session_payload)
 
 
+@router.get("/auth/registerable-tenants", response_model=ApiResponse)
+async def registerable_tenants(request: Request) -> ApiResponse:
+    """List the enterprise tenants a self-service registrant may join.
+
+    Only ``active`` tenants (FR-024 registry) that resolve to the ``enterprise``
+    space type are returned; personal spaces are excluded so registrants can
+    only join an organization, never open their own personal tenant.
+    """
+    db = get_db()
+    # Fetch every selectable tenant, then filter out personal spaces.
+    all_tenant_ids = [
+        str(doc.get("tenant_id") or "")
+        async for doc in db["tenants"].find({"status": "active"}, {"tenant_id": 1})
+    ]
+    selectable_ids = await selectable_tenant_ids(db, all_tenant_ids)
+    orgs = await db["organizations"].find(
+        {"tenant_id": {"$in": list(selectable_ids)}},
+        {"tenant_id": 1, "org_name": 1},
+    ).to_list(length=200)
+    tenants = []
+    for org in orgs:
+        tenant_id = str(org.get("tenant_id") or "")
+        fake_user = {"org_name": org.get("org_name") or "", "tenant_id": tenant_id}
+        if resolve_space_type(fake_user) != "enterprise":
+            continue
+        tenants.append({
+            "tenantId": tenant_id,
+            "orgName": str(org.get("org_name") or tenant_id),
+        })
+    tenants.sort(key=lambda item: item["orgName"])
+    return ApiResponse(code=0, data={"tenants": tenants})
+
+
+@router.get("/auth/registerable-departments", response_model=ApiResponse)
+async def registerable_departments(
+    request: Request,
+    tenantId: str = "",
+) -> ApiResponse:
+    """List the departments a registrant may join under the tenant id.
+
+    Reuses the org_units collection (the same data the admin user manager
+    edits). Only ``active`` departments of that tenant are returned so the
+    registration dropdown stays aligned with the admin side.
+    """
+    db = get_db()
+    tenant_id = resolve_tenant_id(tenantId)
+    if not _is_valid_tenant_id(tenant_id):
+        return ApiResponse(code=400, message="请选择有效的组织")
+    if not await is_tenant_selectable(db, tenant_id):
+        return ApiResponse(code=400, message="该组织当前不可注册，请联系管理员")
+    departments = await db[DEPARTMENT_COLLECTION].find(
+        {"tenant_id": tenant_id, "status": "active"},
+        {"_id": 1, "name": 1, "parent_id": 1, "code": 1, "path_ids": 1},
+    ).to_list(length=500)
+    departments = [
+        {
+            "id": str(dept.get("_id")),
+            "name": str(dept.get("name") or ""),
+            "parentId": str(dept.get("parent_id") or "") if dept.get("parent_id") else "",
+            "code": str(dept.get("code") or ""),
+            "depth": len(dept.get("path_ids") or []),
+        }
+        for dept in departments
+    ]
+    departments.sort(key=lambda item: (item["depth"], item["name"]))
+    return ApiResponse(code=0, data={"departments": departments})
+
+
+@router.post("/auth/register", response_model=ApiResponse)
+async def register(payload: RegisterRequest) -> ApiResponse:
+    """Self-service registration: create an end-user under an enterprise tenant.
+
+    Mode A (MVP): the account is created ``active`` and signed in immediately,
+    reusing the same end_users schema and session flow as /auth/login. No
+    personal tenant is created and admin-api employee provisioning is untouched.
+    """
+    db = get_db()
+    setup_state = await db["system_bootstrap"].find_one({"_id": "singleton"}, {"completed": 1})
+    if not setup_state or not bool(setup_state.get("completed")):
+        return ApiResponse(code=503, message="系统尚未完成初始化，请先在管理后台执行 Setup")
+
+    tenant_id = resolve_tenant_id(payload.effective_tenant_id)
+    if not _is_valid_tenant_id(tenant_id):
+        return ApiResponse(code=400, message="请选择有效的组织")
+    if not await is_tenant_selectable(db, tenant_id):
+        return ApiResponse(code=400, message="该组织当前不可注册，请联系管理员")
+
+    org = await db["organizations"].find_one({"tenant_id": tenant_id}, {"org_name": 1})
+    if org is None or resolve_space_type({"org_name": org.get("org_name") or "", "tenant_id": tenant_id}) != "enterprise":
+        return ApiResponse(code=400, message="该组织不可注册，请联系管理员")
+
+    email = str(payload.email or "").strip().lower()
+    if "@" not in email or len(email) < 3:
+        return ApiResponse(code=400, message="请输入有效的邮箱地址")
+    password = str(payload.password or "")
+    # 022 FR-1（T009）：口令策略统一收敛到 security.password_policy（长度 ≥ 12、
+    # 4 类中至少 3 类）。原实现仅要求 8 位 + 字母 + 数字，明显弱于规格基线。
+    verdict = validate_password_policy(password)
+    if verdict.is_rejected:
+        return ApiResponse(
+            code=400,
+            message=f"密码不符合安全策略：{verdict.public_message()}（至少 {MIN_PASSWORD_LENGTH} 位，"
+            f"大小写字母 / 数字 / 特殊字符中至少 {MIN_CLASSES} 类）",
+        )
+
+    existing = await db[USER_COLLECTION].find_one({
+        "$and": [
+            {"tenant_id": tenant_id},
+            {"$or": [{"login_name": email}, {"email": email}]},
+        ]
+    })
+    if existing:
+        return ApiResponse(code=409, message="该邮箱在此组织下已注册，请直接登录")
+
+    password_hash, password_salt = hash_password(password)
+    now = _now()
+    name = str(payload.nickname or "").strip() or email.split("@", 1)[0]
+    user_doc: dict[str, Any] = {
+        "tenant_id": tenant_id,
+        "login_name": email,
+        "email": email,
+        "name": name,
+        "org_name": str(org.get("org_name") or ""),
+        "password_hash": password_hash,
+        "password_salt": password_salt,
+        "status": "active",
+        "source": "self_register",
+        "email_verified": False,
+        "created_at": now,
+        "updated_at": now,
+    }
+    result = await db[USER_COLLECTION].insert_one(user_doc)
+    user_doc["_id"] = result.inserted_id
+
+    # Resolve and assign the primary department (FR: registrants pick a
+    # department, same field the admin user manager uses). An invalid or empty
+    # department id gracefully falls back to the tenant root department.
+    department_id = await _resolve_primary_department(tenant_id, payload.departmentId or None)
+    await _assign_user_primary_department(tenant_id, str(user_doc["_id"]), department_id)
+
+    available_tenants = await load_tenant_candidates(db, [user_doc])
+    session_payload = await _create_session(user_doc, available_tenants)
+    return ApiResponse(code=0, data=session_payload)
+
+
 @router.post("/auth/login/select-tenant", response_model=ApiResponse)
-async def select_tenant_login(payload: SelectTenantRequest, accept_language: str | None = Header(default=None)) -> ApiResponse:
+async def select_tenant_login(payload: SelectTenantRequest) -> ApiResponse:
     db = get_db()
     now = _now()
     challenge = await db[LOGIN_CHALLENGE_COLLECTION].find_one(
         {"challenge_token": payload.challengeToken, "status": "active"}
     )
     if not challenge:
-        return ApiResponse(code=1, message=localized_auth_message("登录挑战不存在或已失效", accept_language))
-    if challenge.get("expires_at") and challenge["expires_at"] < now:
-        await db[LOGIN_CHALLENGE_COLLECTION].update_one(
-            {"_id": challenge["_id"]},
-            {"$set": {"status": "expired", "updated_at": now}},
-        )
-        return ApiResponse(code=1, message=localized_auth_message("登录挑战已过期", accept_language))
+        return ApiResponse(code=1, message="登录挑战不存在或已失效")
+    # MongoDB is read without tz_aware, so datetimes come back naive (UTC).
+    # Normalise to aware UTC before comparing, matching quota_policy.py.
+    challenge_expires_at = challenge.get("expires_at")
+    if challenge_expires_at is not None:
+        if isinstance(challenge_expires_at, str):
+            challenge_expires_at = datetime.fromisoformat(challenge_expires_at)
+        if challenge_expires_at.tzinfo is None:
+            challenge_expires_at = challenge_expires_at.replace(tzinfo=timezone.utc)
+        if challenge_expires_at < now:
+            await db[LOGIN_CHALLENGE_COLLECTION].update_one(
+                {"_id": challenge["_id"]},
+                {"$set": {"status": "expired", "updated_at": now}},
+            )
+            return ApiResponse(code=1, message="登录挑战已过期")
 
     candidates = list(challenge.get("candidates") or [])
-    selected_main_id = resolve_main_id(payload.mainId)
-    if not _is_valid_tenant_main_id(selected_main_id):
-        return ApiResponse(code=1, message=localized_auth_message("组织ID无效", accept_language))
-    selected = next((item for item in candidates if resolve_main_id(item.get("mainId")) == selected_main_id), None)
+    selected_tenant_id = resolve_tenant_id(payload.effective_tenant_id)
+    if not _is_valid_tenant_id(selected_tenant_id):
+        return ApiResponse(code=1, message="组织ID无效")
+    selected = next((item for item in candidates if resolve_tenant_id(item.get("tenantId")) == selected_tenant_id), None)
     if not selected:
-        return ApiResponse(code=1, message=localized_auth_message("所选组织不可用", accept_language))
+        return ApiResponse(code=1, message="所选组织不可用")
 
     user_id = str(selected.get("userId") or "")
-    if not ObjectId.is_valid(user_id):
-        return ApiResponse(code=1, message=localized_auth_message("用户数据异常", accept_language))
-    main_id = resolve_main_id(selected.get("mainId"))
-    if not _is_valid_tenant_main_id(main_id):
-        return ApiResponse(code=1, message=localized_auth_message("组织ID无效", accept_language))
-    user_doc = await db[USER_COLLECTION].find_one(add_main_scope({"_id": ObjectId(user_id), "status": "active"}, main_id))
+    if not is_valid_backend_id(user_id):
+        return ApiResponse(code=1, message="用户数据异常")
+    tenant_id = resolve_tenant_id(selected.get("tenantId"))
+    if not _is_valid_tenant_id(tenant_id):
+        return ApiResponse(code=1, message="组织ID无效")
+    user_doc = await db[USER_COLLECTION].find_one(add_tenant_scope({"_id": to_backend_id(user_id), "status": "active"}, tenant_id))
     if not user_doc:
-        return ApiResponse(code=1, message=localized_auth_message("用户不存在或已禁用", accept_language))
+        return ApiResponse(code=1, message="用户不存在或已禁用")
 
     await db[LOGIN_CHALLENGE_COLLECTION].update_one(
         {"_id": challenge["_id"]},
@@ -372,24 +638,27 @@ async def select_tenant_login(payload: SelectTenantRequest, accept_language: str
 async def switch_tenant(
     payload: SwitchTenantRequest,
     authorization: str | None = Header(default=None),
-    accept_language: str | None = Header(default=None),
 ) -> ApiResponse:
     resolved = await _resolve_session_user(authorization)
     session_doc = resolved["session"]
     db = get_db()
     available_tenants = list(session_doc.get("available_tenants") or [])
-    target_main_id = resolve_main_id(payload.mainId)
-    if not _is_valid_tenant_main_id(target_main_id):
-        return ApiResponse(code=1, message=localized_auth_message("组织ID无效", accept_language))
-    target = next((item for item in available_tenants if resolve_main_id(item.get("mainId")) == target_main_id), None)
+    target_tenant_id = resolve_tenant_id(payload.effective_tenant_id)
+    if not _is_valid_tenant_id(target_tenant_id):
+        return ApiResponse(code=1, message="组织ID无效")
+    target = next((item for item in available_tenants if resolve_tenant_id(item.get("tenantId")) == target_tenant_id), None)
     if not target:
-        return ApiResponse(code=1, message=localized_auth_message("当前账号不可切换到该组织", accept_language))
+        return ApiResponse(code=1, message="当前账号不可切换到该组织")
+    # FR-024: ``available_tenants`` is a snapshot taken at login time, so a
+    # tenant archived since then is still listed here — re-check live status.
+    if not await is_tenant_selectable(db, target_tenant_id):
+        return ApiResponse(code=1, message="该组织已停用，无法切换到该组织")
     user_id = str(target.get("userId") or "")
-    if not ObjectId.is_valid(user_id):
-        return ApiResponse(code=1, message=localized_auth_message("用户数据异常", accept_language))
-    user_doc = await db[USER_COLLECTION].find_one(add_main_scope({"_id": ObjectId(user_id), "status": "active"}, target_main_id))
+    if not is_valid_backend_id(user_id):
+        return ApiResponse(code=1, message="用户数据异常")
+    user_doc = await db[USER_COLLECTION].find_one(add_tenant_scope({"_id": to_backend_id(user_id), "status": "active"}, target_tenant_id))
     if not user_doc:
-        return ApiResponse(code=1, message=localized_auth_message("组织内用户不存在或已禁用", accept_language))
+        return ApiResponse(code=1, message="组织内用户不存在或已禁用")
     user_doc = await _backfill_missing_avatar(
         user_doc,
         available_tenants,
@@ -405,28 +674,51 @@ async def switch_tenant(
 
 @router.get("/auth/me", response_model=ApiResponse)
 async def me(authorization: str | None = Header(default=None)) -> ApiResponse:
+    """读取当前登录用户资料。
+
+    022 FR-15（T032 / QF-637）：GET 必须无副作用。原先这里会顺手刷新
+    ``session.available_tenants``（惰性初始化），属于缓存写语义但字面上违反
+    『GET 不修改任何状态』—— 重复 GET 会推进 ``updated_at``，代理/CDN 缓存
+    与浏览器重放都可能产生非预期的数据变更。写入动作拆到
+    :func:`refresh_tenant_snapshot`（``POST /auth/me/refresh-tenants``）。
+    """
     resolved = await _resolve_session_user(authorization)
     stale_tenants = list(resolved["session"].get("available_tenants") or [])
     user = await _backfill_missing_avatar(resolved["user"], stale_tenants)
+    available_tenants = await _load_available_tenants(str(user.get("login_name") or ""))
+    return ApiResponse(code=0, data=await _profile_with_policy(user, resolved["tenant_id"], available_tenants))
+
+
+@router.post("/auth/me/refresh-tenants", response_model=ApiResponse)
+async def refresh_tenant_snapshot(authorization: str | None = Header(default=None)) -> ApiResponse:
+    """显式刷新当前会话的租户快照（022 FR-15 / T032）。
+
+    从 ``GET /auth/me`` 拆出的写操作：重新计算 ``available_tenants`` 并写回
+    会话文档。用 POST 显式声明"这次调用有副作用"，前端在需要刷新租户列表时
+    主动调用，而不是每次读资料都附带写。
+    """
+    resolved = await _resolve_session_user(authorization)
+    user = await _backfill_missing_avatar(
+        resolved["user"], list(resolved["session"].get("available_tenants") or [])
+    )
     available_tenants = await _load_available_tenants(str(user.get("login_name") or ""))
     await get_db()[USER_SESSION_COLLECTION].update_one(
         {"_id": resolved["session"]["_id"]},
         {"$set": {"available_tenants": available_tenants, "updated_at": _now()}},
     )
-    return ApiResponse(code=0, data=await _profile_with_policy(user, resolved["main_id"], available_tenants))
+    return ApiResponse(code=0, data=await _profile_with_policy(user, resolved["tenant_id"], available_tenants))
 
 
 @router.patch("/auth/profile", response_model=ApiResponse)
 async def update_profile(
     payload: ProfileUpdateRequest,
     authorization: str | None = Header(default=None),
-    accept_language: str | None = Header(default=None),
 ) -> ApiResponse:
     resolved = await _resolve_session_user(authorization)
     current_user = resolved["user"]
     name = payload.name.strip()
     if not name:
-        return ApiResponse(code=1, message=localized_auth_message("用户名称不能为空", accept_language))
+        return ApiResponse(code=1, message="用户名称不能为空")
     db = get_db()
     now = _now()
     mobile = str(current_user.get("mobile") or "").strip()
@@ -445,8 +737,8 @@ async def update_profile(
     available_tenants = await _load_available_tenants(login_name)
     return ApiResponse(
         code=0,
-        message=localized_auth_message("个人资料已更新", accept_language),
-        data=await _profile_with_policy(refreshed or current_user, resolved["main_id"], available_tenants),
+        message="个人资料已更新",
+        data=await _profile_with_policy(refreshed or current_user, resolved["tenant_id"], available_tenants),
     )
 
 
@@ -454,7 +746,6 @@ async def update_profile(
 async def upload_profile_avatar(
     file: UploadFile = File(...),
     authorization: str | None = Header(default=None),
-    accept_language: str | None = Header(default=None),
 ) -> ApiResponse:
     resolved = await _resolve_session_user(authorization)
     current_user = resolved["user"]
@@ -466,10 +757,10 @@ async def upload_profile_avatar(
     }
     suffix = allowed_types.get(content_type)
     if not suffix:
-        return ApiResponse(code=1, message=localized_auth_message("头像仅支持 JPG、PNG 或 WebP 图片", accept_language))
+        return ApiResponse(code=1, message="头像仅支持 JPG、PNG 或 WebP 图片")
     content = await read_upload_with_limit(file, max_bytes=3 * 1024 * 1024, label="Avatar")
     if not content:
-        return ApiResponse(code=1, message=localized_auth_message("头像文件不能为空", accept_language))
+        return ApiResponse(code=1, message="头像文件不能为空")
     valid_signature = (
         (content_type == "image/jpeg" and content.startswith(b"\xff\xd8\xff"))
         or (content_type == "image/png" and content.startswith(b"\x89PNG\r\n\x1a\n"))
@@ -481,7 +772,7 @@ async def upload_profile_avatar(
         )
     )
     if not valid_signature:
-        return ApiResponse(code=1, message=localized_auth_message("头像文件格式无效", accept_language))
+        return ApiResponse(code=1, message="头像文件格式无效")
 
     uploader = ObjectStorageClient()
     user_id = str(current_user["_id"])
@@ -496,9 +787,9 @@ async def upload_profile_avatar(
     login_name = str(current_user.get("login_name") or "").strip()
     available_tenants = list(resolved["session"].get("available_tenants") or [])
     tenant_user_ids = {
-        ObjectId(str(item.get("userId")))
+        to_backend_id(str(item.get("userId")))
         for item in available_tenants
-        if ObjectId.is_valid(str(item.get("userId") or ""))
+        if is_valid_backend_id(str(item.get("userId") or ""))
     }
     tenant_user_ids.add(current_user["_id"])
     await db[USER_COLLECTION].update_many(
@@ -510,8 +801,8 @@ async def upload_profile_avatar(
         available_tenants = await _load_available_tenants(login_name)
     return ApiResponse(
         code=0,
-        message=localized_auth_message("头像已更新", accept_language),
-        data=await _profile_with_policy(refreshed or current_user, resolved["main_id"], available_tenants),
+        message="头像已更新",
+        data=await _profile_with_policy(refreshed or current_user, resolved["tenant_id"], available_tenants),
     )
 
 
@@ -529,7 +820,11 @@ async def logout(authorization: str | None = Header(default=None)) -> ApiRespons
     return ApiResponse(code=0, data={"success": True})
 
 
-def _create_admin_token(subject: dict, secret: str, expires_in_seconds: int = 12 * 60 * 60) -> tuple[str, int, str]:
+# 022 FR-14（T030 / QF-634）：SSO 票据是一次性换票凭证，窗口收敛到 60 秒。
+ADMIN_SSO_TOKEN_TTL_SECONDS = 60
+
+
+def _create_admin_token(subject: dict, secret: str, expires_in_seconds: int = ADMIN_SSO_TOKEN_TTL_SECONDS) -> tuple[str, int, str]:
     expires_at = int(time.time()) + expires_in_seconds
     session_id = str(uuid.uuid4())
     payload = {
@@ -556,17 +851,17 @@ async def _load_available_tenants(username: str) -> list[dict[str, Any]]:
     db = get_db()
     rows = await db[USER_COLLECTION].find({"login_name": username, "status": "active"}).to_list(length=200)
     candidates = await load_tenant_candidates(db, rows)
-    return [item for item in candidates if _is_valid_tenant_main_id(resolve_main_id(item.get("mainId")))]
+    return [item for item in candidates if _is_valid_tenant_id(resolve_tenant_id(item.get("tenantId")))]
 
 
-async def _ensure_root_department(main_id: str) -> str:
+async def _ensure_root_department(tenant_id: str) -> str:
     db = get_db()
     now = _now()
     await db[DEPARTMENT_COLLECTION].update_one(
-        {"main_id": main_id, "code": "root"},
+        {"tenant_id": tenant_id, "code": "root"},
         {
             "$setOnInsert": {
-                "main_id": main_id,
+                "tenant_id": tenant_id,
                 "name": "企业总部",
                 "code": "root",
                 "parent_id": None,
@@ -581,38 +876,38 @@ async def _ensure_root_department(main_id: str) -> str:
         },
         upsert=True,
     )
-    root = await db[DEPARTMENT_COLLECTION].find_one({"main_id": main_id, "code": "root"})
+    root = await db[DEPARTMENT_COLLECTION].find_one({"tenant_id": tenant_id, "code": "root"})
     if not root:
         raise RuntimeError("组织根部门初始化失败")
     return str(root["_id"])
 
 
-async def _resolve_primary_department(main_id: str, requested_department_id: str | None = None) -> str:
+async def _resolve_primary_department(tenant_id: str, requested_department_id: str | None = None) -> str:
     db = get_db()
-    if requested_department_id and ObjectId.is_valid(str(requested_department_id)):
+    if requested_department_id and is_valid_backend_id(str(requested_department_id)):
         department = await db[DEPARTMENT_COLLECTION].find_one(
             {
-                "_id": ObjectId(str(requested_department_id)),
-                "main_id": main_id,
+                "_id": to_backend_id(str(requested_department_id)),
+                "tenant_id": tenant_id,
                 "status": "active",
             }
         )
         if department:
             return str(department["_id"])
-    return await _ensure_root_department(main_id)
+    return await _ensure_root_department(tenant_id)
 
 
-async def _assign_user_primary_department(main_id: str, user_id: str, department_id: str) -> None:
+async def _assign_user_primary_department(tenant_id: str, user_id: str, department_id: str) -> None:
     db = get_db()
     now = _now()
     await db[USER_COLLECTION].update_one(
-        {"_id": ObjectId(user_id), "main_id": main_id},
+        {"_id": to_backend_id(user_id), "tenant_id": tenant_id},
         {"$set": {"primary_org_id": department_id, "updated_at": now}},
     )
-    await db[USER_ORG_REL_COLLECTION].delete_many({"main_id": main_id, "user_id": user_id})
+    await db[USER_ORG_REL_COLLECTION].delete_many({"tenant_id": tenant_id, "user_id": user_id})
     await db[USER_ORG_REL_COLLECTION].insert_one(
         {
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "user_id": user_id,
             "org_id": department_id,
             "is_primary": True,
@@ -627,14 +922,14 @@ async def get_org_details(
     authorization: str | None = Header(default=None)
 ) -> ApiResponse:
     resolved = await _resolve_session_user(authorization)
-    main_id = resolved["main_id"]
+    tenant_id = resolved["tenant_id"]
     current_user = resolved["user"]
     
     db = get_db()
     from app.core.billing import get_or_create_organization
-    org = await get_or_create_organization(main_id, default_org_name=current_user.get("org_name") or "个人空间", owner_id=str(current_user["_id"]))
+    org = await get_or_create_organization(tenant_id, default_org_name=current_user.get("org_name") or "个人空间", owner_id=str(current_user["_id"]))
     
-    current_members = await db[USER_COLLECTION].count_documents({"main_id": main_id})
+    current_members = await db[USER_COLLECTION].count_documents({"tenant_id": tenant_id})
     from app.core.product_edition import organization_capability_payload
 
     capabilities = organization_capability_payload(org)
@@ -642,7 +937,7 @@ async def get_org_details(
     used_points = int(org.get("used_points") or 0)
     
     data = {
-        "mainId": org.get("main_id"),
+        "tenantId": org.get("tenant_id"),
         "orgName": org.get("org_name"),
         "edition": capabilities["edition"],
         "tier": org.get("tier", "community"),
@@ -658,45 +953,191 @@ async def get_org_details(
     return ApiResponse(code=0, data=data)
 
 
+# ---------------------------------------------------------------------------
+# 029：门户 SSO 接收方（外部门户免二次登录进入 MOGO 用户工作台）
+# ---------------------------------------------------------------------------
+def _verify_portal_service_identity(service_token: str) -> None:
+    """校验门户服务身份（scope ``portal.issue_ticket``），fail-closed。
+
+    镜像 022 :func:`app.api.principal.require_api_principal` 的
+    ``Header(alias=...)`` + :func:`verify_service_call` 模式，避免破坏 022 机制。
+    门户**不**回退旧式静态共享密钥——未配置新式凭据即拒绝，保证 portal-ticket
+    只能由持牌门户（服务身份 + 权限码）调用。
+    """
+    issuer = build_issuer_from_env(EXPECTED_PORTAL_SERVICE_ID)
+    if issuer is None:
+        raise HTTPException(status_code=401, detail="portal_service_not_configured")
+    try:
+        claim = verify_service_call(
+            service_token,
+            expected_service_id=EXPECTED_PORTAL_SERVICE_ID,
+            issuer=issuer,
+            required_scope=SCOPE_PORTAL_ISSUE_TICKET,
+        )
+    except GatekeeperDenied as exc:
+        raise HTTPException(status_code=401, detail=str(exc.reason))
+    if claim is None:
+        raise HTTPException(status_code=401, detail="portal_service_not_authenticated")
+
+
+async def _find_active_user_by_id(db: Any, user_id: str) -> Optional[dict]:
+    """按共享主键 ``end_users._id`` 解析 active 终端用户（029，无 JIT）。
+
+    非法主键一律视为未命中（fail-closed），绝不自动建号。阶段 2 全库归一后
+    主键形态统一为 32-hex 字符串，经 :mod:`app.core.ids` 校验 / 归一；
+    见 docs/id-unification-hex32-runbook.md。
+    """
+    if not is_valid_backend_id(user_id):
+        return None
+    return await db[USER_COLLECTION].find_one(
+        {"_id": to_backend_id(user_id), "status": "active"}
+    )
+
+
+@router.post("/auth/portal-ticket", response_model=ApiResponse)
+async def portal_ticket(
+    payload: PortalTicketRequest,
+    service_token: ServiceTokenHeader = "",
+) -> ApiResponse:
+    """门户 SSO 第一步：以服务身份为某 MOGO 终端用户签发一次性登录票据。
+
+    门户（持牌外部服务）调用本端点，chat-api 校验服务身份后，按共享主键
+    ``end_users._id`` 解析用户并签发一次性票据（TTL 60s，``PORTAL_SSO_SECRET`` 签名）。
+    票据**绝不下落 URL**，由门户经前端 ``window.history.state`` 带进 user-web。
+    匹配失败即拒绝（无 JIT）；单租户票据携带 ``tenant_id``，多租户只携带身份。
+    """
+    _verify_portal_service_identity(service_token)
+    user_id = payload.effective_user_id
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+    db = get_db()
+    user_doc = await _find_active_user_by_id(db, user_id)
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="user not found")
+    candidates = await load_tenant_candidates(db, [user_doc])
+    username = str(user_doc.get("login_name") or "")
+    secret = get_settings().PORTAL_SSO_SECRET
+
+    if len(candidates) > 1:
+        # 多租户：票据只携带身份，不绑定租户；换票后走选租户挑战流。
+        token, expires_at, session_id = create_portal_ticket(
+            secret, user_id=user_id, username=username, tenant_id=""
+        )
+        await db[USER_SESSION_COLLECTION].insert_one(
+            {
+                "session_id": session_id,
+                "user_id": user_id,
+                "username": username,
+                "status": "pending_exchange",
+                "exchanged": False,
+                "created_at": _now(),
+                "updated_at": _now(),
+            }
+        )
+        return ApiResponse(
+            code=0,
+            data={"token": token, "expiresAt": expires_at, "requiresTenantSelection": True},
+        )
+
+    tenant_id = resolve_tenant_id(candidates[0].get("tenantId")) if candidates else DEFAULT_TENANT_ID
+    token, expires_at, session_id = create_portal_ticket(
+        secret, user_id=user_id, username=username, tenant_id=tenant_id
+    )
+    await db[USER_SESSION_COLLECTION].insert_one(
+        {
+            "session_id": session_id,
+            "user_id": user_id,
+            "username": username,
+            "tenant_id": tenant_id,
+            "status": "active",
+            "exchanged": False,
+            "created_at": _now(),
+            "updated_at": _now(),
+        }
+    )
+    return ApiResponse(code=0, data={"token": token, "expiresAt": expires_at})
+
+
+@router.post("/auth/portal-exchange", response_model=ApiResponse)
+async def portal_exchange(payload: PortalExchangeRequest) -> ApiResponse:
+    """门户 SSO 第二步：前端携一次性票据 POST 换票建会话。
+
+    验签（fail-closed）→ 按 ``session_id`` accept-once（第二次 401）→ 解析用户 →
+    单租户直建会话（复用 :func:`_create_session`）/ 多租户返回选租户挑战 / 跨租户拒绝。
+    单租户返回 ``{token, profile, expiresAt}`` 与登录接口同构，前端
+    :func:`handleLoginSuccess` 无需改动即可消费。
+    """
+    token = payload.effective_portal_token
+    secret = get_settings().PORTAL_SSO_SECRET
+    try:
+        sub = verify_portal_ticket(secret, token)
+    except PortalTicketInvalid:
+        raise HTTPException(status_code=401, detail="invalid or expired portal ticket")
+
+    if not await mark_ticket_exchanged(get_db(), str(sub["session_id"])):
+        raise HTTPException(status_code=401, detail="portal ticket already used")
+
+    db = get_db()
+    user_doc = await _find_active_user_by_id(db, str(sub["user_id"]))
+    if not user_doc:
+        raise HTTPException(status_code=401, detail="user not found or inactive")
+
+    candidates = await load_tenant_candidates(db, [user_doc])
+    ticket_tenant = str(sub.get("tenant_id") or "")
+    if ticket_tenant:
+        candidate_tenants = {resolve_tenant_id(c.get("tenantId")) for c in candidates}
+        if ticket_tenant not in candidate_tenants:
+            raise HTTPException(status_code=401, detail="tenant mismatch")
+        data = await _create_session(user_doc, candidates)
+        return ApiResponse(code=0, data=data)
+
+    # 多租户：返回选租户挑战，前端继续调用既有 POST /api/auth/login/select-tenant。
+    challenge = await _create_login_challenge(str(user_doc.get("login_name") or ""), candidates)
+    return ApiResponse(code=0, data={"requiresTenantSelection": True, **challenge})
+
+
 @router.post("/auth/admin-sso", response_model=ApiResponse)
 async def admin_sso(
-    authorization: str | None = Header(default=None),
-    accept_language: str | None = Header(default=None),
+    authorization: str | None = Header(default=None)
 ) -> ApiResponse:
     """
-    Create an admin access token for an authenticated user and authorize it in
-    admin_sessions so the admin console can complete SSO without a password.
+    单点登录（SSO）：为已登录的用户加密生成用于管理后台的 access token，
+    并在 admin_sessions 中插入以允许后台免密登录。
     """
     resolved = await _resolve_session_user(authorization)
     current_user = resolved["user"]
-    main_id = resolved["main_id"]
+    tenant_id = resolved["tenant_id"]
     username = current_user["login_name"]
     db = get_db()
     tenant = (await load_tenant_candidates(db, [current_user]))[0]
     if tenant.get("spaceType") != "enterprise":
-        return ApiResponse(code=1, message=localized_auth_message("个人空间没有管理后台", accept_language))
+        return ApiResponse(code=1, message="个人空间没有管理后台")
     if not tenant.get("canAccessAdmin"):
-        return ApiResponse(code=1, message=localized_auth_message("您没有访问管理后台的权限", accept_language))
+        return ApiResponse(code=1, message="您没有访问管理后台的权限")
 
-    # 1. Admin and user accounts are separate; SSO only verifies existing admin accounts.
-    admin_account = await db[ADMIN_ACCOUNT_COLLECTION].find_one({"username": username, "main_id": main_id})
+    # 1. 后台账号与用户端账号分离：SSO 只校验已有后台账号，不自动补建。
+    admin_account = await db[ADMIN_ACCOUNT_COLLECTION].find_one({"username": username, "tenant_id": tenant_id})
     if not admin_account or admin_account.get("status") != "active" or admin_account.get("group_code") == "member":
-        return ApiResponse(code=1, message=localized_auth_message("您没有访问管理后台的权限", accept_language))
+        return ApiResponse(code=1, message="您没有访问管理后台的权限")
 
-    # 2. Generate a JWT token.
-    # Use the configured signing key, falling back to the development default.
+    # 2. 生成 JWT token
+    # 签名密钥：如果环境变量有配置则读，否则用默认开发值
     jwt_secret = get_settings().ASKAI_ADMIN_JWT_SECRET
     
     subject = {
         "username": username,
         "role_name": admin_account.get("role_name") or "平台超级管理员",
         "org_name": admin_account.get("org_name") or "个人空间",
-        "main_id": main_id,
+        "tenant_id": tenant_id,
     }
     
-    token, expires_at, session_id = _create_admin_token(subject, jwt_secret)
+    # 022 FR-14（T030）：票据只用于一次性 POST 换票，TTL 收敛到 60 秒。
+    # 票据在 URL 里停留的时间被压到最低；过期即必须重新进入。
+    token, expires_at, session_id = _create_admin_token(
+        subject, jwt_secret, expires_in_seconds=ADMIN_SSO_TOKEN_TTL_SECONDS
+    )
     
-    # 3. Authorize the active admin session for direct handshake.
+    # 3. 在后台活跃 session 表 (admin_sessions) 写入授权，允许直接握手通过
     admin_session = {
         "session_id": session_id,
         "username": username,
@@ -710,7 +1151,7 @@ async def admin_sso(
     
     return ApiResponse(
         code=0,
-        message=localized_auth_message("单点登录凭证授权成功", accept_language),
+        message="单点登录凭证授权成功",
         data={
             "sso_token": token,
             "expiresAt": expires_at

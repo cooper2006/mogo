@@ -1,0 +1,57 @@
+# 连接器模板种子（041-connector-market）。凭证一律占位符 <...>，加载时校验。
+id: grafana-http
+version: 1
+category: devops
+name:
+  zh: "Grafana HTTP"
+  en: "Grafana HTTP"
+description:
+  zh: "读取 Grafana 仪表盘与数据源。"
+  en: "Read Grafana dashboards and data sources."
+auth_type: api_key
+credential_key: token
+config_template:
+  method: GET
+  url: "https://${host}/api/${path}"
+params:
+  - key: host
+    label:
+      zh: "服务地址"
+      en: "服务地址"
+    type: string
+    required: true
+    secret: false
+    in: path
+    description:
+      zh: "Grafana 域名（不含协议）"
+      en: "Grafana host without scheme"
+    example: "<your-grafana-host>"
+  - key: path
+    label:
+      zh: "接口路径"
+      en: "接口路径"
+    type: string
+    required: true
+    secret: false
+    in: path
+    description:
+      zh: "目标 REST 路径（如 dashboards）"
+      en: "Target REST path (e.g. dashboards)"
+    example: "<dashboards>"
+  - key: token
+    label:
+      zh: "访问令牌"
+      en: "访问令牌"
+    type: string
+    required: true
+    secret: true
+    in: headers
+    description:
+      zh: "Grafana service account token"
+      en: "Grafana service account token"
+    example: "<your-grafana-token>"
+test_hint:
+  probe:
+    zh: "列出仪表盘"
+    en: "列出仪表盘"
+  expected_status: 200

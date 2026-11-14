@@ -1,0 +1,57 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["mogo", "gold-signals"],
+  "templating": {"list": []},
+  "time": {"from": "now-1h", "to": "now"},
+  "timepicker": {},
+  "timezone": "",
+  "title": "MOGO Gold Signals",
+  "uid": "mogo-gold-signals",
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Traffic (requests/s)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {"expr": "sum(rate(mogo_http_requests_total[1m])) by (service)", "refId": "A", "legendFormat": "{{service}}"}
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Latency P99 (s)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [
+        {"expr": "histogram_quantile(0.99, sum(rate(mogo_http_request_duration_seconds_bucket[1m])) by (le, service))", "refId": "A", "legendFormat": "{{service}} p99"}
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Error Rate",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [
+        {"expr": "sum(rate(mogo_http_errors_total[1m])) by (service)", "refId": "A", "legendFormat": "{{service}} errors"}
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Saturation (inflight)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "targets": [
+        {"expr": "sum(mogo_http_inflight_requests) by (service)", "refId": "A", "legendFormat": "{{service}} inflight"}
+      ]
+    }
+  ]
+}

@@ -41,12 +41,12 @@ def _serialize(job: dict[str, Any] | None) -> dict[str, Any] | None:
 def create_job(job_id: str, job_type: str, payload: dict[str, Any]) -> dict[str, Any]:
     now = utcnow()
     document_id = str(payload.get("documentId") or "")
-    main_id = str(payload.get("mainId") or "default")
+    tenant_id = str(payload.get("tenantId") or "default")
     job = {
         "jobId": job_id,
         "jobType": job_type,
         "documentId": document_id,
-        "mainId": main_id,
+        "tenantId": tenant_id,
         "status": "queued",
         "progress": 0,
         "attempts": 0,

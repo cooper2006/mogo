@@ -16,7 +16,7 @@ class RapidOcrAsset:
 
 
 # Docling's default RapidOCR downloader only guarantees the default Chinese
-# models. MOVO configures PDF OCR for both Chinese and English, so the English
+# models. MOGO configures PDF OCR for both Chinese and English, so the English
 # detector, recognizer and recognition dictionary must also be bundled.
 REQUIRED_ENGLISH_ASSETS = (
     RapidOcrAsset(
@@ -50,7 +50,7 @@ def required_english_paths(model_root: Path) -> tuple[Path, ...]:
 
 
 def download_required_english_assets(model_root: Path) -> None:
-    timeout = float(os.environ.get("MOVO_MODEL_DOWNLOAD_TIMEOUT", "120"))
+    timeout = float(os.environ.get("MOGO_MODEL_DOWNLOAD_TIMEOUT", "120"))
     for asset in REQUIRED_ENGLISH_ASSETS:
         destination = model_root / asset.relative_path
         if _is_valid(destination, asset.sha256):

@@ -85,7 +85,7 @@ async function switchServer() {
         autocomplete="url"
         spellcheck="false"
         class="mt-2 min-h-[44px] w-full rounded-xl border border-slate-200 bg-white px-3 font-mono text-xs text-slate-900 outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
-        placeholder="https://movo.company.com"
+        placeholder="https://mogo.company.com"
         :disabled="connecting"
         @input="error = ''"
       />

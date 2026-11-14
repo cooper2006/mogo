@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 import re
@@ -24,8 +25,8 @@ def parse_llm_json(raw: str) -> dict[str, Any]:
             try:
                 parsed = json.loads(match.group(0))
                 return parsed if isinstance(parsed, dict) else {"answer": text, "usedChunkIds": []}
-            except Exception:
-                pass
+            except Exception as exc:
+                log_print(f"[citation_resolver] resolve failed: {exc}", flush=True)
     return {"answer": text, "usedChunkIds": []}
 
 

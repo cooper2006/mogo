@@ -21,14 +21,14 @@ function resolveRows(rows, installation, presetId) {
       ? resolveRows(row.config, installation, presetId)
       : row.config
     // The shipped Cordis preset resolves its bundled skills through baseUrl.
-    // In an embedded Host that URL is MOVO's profile, not DSH's installation.
+    // In an embedded Host that URL is MOGO's profile, not DSH's installation.
     if (presetId === 'cordis' && row.id === 'skill-filesystem' && Array.isArray(config?.customSkillDirs)) {
       config = {
         ...config,
         customSkillDirs: [join(dirname(installation.resolveDependency('@deepseek-ai/dsh-agent-preset/package.json')), 'skills')],
       }
     }
-    // MOVO does not mount DSH's schedule tools. The shipped Web preset denies
+    // MOGO does not mount DSH's schedule tools. The shipped Web preset denies
     // those names for children, but 0.2 validates deny lists against mounted
     // global tools and rejects an unknown name before the child can start.
     if (['tool-subagent', 'tool-subagent-fork'].includes(row.id) && Array.isArray(config?.toolFilter?.deny)) {

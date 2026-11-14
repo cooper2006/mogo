@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Tuple
 
 from openpyxl.cell.cell import MergedCell
 from openpyxl import load_workbook
+from app.infrastructure.observability.config import log_print
 from openpyxl.styles import Alignment, Font
 
 from app.services.form_filling.mapper import build_fill_plan
@@ -105,8 +106,8 @@ def extract_xlsx_form_schema(source_bytes: bytes) -> Dict[str, Any]:
     finally:
         try:
             wb.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            log_print(f"[xlsx_fill] workbook close failed (analyze): {exc}", flush=True)
     if len(fill_targets) <= 2 and not tables and sparse_resume_targets:
         fill_targets = sparse_resume_targets
     return {"fill_targets": fill_targets[:300], "tables": tables[:80]}
@@ -184,7 +185,8 @@ def _sparse_resume_template_targets(ws: Any) -> List[Dict[str, Any]]:
             if isinstance(cell, MergedCell):
                 continue
             targets.append({"target": _target(ws.title, cell.coordinate), "label": label, "kind": "sparse_resume_template"})
-        except Exception:
+        except Exception as exc:
+            log_print(f"[services.form_filling.xlsx_fill._sparse_resume_template_targets] suppressed {type(exc).__name__}: {exc}", flush=True)
             continue
     return targets
 
@@ -274,7 +276,8 @@ async def fill_xlsx_form(
                 if isinstance(cell, MergedCell):
                     skipped += 1
                     continue
-            except Exception:
+            except Exception as exc:
+                log_print(f"[services.form_filling.xlsx_fill.fill_xlsx_form] suppressed {type(exc).__name__}: {exc}", flush=True)
                 skipped += 1
                 continue
             old = cell.value
@@ -302,7 +305,8 @@ async def fill_xlsx_form(
                 continue
             try:
                 ws = wb[str(table.get("sheet") or "")]
-            except Exception:
+            except Exception as exc:
+                log_print(f"[services.form_filling.xlsx_fill.fill_xlsx_form] suppressed {type(exc).__name__}: {exc}", flush=True)
                 skipped += 1
                 continue
             header_row = int(table.get("header_row") or 1)
@@ -335,8 +339,8 @@ async def fill_xlsx_form(
     finally:
         try:
             wb.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            log_print(f"[xlsx_fill] workbook close failed (fill): {exc}", flush=True)
     return FillResult(
         file_bytes=out.getvalue(),
         stats={

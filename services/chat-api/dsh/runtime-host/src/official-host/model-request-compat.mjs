@@ -7,7 +7,7 @@ function messageText(message) {
     .join('\n')
 }
 
-/** Keep the MOVO Model Gateway request stable when DSH stores system nodes in history. */
+/** Keep the MOGO Model Gateway request stable when DSH stores system nodes in history. */
 export function stableModelRequest(options) {
   const messages = Array.isArray(options.messages) ? options.messages : []
   if (typeof options.system === 'string' && options.system) {

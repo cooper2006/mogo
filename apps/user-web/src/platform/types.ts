@@ -24,7 +24,7 @@ export interface Settings {
 export interface EnterpriseConnectionResult {
   settings: Settings
   org_name: string
-  main_id: string
+  tenant_id: string
   services_ready: boolean
 }
 
@@ -55,6 +55,8 @@ export interface PlatformCapabilities {
   localDshRuntime: boolean
   /** Native directory selection and DSH Workspace registration are available. */
   localWorkspacePicker: boolean
+  /** Server-side directory browsing (DSH browse capability) is available. */
+  serverWorkspacePicker: boolean
   /** The platform may execute the official DSH code preset. */
   codeExecution: boolean
   /** The platform can render local deterministic Code inspection state. */
@@ -291,3 +293,25 @@ export interface BrowserPreviewFrame {
 }
 
 export interface SaveResult { saved: boolean; path?: string }
+
+export interface DshUserQuestion {
+  id: string
+  question: string
+  detail?: string
+  header?: string
+  options?: Array<{ label: string; description?: string }>
+  multiSelect?: boolean
+}
+
+export interface DshPendingQuestion {
+  id: string
+  sessionId: string
+  questions: DshUserQuestion[]
+  createdAt: number
+}
+
+export interface DshQuestionAnswer {
+  id: string
+  selected: string[]
+  custom?: string
+}

@@ -22,7 +22,7 @@ COLLECTION = "knowledge_document_settings"
 def _default_vector_endpoint() -> str:
     return (
         os.getenv("ASKAI_ADMIN_KNOWLEDGE_WEAVIATE_ENDPOINT", "")
-        or os.getenv("MOVO_DOC_PROCESSING_WEAVIATE_ENDPOINT", "")
+        or os.getenv("MOGO_DOC_PROCESSING_WEAVIATE_ENDPOINT", "")
         or "http://127.0.0.1:8080"
     )
 
@@ -30,7 +30,7 @@ def _default_vector_endpoint() -> str:
 def _default_vector_collection_name() -> str:
     return (
         os.getenv("ASKAI_ADMIN_KNOWLEDGE_WEAVIATE_COLLECTION_NAME", "")
-        or os.getenv("MOVO_DOC_PROCESSING_WEAVIATE_COLLECTION_NAME", "")
+        or os.getenv("MOGO_DOC_PROCESSING_WEAVIATE_COLLECTION_NAME", "")
         or "AskAIKnowledgeChunks"
     )
 
@@ -38,7 +38,7 @@ def _default_vector_collection_name() -> str:
 def _default_vector_distance_metric() -> str:
     value = (
         os.getenv("ASKAI_ADMIN_KNOWLEDGE_WEAVIATE_DISTANCE_METRIC", "")
-        or os.getenv("MOVO_DOC_PROCESSING_WEAVIATE_DISTANCE_METRIC", "")
+        or os.getenv("MOGO_DOC_PROCESSING_WEAVIATE_DISTANCE_METRIC", "")
         or "cosine"
     )
     return value if value in {"cosine", "dot", "l2"} else "cosine"
@@ -161,8 +161,8 @@ class KnowledgeSettingsPayload(BaseModel):
     index: IndexSettingsPayload = Field(default_factory=IndexSettingsPayload)
 
 
-def _main_id(current_user: dict[str, Any]) -> str:
-    return str(current_user.get("main_id") or "default")
+def _tenant_id(current_user: dict[str, Any]) -> str:
+    return str(current_user.get("tenant_id") or "default")
 
 
 def _now() -> datetime:
@@ -244,10 +244,10 @@ def serialize_settings(doc: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
-async def get_effective_parse_settings(main_id: str) -> dict[str, int]:
-    doc = await get_db()[COLLECTION].find_one({"main_id": main_id, "kind": "knowledge"})
+async def get_effective_parse_settings(tenant_id: str) -> dict[str, int]:
+    doc = await get_db()[COLLECTION].find_one({"tenant_id": tenant_id, "kind": "knowledge"})
     if not doc:
-        doc = await get_db()[COLLECTION].find_one({"main_id": main_id, "kind": "parse"})
+        doc = await get_db()[COLLECTION].find_one({"tenant_id": tenant_id, "kind": "parse"})
     serialized = serialize_settings(doc)
     return {
         "minChunkSize": int(serialized["minChunkSize"]),
@@ -257,8 +257,8 @@ async def get_effective_parse_settings(main_id: str) -> dict[str, int]:
     }
 
 
-async def get_effective_knowledge_settings(main_id: str, *, include_secrets: bool = False) -> dict[str, Any]:
-    doc = await get_db()[COLLECTION].find_one({"main_id": main_id, "kind": "knowledge"})
+async def get_effective_knowledge_settings(tenant_id: str, *, include_secrets: bool = False) -> dict[str, Any]:
+    doc = await get_db()[COLLECTION].find_one({"tenant_id": tenant_id, "kind": "knowledge"})
     data = _serialize_full_settings(doc)
     if include_secrets and doc:
         vector_store = dict((doc.get("config") or {}).get("vectorStore") or {})
@@ -269,7 +269,7 @@ async def get_effective_knowledge_settings(main_id: str, *, include_secrets: boo
 
 @router.get("")
 async def get_knowledge_settings(current_user: dict[str, Any] = Depends(get_current_admin_user)) -> dict[str, Any]:
-    doc = await get_db()[COLLECTION].find_one({"main_id": _main_id(current_user), "kind": "knowledge"})
+    doc = await get_db()[COLLECTION].find_one({"tenant_id": _tenant_id(current_user), "kind": "knowledge"})
     return _serialize_full_settings(doc)
 
 
@@ -278,9 +278,9 @@ async def save_knowledge_settings(
     payload: KnowledgeSettingsPayload,
     current_user: dict[str, Any] = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
-    main_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     try:
-        embedding_instance = await find_instance_by_id(payload.embedding.modelInstanceId, main_id)
+        embedding_instance = await find_instance_by_id(payload.embedding.modelInstanceId, tenant_id)
     except InvalidId as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -297,7 +297,7 @@ async def save_knowledge_settings(
         )
     if payload.retrieval.rerank.enabled:
         try:
-            rerank_instance = await find_instance_by_id(payload.retrieval.rerank.modelInstanceId, main_id)
+            rerank_instance = await find_instance_by_id(payload.retrieval.rerank.modelInstanceId, tenant_id)
         except InvalidId as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -314,7 +314,7 @@ async def save_knowledge_settings(
             )
     now = _now()
     config = payload.model_dump()
-    existing = await get_db()[COLLECTION].find_one({"main_id": main_id, "kind": "knowledge"})
+    existing = await get_db()[COLLECTION].find_one({"tenant_id": tenant_id, "kind": "knowledge"})
     vector_store = dict(config.get("vectorStore") or {})
     api_key = str(vector_store.pop("apiKey", "") or "")
     if api_key:
@@ -327,7 +327,7 @@ async def save_knowledge_settings(
             vector_store["apiKeyMasked"] = old_vector_store.get("apiKeyMasked", "")
     config["vectorStore"] = vector_store
     await get_db()[COLLECTION].update_one(
-        {"main_id": main_id, "kind": "knowledge"},
+        {"tenant_id": tenant_id, "kind": "knowledge"},
         {
             "$set": {
                 "config": config,
@@ -335,23 +335,23 @@ async def save_knowledge_settings(
                 "updated_at": now,
             },
             "$setOnInsert": {
-                "main_id": main_id,
+                "tenant_id": tenant_id,
                 "kind": "knowledge",
                 "created_at": now,
             },
         },
         upsert=True,
     )
-    doc = await get_db()[COLLECTION].find_one({"main_id": main_id, "kind": "knowledge"})
+    doc = await get_db()[COLLECTION].find_one({"tenant_id": tenant_id, "kind": "knowledge"})
     return _serialize_full_settings(doc)
 
 
 @router.get("/parse")
 async def get_parse_settings(current_user: dict[str, Any] = Depends(get_current_admin_user)) -> dict[str, Any]:
-    main_id = _main_id(current_user)
-    doc = await get_db()[COLLECTION].find_one({"main_id": main_id, "kind": "knowledge"})
+    tenant_id = _tenant_id(current_user)
+    doc = await get_db()[COLLECTION].find_one({"tenant_id": tenant_id, "kind": "knowledge"})
     if not doc:
-        doc = await get_db()[COLLECTION].find_one({"main_id": main_id, "kind": "parse"})
+        doc = await get_db()[COLLECTION].find_one({"tenant_id": tenant_id, "kind": "parse"})
     return serialize_settings(doc)
 
 
@@ -360,9 +360,9 @@ async def save_parse_settings(
     payload: KnowledgeParseSettingsPayload,
     current_user: dict[str, Any] = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
-    main_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     now = _now()
-    doc = await get_db()[COLLECTION].find_one({"main_id": main_id, "kind": "knowledge"})
+    doc = await get_db()[COLLECTION].find_one({"tenant_id": tenant_id, "kind": "knowledge"})
     full = _serialize_full_settings(doc)
     max_chunk_size = int(payload.maxChunkSize)
     full["parse"] = {
@@ -381,7 +381,7 @@ async def save_parse_settings(
     full["vectorStore"] = vector_store
     full.pop("updatedAt", None)
     await get_db()[COLLECTION].update_one(
-        {"main_id": main_id, "kind": "knowledge"},
+        {"tenant_id": tenant_id, "kind": "knowledge"},
         {
             "$set": {
                 "config": full,
@@ -389,16 +389,16 @@ async def save_parse_settings(
                 "updated_at": now,
             },
             "$setOnInsert": {
-                "main_id": main_id,
+                "tenant_id": tenant_id,
                 "kind": "knowledge",
                 "created_at": now,
             },
         },
         upsert=True,
     )
-    doc = await get_db()[COLLECTION].find_one({"main_id": main_id, "kind": "knowledge"})
+    doc = await get_db()[COLLECTION].find_one({"tenant_id": tenant_id, "kind": "knowledge"})
     return serialize_settings(doc)
 
 
 async def ensure_indexes() -> None:
-    await get_db()[COLLECTION].create_index([("main_id", 1), ("kind", 1)], unique=True)
+    await get_db()[COLLECTION].create_index([("tenant_id", 1), ("kind", 1)], unique=True)

@@ -8,10 +8,10 @@ import httpx
 
 
 async def dependency_status(digest: str) -> str:
-    url = os.environ.get("MOVO_SANDBOX_MANAGER_URL", "").strip().rstrip("/")
+    url = os.environ.get("MOGO_SANDBOX_MANAGER_URL", "").strip().rstrip("/")
     if not url:
         return "disabled"
-    token = os.environ.get("MOVO_SANDBOX_MANAGER_TOKEN", "")
+    token = os.environ.get("MOGO_SANDBOX_MANAGER_TOKEN", "")
     if len(token) < 32:
         return "unavailable"
     try:

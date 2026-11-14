@@ -8,7 +8,7 @@ from app.llm import configured_models
 def test_group_connection_supplies_shared_credentials_without_changing_model_identity(monkeypatch) -> None:
     monkeypatch.setattr(configured_models, "decrypt_secret", lambda value: {"group-key": "secret"}[value])
     instance = {
-        "_id": "member-1", "main_id": "tenant-a", "provider_id": "provider-1",
+        "_id": "member-1", "tenant_id": "tenant-a", "provider_id": "provider-1",
         "display_name": "Text model", "model_name": "gpt-example", "status": "active",
         "capabilities": ["chat"], "api_key_encrypted": "", "base_url": "",
     }

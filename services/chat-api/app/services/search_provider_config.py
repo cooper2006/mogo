@@ -15,6 +15,7 @@ PROVIDER_PRIORITIES = {
     "serpapi": 30,
     "baidu_qianfan": 40,
     "volc_ark": 50,
+    "claw_search": 60,
 }
 SUPPORTED_PROVIDERS = set(PROVIDER_PRIORITIES)
 
@@ -34,12 +35,12 @@ def _safe_config(doc: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def resolve_default_external_search_provider(main_id: str) -> dict[str, Any] | None:
-    resolved_main_id = str(main_id or "default").strip() or "default"
+async def resolve_default_external_search_provider(tenant_id: str) -> dict[str, Any] | None:
+    resolved_tenant_id = str(tenant_id or "default").strip() or "default"
     db = get_db()
-    for candidate_main_id in ([resolved_main_id, "default"] if resolved_main_id != "default" else ["default"]):
+    for candidate_tenant_id in ([resolved_tenant_id, "default"] if resolved_tenant_id != "default" else ["default"]):
         enabled_docs = await db[COLLECTION].find(
-            {"main_id": candidate_main_id, "enabled": True, "provider": {"$in": sorted(SUPPORTED_PROVIDERS)}},
+            {"tenant_id": candidate_tenant_id, "enabled": True, "provider": {"$in": sorted(SUPPORTED_PROVIDERS)}},
         ).to_list(length=len(SUPPORTED_PROVIDERS))
         usable = [
             doc for doc in enabled_docs
@@ -55,19 +56,19 @@ async def resolve_default_external_search_provider(main_id: str) -> dict[str, An
                 ),
             )
             return _safe_config(selected)
-        if candidate_main_id == resolved_main_id and resolved_main_id != "default":
+        if candidate_tenant_id == resolved_tenant_id and resolved_tenant_id != "default":
             # An organization's disabled selection must not inherit another
             # organization's default source (or its paid API credentials).
-            if await has_saved_external_search_config(resolved_main_id):
+            if await has_saved_external_search_config(resolved_tenant_id):
                 return None
     return None
 
 
-async def has_saved_external_search_config(main_id: str) -> bool:
+async def has_saved_external_search_config(tenant_id: str) -> bool:
     """Once an organization manages search in Admin, never silently use host keys."""
-    resolved_main_id = str(main_id or "default").strip() or "default"
+    resolved_tenant_id = str(tenant_id or "default").strip() or "default"
     db = get_db()
-    return bool(await db[COLLECTION].find_one({"main_id": resolved_main_id}, {"_id": 1}))
+    return bool(await db[COLLECTION].find_one({"tenant_id": resolved_tenant_id}, {"_id": 1}))
 
 
 def env_external_search_config(provider: str) -> dict[str, Any] | None:

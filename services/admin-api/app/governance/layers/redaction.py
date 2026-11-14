@@ -1,0 +1,133 @@
+"""Layer 3 — PII redaction (US3 / T021).
+
+Applies the global default PII policy (``pii_policies`` ``tenant_id=""``) plus
+any tenant override rows to the request/response text carried in the gate
+context. Redaction rewrites the text (``ctx.request`` / ``ctx.response``) in
+place so downstream layers, the tool invocation, and the audit event all see
+only the redacted value; the *tool execution semantics* are untouched (the
+text fields are metadata, not the tool's arguments beyond those fields).
+
+Audit traceability (FR-7): for each redacted value the layer records a
+:class:`RedactionTrace` (PII class + count + hash fingerprint, no plaintext)
+in ``ctx.annotations["redaction"]`` so the audit layer can persist the
+fingerprint while the plaintext never reaches ``gate_events``.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from typing import Any, Optional
+
+from ..gatekeeper import GateContext, GateDecision, GateVerdict
+from ..pii import PII_TYPES, fingerprint, redact_text
+
+PII_POLICIES_COLLECTION = "pii_policies"
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class RedactionTrace:
+    """Per-request redaction record kept for the audit sink (0 plaintext)."""
+
+    types: dict[str, int] = field(default_factory=dict)
+    fingerprints: list[str] = field(default_factory=list)
+
+    @property
+    def count(self) -> int:
+        """Number of redacted PII values in this trace.
+
+        001 hotfix (2026-10-19): the evaluate() path read ``trace.count`` but the
+        dataclass only declared ``types`` / ``fingerprints`` — every PII-carrying
+        gate call raised ``AttributeError`` inside the layer, which admin-api
+        surfaced as a 500 and chat-api then fail-closed the turn into a 403
+        ("门禁服务返回 500（fail-closed）"). Only the document helper computed the
+        count, so no test ever touched the attribute.
+        """
+        return sum(self.types.values())
+
+    def as_document(self) -> dict[str, Any]:
+        return {
+            "types": dict(self.types),
+            "fingerprints": list(self.fingerprints),
+            "count": self.count,
+        }
+
+
+class RedactionLayer:
+    name = "redaction"
+
+    async def _policies_for(self, ctx: GateContext, db: Any) -> dict[str, str]:
+        """Effective policy = global defaults overridden by the tenant row."""
+        from ..pii import DEFAULT_STRATEGY
+
+        policies = dict(DEFAULT_STRATEGY)
+        try:
+            cursor = db[PII_POLICIES_COLLECTION].find({"tenant_id": {"$in": ["", ctx.tenant_id]}})
+            rows = [row async for row in cursor]
+            for row in rows:
+                pii_type = row.get("pii_type")
+                strategy = row.get("strategy")
+                if pii_type in PII_TYPES and strategy:
+                    if row.get("tenant_id"):
+                        policies[str(pii_type)] = str(strategy)  # tenant override wins
+                    elif pii_type not in policies:
+                        policies[str(pii_type)] = str(strategy)
+        except Exception as exc:  # noqa: BLE001 - a policy read must never break the gate
+            # Do not swallow this. A failed policy load silently degrades
+            # redaction to the built-in defaults, and "no tenant override
+            # configured" is indistinguishable from "policy store is down"
+            # once the failure is dropped (QA R5).
+            logger.warning(
+                "pii policy load failed for tenant %s; using built-in defaults: %s",
+                ctx.tenant_id,
+                exc,
+            )
+        return policies
+
+    async def evaluate(self, ctx: GateContext) -> GateVerdict:
+        from app.core.db import get_db
+
+        db = get_db()
+        policies = await self._policies_for(ctx, db)
+        trace = RedactionTrace()
+
+        for key in ("request", "response"):
+            payload: Any = getattr(ctx, key)
+            if not isinstance(payload, dict):
+                continue
+            self._redact_fields(payload, policies, trace)
+
+        if trace.count:
+            ctx.annotations["redaction"] = trace.as_document()
+            return GateVerdict(
+                decision=GateDecision.ALLOW,
+                layer=self.name,
+                reason=f"redacted {trace.count} PII value(s)",
+                detail=trace.as_document(),
+            )
+        return GateVerdict(decision=GateDecision.ALLOW, layer=self.name, reason="no PII found")
+
+    def _redact_fields(self, payload: dict, policies: dict[str, str], trace: RedactionTrace, depth: int = 0) -> None:
+        if depth >= 8:
+            return
+        for key, value in list(payload.items()):
+            if isinstance(value, str) and value:
+                from ..pii import find_pii
+
+                hits = find_pii(value, list(policies.keys()))
+                if hits:
+                    redacted = redact_text(value, policies)
+                    payload[key] = redacted
+                    for pii_type, _start, _end, hit in hits:
+                        trace.types[pii_type] = trace.types.get(pii_type, 0) + 1
+                        trace.fingerprints.append(fingerprint(hit))
+            elif isinstance(value, dict):
+                self._redact_fields(value, policies, trace, depth + 1)
+            elif isinstance(value, list):
+                for item in value:
+                    if isinstance(item, dict):
+                        self._redact_fields(item, policies, trace, depth + 1)
+
+
+__all__ = ["RedactionLayer", "RedactionTrace"]

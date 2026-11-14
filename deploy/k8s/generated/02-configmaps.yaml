@@ -1,0 +1,107 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gateway-nginx
+  namespace: mogo
+data:
+  default.conf: "map $http_upgrade $connection_upgrade {\n    default upgrade;\n \
+    \   '' close;\n}\n\n# ── Dynamic upstream resolution (D1 fix) ──────────────────────────────\n\
+    # Without `resolver` + a variable-style `proxy_pass`, nginx resolves each\n# upstream\
+    \ hostname ONCE at worker-start and caches the IP forever. Any\n# container restart\
+    \ that changes the upstream's IP (compose networks hand out\n# new IPs on recreate)\
+    \ then breaks the route with a steady 502 until the\n# gateway itself is restarted.\
+    \ Using a variable target forces per-request\n# re-resolution against Docker's\
+    \ embedded DNS (127.0.0.11).\n#   - valid=10s: cache each resolved record only\
+    \ 10s so IP changes propagate\n#     without a gateway restart.\n#   - ipv6=off:\
+    \ this stack is IPv4-only; skip AAAA lookups to avoid the\n#     \"no resolver\
+    \ defined\" / timeout class of failures.\n#   - status=...: honour Docker's healthy/degraded\
+    \ records if published.\n# 024 T039 (FR-020)：灰度分流片段（map + split_clients），\n# 见\
+    \ deploy/canary/nginx-canary.conf，由 canary.sh 按档位覆写\ninclude /etc/nginx/conf.d/mogo-canary.conf;\n\
+    \nresolver 10.43.0.10 valid=10s ipv6=off;\nresolver_timeout 5s;\n\n# ═══════════════════════════════════════════════════════════════════════\n\
+    # MOGO Gateway — Nginx Reverse Proxy\n# ═══════════════════════════════════════════════════════════════════════\n\
+    #\n# This configuration provides:\n#   • Port 80 HTTP proxy (default, for local\
+    \ dev and behind reverse proxies)\n#   • Security headers (HSTS, CSP, nosniff,\
+    \ frame-options)\n#   • Health-check endpoint (always HTTP, no redirect)\n#\n\
+    # Production TLS setup:\n#   1. Copy deploy/docker/nginx-https.conf to deploy/docker/nginx.conf\n\
+    #   2. Mount your certificate pair at /etc/nginx/certs/\n#   3. Update server_name\
+    \ to your domain\n#   4. docker compose up -d\n#\n# ═══════════════════════════════════════════════════════════════════════\n\
+    \nserver {\n    listen 80;\n    server_name _;\n    absolute_redirect off;\n \
+    \   client_max_body_size 220m;\n\n    # ── Security headers ──────────────────────────────────────────────\n\
+    \    # HSTS — enable after verifying HTTPS works correctly.\n    # Uncomment once\
+    \ TLS is configured to enforce HTTPS site-wide.\n    # add_header Strict-Transport-Security\
+    \ \"max-age=15552000; includeSubDomains; preload\" always;\n    # max-age=0 clears\
+    \ any previously cached HSTS policy (e.g. after disabling TLS).\n    add_header\
+    \ Strict-Transport-Security \"max-age=0\" always;\n\n    add_header X-Content-Type-Options\
+    \ nosniff always;\n    add_header X-Frame-Options SAMEORIGIN always;\n    add_header\
+    \ Referrer-Policy strict-origin-when-cross-origin always;\n    add_header Permissions-Policy\
+    \ \"geolocation=(), microphone=(), camera=()\" always;\n\n    # ── Health-check\
+    \ (always HTTP, no redirect) ──────────────────────\n    location = /healthz {\n\
+    \        access_log off;\n        add_header Content-Type text/plain;\n      \
+    \  return 200 'ok';\n    }\n\n    # ── Setup / Admin redirects ──────────────────────────────────────\n\
+    \    location = /setup {\n        return 302 /admin/setup;\n    }\n\n    location\
+    \ = /admin {\n        return 302 /admin/;\n    }\n\n    # ── Admin web frontend\
+    \ ───────────────────────────────────────────\n    location /admin/ {\n      \
+    \  set $admin_web_up admin-web.mogo.svc.cluster.local;\n        rewrite ^/admin/(.*)$ /$1 break;\n  \
+    \      proxy_pass http://$admin_web_up;\n        proxy_http_version 1.1;\n   \
+    \     proxy_set_header Host $http_host;\n        proxy_set_header X-Forwarded-Host\
+    \ $http_host;\n        proxy_set_header X-Forwarded-Proto $scheme;\n        proxy_set_header\
+    \ X-Forwarded-For $proxy_add_x_forwarded_for;\n    }\n\n    # ── Admin API ────────────────────────────────────────────────────\n\
+    \    location /admin-api/ {\n        set $admin_api_up admin-api.mogo.svc.cluster.local:8100;\n     \
+    \   if ($mogo_canary_force = \"1\") { set $admin_api_up admin-api-canary:8100;\
+    \ }\n        if ($mogo_canary_route = \"canary\") { set $admin_api_up admin-api-canary:8100;\
+    \ }\n        rewrite ^/admin-api/(.*)$ /$1 break;\n        proxy_pass http://$admin_api_up;\n\
+    \        proxy_http_version 1.1;\n        proxy_set_header Host $http_host;\n\
+    \        proxy_set_header X-Forwarded-Host $http_host;\n        proxy_set_header\
+    \ X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n\
+    \        proxy_set_header X-Forwarded-Proto $scheme;\n        # 反代前缀：admin-api\
+    \ 的 LegacyApiRedirectMiddleware 用它把 301 的 Location\n        # 拼回 /admin-api/api/v1/...，否则浏览器跟随后落到\
+    \ location /api/（chat-api）→ 404。\n        proxy_set_header X-Forwarded-Prefix\
+    \ /admin-api;\n        proxy_read_timeout 600s;\n        proxy_send_timeout 600s;\n\
+    \        proxy_buffering off;\n    }\n\n    # ── Chat API (Agent runtime) ─────────────────────────────────────\n\
+    \    location /askai-api/ {\n        set $chat_api_up chat-api.mogo.svc.cluster.local:8000;\n       \
+    \ if ($mogo_canary_force = \"1\") { set $chat_api_up chat-api-canary:8000; }\n\
+    \        if ($mogo_canary_route = \"canary\") { set $chat_api_up chat-api-canary:8000;\
+    \ }\n        rewrite ^/askai-api/(.*)$ /$1 break;\n        proxy_pass http://$chat_api_up;\n\
+    \        proxy_http_version 1.1;\n        proxy_set_header Host $http_host;\n\
+    \        proxy_set_header X-Forwarded-Host $http_host;\n        proxy_set_header\
+    \ X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n\
+    \        proxy_set_header X-Forwarded-Proto $scheme;\n        # 同上：让 chat-api\
+    \ 的旧路径 301 带 /askai-api 前缀，不依赖「恰好也能通」。\n        proxy_set_header X-Forwarded-Prefix\
+    \ /askai-api;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header\
+    \ Connection $connection_upgrade;\n        proxy_read_timeout 600s;\n        proxy_send_timeout\
+    \ 600s;\n        proxy_buffering off;\n    }\n\n    # ── Public API ───────────────────────────────────────────────────\n\
+    \    location /api/ {\n        set $chat_api_up chat-api.mogo.svc.cluster.local:8000;\n        if ($mogo_canary_force\
+    \ = \"1\") { set $chat_api_up chat-api-canary:8000; }\n        if ($mogo_canary_route\
+    \ = \"canary\") { set $chat_api_up chat-api-canary:8000; }\n        proxy_pass\
+    \ http://$chat_api_up;\n        proxy_http_version 1.1;\n        proxy_set_header\
+    \ Host $http_host;\n        proxy_set_header X-Forwarded-Host $http_host;\n  \
+    \      proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For\
+    \ $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n\
+    \        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection\
+    \ $connection_upgrade;\n        proxy_read_timeout 600s;\n        proxy_send_timeout\
+    \ 600s;\n        proxy_buffering off;\n    }\n\n    # ── DSH web frontend ────────────────────────────────────────────\n\
+    \    location /dsh-web/ {\n        set $dsh_up dsh-runtime-host.mogo.svc.cluster.local:3080;\n      \
+    \  rewrite ^/dsh-web/(.*)$ /$1 break;\n        proxy_pass http://$dsh_up;\n  \
+    \      proxy_http_version 1.1;\n        proxy_set_header Host $http_host;\n  \
+    \      proxy_set_header X-Forwarded-Host $http_host;\n        proxy_set_header\
+    \ X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n\
+    \        proxy_set_header X-Forwarded-Proto $scheme;\n        proxy_set_header\
+    \ Upgrade $http_upgrade;\n        proxy_set_header Connection $connection_upgrade;\n\
+    \        proxy_read_timeout 600s;\n        proxy_send_timeout 600s;\n        proxy_buffering\
+    \ off;\n    }\n\n    # ── User web frontend ────────────────────────────────────────────\n\
+    \    location / {\n        set $user_web_up user-web.mogo.svc.cluster.local;\n        proxy_pass http://$user_web_up;\n\
+    \        proxy_http_version 1.1;\n        proxy_set_header Host $http_host;\n\
+    \        proxy_set_header X-Forwarded-Host $http_host;\n        proxy_set_header\
+    \ X-Forwarded-Proto $scheme;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n\
+    \    }\n}\n"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gateway-canary
+  namespace: mogo
+data:
+  mogo-canary.conf: "# 灰度已关闭（canary.sh rollback / weight=0）：全部走 stable，\n# 仅显式携带 X-MOGO-CANARY:1\
+    \ 的请求进入 canary 副本。\nmap $http_x_mogo_canary $mogo_canary_force {\n    default\
+    \ 0;\n    \"1\"     1;\n}\nmap \"x\" $mogo_canary_route {\n    default \"stable\"\
+    ;\n}\n"

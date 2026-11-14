@@ -1,6 +1,7 @@
 """WebSocket endpoint used by the local browser agent to connect."""
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import asyncio
 import json
@@ -59,7 +60,8 @@ async def agent_connect(ws: WebSocket) -> None:
             await asyncio.sleep(20)
             try:
                 await send({"type": "ping"})
-            except Exception:
+            except Exception as exc:
+                log_print(f"[browser.ws_endpoint] silent exception caught: {exc}", flush=True)
                 return
 
     pinger = asyncio.create_task(ping_loop())
@@ -68,7 +70,8 @@ async def agent_connect(ws: WebSocket) -> None:
             raw = await ws.receive_text()
             try:
                 frame = json.loads(raw)
-            except Exception:
+            except Exception as exc:
+                log_print(f"[browser.ws_endpoint.agent_connect] suppressed {type(exc).__name__}: {exc}", flush=True)
                 continue
             if not isinstance(frame, dict):
                 continue
@@ -147,7 +150,7 @@ class RecordingCacheRequest(BaseModel):
     operation: str
     display_name: str = ""
     capability_id: str = ""
-    main_id: str = "default"
+    tenant_id: str = "default"
     included_sequences: list[int] | None = None
     variable_names: Dict[int, str] = Field(default_factory=dict)
 
@@ -187,7 +190,7 @@ async def recording_cache(body: RecordingCacheRequest):
     accepted, reason = await capture_manual_recording(
         cache=browser_workflow_cache,
         user_id=body.user_id,
-        main_id=body.main_id,
+        tenant_id=body.tenant_id,
         recording_id=body.recording_id,
         operation=body.operation,
         events=events,

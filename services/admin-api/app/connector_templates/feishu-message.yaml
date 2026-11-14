@@ -1,0 +1,57 @@
+# 连接器模板种子（041-connector-market）。凭证一律占位符 <...>，加载时校验。
+id: feishu-message
+version: 1
+category: im
+name:
+  zh: "飞书消息推送"
+  en: "Feishu Message Push"
+description:
+  zh: "通过应用身份向指定会话发送文本消息。"
+  en: "Send a text message to a chat as the app."
+auth_type: api_key
+credential_key: token
+config_template:
+  method: POST
+  url: "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id"
+params:
+  - key: receive_id
+    label:
+      zh: "会话 ID"
+      en: "会话 ID"
+    type: string
+    required: true
+    secret: false
+    in: body
+    description:
+      zh: "目标 chat_id"
+      en: "Target chat_id"
+    example: "<your-chat-id>"
+  - key: text
+    label:
+      zh: "消息内容"
+      en: "消息内容"
+    type: string
+    required: true
+    secret: false
+    in: body
+    description:
+      zh: "要发送的文本"
+      en: "Text to send"
+    example: "<hello from MOGO>"
+  - key: token
+    label:
+      zh: "访问令牌"
+      en: "访问令牌"
+    type: string
+    required: true
+    secret: true
+    in: headers
+    description:
+      zh: "tenant_access_token"
+      en: "tenant_access_token"
+    example: "<your-tenant-access-token>"
+test_hint:
+  probe:
+    zh: "向测试群发送一条文本"
+    en: "向测试群发送一条文本"
+  expected_status: 200

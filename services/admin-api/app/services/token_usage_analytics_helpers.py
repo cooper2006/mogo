@@ -23,7 +23,7 @@ def extract_user_question_from_prompt(value: str) -> str:
     return compact_request_text(text, 100)
 
 
-async def load_user_request_texts(rows: list[dict[str, Any]], main_id: str) -> dict[str, str]:
+async def load_user_request_texts(rows: list[dict[str, Any]], tenant_id: str) -> dict[str, str]:
     request_ids = []
     for row in rows:
         request_id = str(row.get("user_request_id") or "").strip()
@@ -34,7 +34,7 @@ async def load_user_request_texts(rows: list[dict[str, Any]], main_id: str) -> d
 
     db = get_db()
     assistant_rows = await db.chat_messages.find(
-        {"main_id": main_id, "message_id": {"$in": request_ids}, "message_type": {"$ne": "context_summary"}},
+        {"tenant_id": tenant_id, "message_id": {"$in": request_ids}, "message_type": {"$ne": "context_summary"}},
         {"message_id": 1, "session_id": 1, "seq": 1},
     ).to_list(length=len(request_ids))
 
@@ -47,7 +47,7 @@ async def load_user_request_texts(rows: list[dict[str, Any]], main_id: str) -> d
             continue
         user_msg = await db.chat_messages.find_one(
             {
-                "main_id": main_id,
+                "tenant_id": tenant_id,
                 "session_id": session_id,
                 "role": "user",
                 "message_type": {"$ne": "context_summary"},
@@ -62,7 +62,7 @@ async def load_user_request_texts(rows: list[dict[str, Any]], main_id: str) -> d
     return result
 
 
-async def load_execution_statuses(rows: list[dict[str, Any]], main_id: str) -> dict[str, str]:
+async def load_execution_statuses(rows: list[dict[str, Any]], tenant_id: str) -> dict[str, str]:
     request_ids = []
     for row in rows:
         request_id = str(row.get("_id") or row.get("user_request_id") or "").strip()
@@ -72,7 +72,7 @@ async def load_execution_statuses(rows: list[dict[str, Any]], main_id: str) -> d
         return {}
     db = get_db()
     docs = await db.execution_logs.find(
-        {"main_id": main_id, "message_id": {"$in": request_ids}},
+        {"tenant_id": tenant_id, "message_id": {"$in": request_ids}},
         {"message_id": 1, "status": 1},
     ).to_list(length=len(request_ids))
     return {

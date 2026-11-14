@@ -1,11 +1,94 @@
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+import os
+from pathlib import Path
+
+
+def _read_secret_file() -> dict[str, str]:
+    """Read all secret key-value pairs from exported secret files.
+
+    Docker security profiles may filter os.environ and clear /proc/1/environ,
+    so we read secrets directly from the source file as a fallback.
+    Returns a dict of {key: value} for all lines matching KEY=VALUE pattern.
+    """
+    secret_paths = [
+        Path("/tmp/mogo-secrets-full.env"),  # Full secrets (preferred)
+        Path("/tmp/mogo-secrets.env"),       # Filtered subset (legacy)
+        Path("/run/askai-secrets/runtime.env"),  # Original mount
+    ]
+    result = {}
+    for path in secret_paths:
+        try:
+            if path.exists() and path.stat().st_size > 0:
+                content = path.read_text(encoding="utf-8", errors="replace")
+                for line in content.splitlines():
+                    line = line.strip()
+                    if "=" in line and not line.startswith("#"):
+                        key, _, value = line.partition("=")
+                        if key and value:
+                            result[key] = value.strip()
+        except Exception:
+            continue
+    return result
+
+_FEATURE_FLAG_RESOLVER = None
+
+
+def _feature_flag_entrypoint():
+    """024 T054 (FR-027)：定位并加载共享 feature flag 模块。
+
+    优先常规 import（PYTHONPATH 含 services/），失败则从本文件逐级向上搜索
+    `common/feature_flags.py`；全程不抛异常，失败时回退 env-only。
+    """
+    try:
+        import common.feature_flags as _cff  # type: ignore[import-not-found]
+
+        return _cff.resolve_flag
+    except Exception:
+        pass
+    try:
+        import importlib.util
+        import sys
+        from pathlib import Path
+
+        probe = Path(__file__).resolve()
+        for ancestor in [probe, *probe.parents]:
+            candidate = ancestor / "common" / "feature_flags.py"
+            if candidate.is_file():
+                spec = importlib.util.spec_from_file_location(
+                    "mogo_feature_flags", str(candidate)
+                )
+                module = importlib.util.module_from_spec(spec)
+                sys.modules["mogo_feature_flags"] = module
+                spec.loader.exec_module(module)  # type: ignore[union-attr]
+                return module.resolve_flag
+    except Exception:
+        pass
+    return None
+
+
+def _feature_flag_value(name: str, default: bool = False) -> bool:
+    global _FEATURE_FLAG_RESOLVER
+    if _FEATURE_FLAG_RESOLVER is None:
+        _FEATURE_FLAG_RESOLVER = _feature_flag_entrypoint()
+    if _FEATURE_FLAG_RESOLVER is not None:
+        return bool(_FEATURE_FLAG_RESOLVER(name, default))
+    raw = os.environ.get("MOGO_FLAG_" + name.upper().replace("-", "_"))
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
 
 class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
-    PROJECT_NAME: str = "MOVO"
+    PROJECT_NAME: str = "MOGO"
     ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:8080"
+
+    # 024 T054 (FR-027)：统一 feature flag 读取入口（默认值来自 deploy/flags/flags.yml）
+    def feature_flag(self, name: str, default: bool = False) -> bool:
+        """读取特性开关当前值（布尔语义；未登记时返回 default）。"""
+        return bool(_feature_flag_value(name, default))
     
     # OpenAI
     # Model credentials are configured after the self-hosted control plane is
@@ -16,6 +99,10 @@ class Settings(BaseSettings):
     OPENAI_MODEL_GENERAL: str = "gpt-5.2"
     OPENAI_MODEL_CHAT: str = "gpt-5.2-chat"
     OPENAI_MODEL_CODING: str = "gpt-5.3-codex"
+    # 深度调研工具（progressive_research）专用模型别名。默认为空 = 沿用租户默认
+    # 模型实例；配置为更高配额的模型别名后，调研 LLM 调用将走同一 provider 的该
+    # 模型，以规避免费层（如 AgnesAI free tier）的 429 限流（fix：生产会话中断）。
+    OPENAI_MODEL_RESEARCH: str = ""
 
     # Azure OpenAI
     USE_AZURE: bool = False
@@ -67,7 +154,6 @@ class Settings(BaseSettings):
     KNOWLEDGE_CANDIDATES_MIN_RERANK_SCORE: float = 10.0
     DOCUMENT_PROCESSING_BASE_URL: str = "http://127.0.0.1:8200"
     DOCUMENT_PROCESSING_SERVICE_TOKEN: str = ""
-    MOVO_DOC_PROCESSING_CALLBACK_TOKEN: str = ""
     DOCUMENT_PROCESSING_TIMEOUT_SECONDS: float = 30.0
     DOCUMENT_PROCESSING_SYNC_PARSE_TIMEOUT_SECONDS: float = 180.0
     KNOWLEDGE_STORAGE_TYPE: str = "local"
@@ -83,9 +169,44 @@ class Settings(BaseSettings):
 
     # MongoDB
     MONGODB_URI: str = ""
-    MONGODB_DB: str = "gragentic"
-    END_USER_AUTH_TOKEN_TTL_SECONDS: int = 60 * 60 * 24 * 7
+    MONGODB_DB: str = "mogo_dev"
+    # ── 数据后端开关（MongoDB → PanWeiDB 迁移，见
+    # docs/mongo-to-panweidb-migration-plan.md）────────────────────────
+    # 留空 = "mongo"（默认，行为与迁移前完全一致）；"panweidb" 走 openGauss 内核
+    # / PostgreSQL 兼容线协议。规范环境变量 MOGO_DATA_BACKEND（不带服务前缀）。
+    DATA_BACKEND: str = ""
+    PANWEIDB_HOST: str = ""
+    PANWEIDB_PORT: int = 0
+    PANWEIDB_USER: str = ""
+    PANWEIDB_PASSWORD: str = ""
+    PANWEIDB_DB: str = ""
+    PANWEIDB_SCHEMA: str = ""
+    PANWEIDB_AUDIT_SCHEMA: str = ""
+    PANWEIDB_SSLMODE: str = ""
+    PANWEIDB_POOL_MIN_SIZE: int = 1
+    PANWEIDB_POOL_MAX_SIZE: int = 10
+    PANWEIDB_CONNECT_TIMEOUT: int = 5
+    # 022 FR-11（T014）：终端用户 access token TTL 上限 1h；默认值已收紧到 3600s。
+    END_USER_AUTH_TOKEN_TTL_SECONDS: int = 3600
     END_USER_AUTH_SECRET: str = ""
+    # 029：门户 SSO 接收方票据签名密钥。留空时复用 END_USER_AUTH_SECRET（见下方校验器）。
+    PORTAL_SSO_SECRET: str = ""
+    # P3：会话分享链接落地门户的基础地址（如 https://portal.example.com）。空则回退请求 Origin。
+    USER_PORTAL_BASE_URL: str = ""
+    # P3：session_live SSE 心跳间隔（秒）。证明流存活（穿透代理不静默死）。
+    SESSION_LIVE_HEARTBEAT_SECONDS: float = 15.0
+
+    @field_validator("PORTAL_SSO_SECRET")
+    @classmethod
+    def _fallback_portal_sso_secret(cls, value: str, info) -> str:
+        # 029：未单独配置 PORTAL_SSO_SECRET 时，回退到终端用户会话密钥，
+        # 保证不配置也能跑通；独立配置则可让门户票据与用户会话密钥解耦。
+        if value:
+            return value
+        return str((info.data or {}).get("END_USER_AUTH_SECRET") or "")
+    # 022 FR-18（T042）：运行环境标识。production 时强制关闭调试模式
+    # （DEBUG 视为 False）、禁止回显异常详情与堆栈。
+    APP_ENV: str = "development"
     DEBUG: bool = False
     LOG_LEVEL: str = "INFO"
     LOG_FILE_ENABLED: bool = False
@@ -95,7 +216,6 @@ class Settings(BaseSettings):
     LOG_CAPTURE_PRINTS: bool = True
     LOG_DEBUG_PAYLOADS: bool = False
     LOG_REQUEST_HEARTBEAT_SECONDS: float = 15.0
-    SESSION_LIVE_HEARTBEAT_SECONDS: float = 15.0
     LOG_SLOW_SPAN_MS: int = 10000
     LLM_SLOW_MS: int = 30000
     TOOL_SLOW_MS: int = 20000
@@ -121,10 +241,34 @@ class Settings(BaseSettings):
     DSH_MODEL_GATEWAY_SIGNING_SECRET: str = ""
     DSH_TOOL_GATEWAY_URL: str = "http://127.0.0.1:8000/internal/dsh/tools"
     DSH_RUNTIME_HOST_URL: str = "http://127.0.0.1:8101"
-    DSH_RUNTIME_STORAGE_ROOT: str = ""
+    # Comma separated list of Runtime Host instances for horizontal scaling.
+    # Left empty, the transport falls back to DSH_RUNTIME_HOST_URL. When set,
+    # every request of one kernel session sticks to one host (X-Session-Id).
+    DSH_RUNTIME_HOSTS_URL: str = ""
     DSH_RUNTIME_HOST_TOKEN: str = ""
     DSH_MODEL_GATEWAY_URL: str = "http://127.0.0.1:8000/internal/dsh/model/generate"
     DSH_RUNTIME_HTTP_TIMEOUT_SECONDS: float = 5.0
+    # Replica addresses used only by the §12.4 session ownership probe. Behind a
+    # sticky LB, DSH_RUNTIME_HOST_URL points at the LB and the transport cannot
+    # address a single replica; this list lets it ask each one "do you hold this
+    # session?". Business traffic still goes through DSH_RUNTIME_HOST_URL.
+    DSH_RUNTIME_REPLICA_URLS: str = ""
+    # Session -> Runtime Host affinity cache (§12.4 option B). It only engages
+    # when both a replica list and a Redis URL are configured; otherwise the
+    # coordinator keeps its previous resume-blind behaviour.
+    DSH_SESSION_AFFINITY_CACHE_TTL_SECONDS: float = 7200.0
+    DSH_KERNEL_REDIS_URL: str = ""
+    # Runtime creation lock (§ M2). Serialises runtime creation for one
+    # isolation key across chat-api instances and pool replicas so a tenant's
+    # kernel state cannot fork across replicas. Requires DSH_KERNEL_REDIS_URL;
+    # degrades to uncoordinated creation when it is empty or unreachable.
+    DSH_RUNTIME_DISTRIBUTED_LOCK: bool = True
+    DSH_RUNTIME_LOCK_TTL_SECONDS: float = 30.0
+    # L3 backpressure: cap on concurrent in-flight DSH turns per chat-api
+    # process. 0 disables the cap (legacy unbounded behaviour). Set when
+    # scaling chat-api so the LLM gateway's load grows sub-linearly with
+    # replica count.
+    DSH_RUNTIME_TURN_MAX_CONCURRENT: int = 32
 
     # SkillHub is a server-owned distribution source. Model-supplied URLs are
     # never fetched; only validated slugs are sent to this configured API.
@@ -136,22 +280,48 @@ class Settings(BaseSettings):
     # Upload limits. Defaults are intentionally generous to preserve existing
     # workflows while preventing accidental unbounded in-memory reads.
     MAX_UPLOAD_IMAGE_BYTES: int = 50 * 1024 * 1024
-    MAX_UPLOAD_DOCUMENT_BYTES: int = 200 * 1024 * 1024
+    # Harness thickness mode (019). "thick" = all six layers; "thin" = drop
+    # approval + quota only (identity/rbac/redaction/audit stay, enforced at the
+    # floor). Resolved per-request from the incoming payload; falls back to this
+    # setting when the caller omits it.
+    HARNESS_MODE: str = "thick"
+    # 013 IM webhook HMAC secret. Set via environment; empty disables signature
+    # verification (returns 500 until configured — intentional fail-closed).
+    IM_WEBHOOK_SECRET: str = ""
+    # 012 outbound A2A agents: server-owned JSON map of
+    # agent name -> JSON-RPC endpoint URL. Outbound calls only ever target
+    # endpoints listed here (SSRF: model/user input never selects the URL).
+    A2A_OUTBOUND_AGENTS: str = ""
     MAX_UPLOAD_SKILL_SOURCE_BYTES: int = 200 * 1024 * 1024
     MAX_UPLOAD_TEMPLATE_BYTES: int = 200 * 1024 * 1024
+    # Document upload (chat attach: pdf/doc/docx/ppt/pptx/xlsx/xlsm/csv/tsv).
+    # Was referenced by dsh_chat.upload_chat_document but missing here, which
+    # made POST /api/v1/chat/upload-document fail with 500 (AttributeError).
+    MAX_UPLOAD_DOCUMENT_BYTES: int = 200 * 1024 * 1024
+
+    # 017 memory density tiers (FR-13 / FR-16). How long a generated L0/L1
+    # summary stays fresh before a lazy re-generation (OQ-6, aligned with the
+    # 30-day decay default); and the hard cap on non-tierable content.
+    MEMORY_SUMMARY_REFRESH_DAYS: int = 30
+    MEMORY_L2_HARD_MAX_BYTES: int = 1_000_000
+    # 017 FR-8 / H-1: the startup decay sweep used to hard-code 30 days.
+    # ``cleanup`` accepts ``archive`` (default, non-destructive) or ``delete``.
+    MEMORY_DECAY_DAYS: int = 30
+    MEMORY_DECAY_CLEANUP: str = "archive"
 
     # Object storage. STORAGE_BACKEND=oss preserves the existing enterprise
     # Aliyun OSS behavior; STORAGE_BACKEND=local stores artifacts on disk and
     # serves them through /api/files.
     STORAGE_BACKEND: str = "local"
+    # 022 US3 (T027)：compose 会把 askai-storage 卷挂到 /app/storage 并显式
+    # 设置本变量；这里保留相对默认值以便 host 侧 dev/测试直接跑。
     LOCAL_STORAGE_PATH: str = "storage"
     FILE_PUBLIC_BASE_URL: str = ""
-    USER_PORTAL_BASE_URL: str = ""
     FILE_PUBLIC_PATH_PREFIX: str = "/askai-api/api/files"
     BACKEND_INTERNAL_BASE_URL: str = "http://127.0.0.1:8000"
     OSS_ACCESS_KEY_ID: str = ""
     OSS_ACCESS_KEY_SECRET: str = ""
-    OSS_BUCKET_NAME: str = "movo-artifacts"
+    OSS_BUCKET_NAME: str = "mogo-artifacts"
     OSS_ENDPOINT: str = "https://oss-cn-beijing.aliyuncs.com"
     OSS_REGION: str = "cn-beijing"
     OSS_SIGN_EXPIRE_SECONDS: int = 3600
@@ -188,11 +358,96 @@ class Settings(BaseSettings):
         intents = ["chat", "task"]
         return [intent for intent in intents if self.is_planning_intent_enabled(intent)]
 
+    # ── PanWeiDB（MongoDB → PanWeiDB 迁移）────────────────────────────
+    @property
+    def effective_data_backend(self) -> str:
+        """数据后端：``mongo``（默认）或 ``panweidb``。"""
+        raw = self.DATA_BACKEND or os.getenv("MOGO_DATA_BACKEND", "") or "mongo"
+        return raw.strip().lower()
+
+    def effective_data_backend_for(self, domain: str) -> str:
+        """按域取数据后端；未设 ``MOGO_DATA_BACKEND_<DOMAIN>`` 时回退全局。
+
+        域级覆盖用于 R3 增量灰度切流（先把某域切到 PanWeiDB，其余保持 Mongo）。
+        运行时逐域路由需双池，属 R3；这里先落地开关能力。
+        """
+        key = "MOGO_DATA_BACKEND_" + "".join(
+            c if c.isalnum() else "_" for c in domain.upper()
+        )
+        raw = os.getenv(key, "")
+        if raw:
+            return raw.strip().lower()
+        return self.effective_data_backend
+
+    @property
+    def effective_panweidb_host(self) -> str:
+        return self.PANWEIDB_HOST or os.getenv("PANWEIDB_HOST", "") or "127.0.0.1"
+
+    @property
+    def effective_panweidb_port(self) -> int:
+        raw = self.PANWEIDB_PORT or os.getenv("PANWEIDB_PORT", "")
+        try:
+            return int(raw) if raw else 5432
+        except (TypeError, ValueError):
+            return 5432
+
+    @property
+    def effective_panweidb_user(self) -> str:
+        return self.PANWEIDB_USER or os.getenv("PANWEIDB_USER", "")
+
+    @property
+    def effective_panweidb_password(self) -> str:
+        return self.PANWEIDB_PASSWORD or os.getenv("PANWEIDB_PASSWORD", "")
+
+    @property
+    def effective_panweidb_db(self) -> str:
+        return self.PANWEIDB_DB or os.getenv("PANWEIDB_DB", "") or self.MONGODB_DB
+
+    @property
+    def effective_panweidb_schema(self) -> str:
+        return self.PANWEIDB_SCHEMA or os.getenv("PANWEIDB_SCHEMA", "") or "public"
+
+    @property
+    def effective_panweidb_audit_schema(self) -> str:
+        return (
+            self.PANWEIDB_AUDIT_SCHEMA
+            or os.getenv("PANWEIDB_AUDIT_SCHEMA", "")
+            or self.effective_panweidb_schema
+        )
+
     class Config:
         env_file = ".env"
         case_sensitive = True
         extra = "ignore"
 
+# 022 FR-11（T014）：终端用户 access token 生命周期上限 1h。
+MAX_END_USER_TOKEN_TTL_SECONDS = 3600
+
+
 @lru_cache()
 def get_settings():
-    return Settings()
+    """返回进程级单例配置；首次调用即启动校验（超过 1h TTL 告警）。"""
+    s = Settings()
+    # Fix for Docker seccomp filtering environment variables
+    # Read all secrets from file as fallback when env vars are unavailable
+    if not s.ADMIN_BACKEND_SERVICE_TOKEN or not s.END_USER_AUTH_SECRET:
+        from_file = _read_secret_file()
+        if from_file:
+            if not s.ADMIN_BACKEND_SERVICE_TOKEN:
+                s.ADMIN_BACKEND_SERVICE_TOKEN = from_file.get("ADMIN_BACKEND_SERVICE_TOKEN", "")
+            if not s.END_USER_AUTH_SECRET:
+                s.END_USER_AUTH_SECRET = from_file.get("END_USER_AUTH_SECRET", "")
+    if s.END_USER_AUTH_TOKEN_TTL_SECONDS > MAX_END_USER_TOKEN_TTL_SECONDS:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "END_USER_AUTH_TOKEN_TTL_SECONDS=%ss exceeds the %ss security ceiling "
+            "(022 FR-11); tokens will outlive the 1h session guarantee",
+            s.END_USER_AUTH_TOKEN_TTL_SECONDS,
+            MAX_END_USER_TOKEN_TTL_SECONDS,
+        )
+    return s
+
+
+# 模块级单例，供 ttl_purge 等模块直接 import使用
+settings = get_settings()

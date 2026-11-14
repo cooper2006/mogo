@@ -7,17 +7,14 @@ const props = defineProps<{
 }>();
 
 const steps = computed(() => [
-  t('legacy.deployment_check'),
-  t('legacy.organization_accounts'),
-  t('legacy.chat_model'),
-  t('legacy.other_models'),
-  t('legacy.web_search'),
-  t('legacy.success'),
+  t('部署检测'),
+  t('创建平台超管'),
+  t('完成'),
 ]);
 </script>
 
 <template>
-  <nav class="progress-card" :aria-label="t('legacy.setup_progress')">
+  <nav class="progress-card" :aria-label="t('初始化进度')">
     <ol>
       <li
         v-for="(step, index) in steps"
@@ -38,17 +35,18 @@ const steps = computed(() => [
 </template>
 
 <style scoped>
+/* design-token-ignore: 首装引导页（SetupPage.vue）的品牌步骤条，刻意保持浅色不随主题变化 */
 .progress-card {
   padding: 16px 24px;
-  border: 1px solid #dfe7f5;
+  border: 1px solid var(--mg-border);
   border-radius: 18px;
-  background: rgba(255, 255, 255, .92);
+  background: color-mix(in srgb, var(--mg-bg-surface) 92%, transparent);
   box-shadow: 0 12px 36px rgba(27, 55, 116, .08);
 }
 
 ol {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -59,7 +57,7 @@ li {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #7b879f;
+  color: var(--mg-text-3);
   font-size: 12px;
   font-weight: 600;
 }
@@ -83,9 +81,9 @@ li:not(:last-child)::after {
   height: 30px;
   flex: 0 0 30px;
   place-items: center;
-  border: 1px solid #d7e0ef;
+  border: 1px solid var(--mg-border);
   border-radius: 50%;
-  background: #fff;
+  background: var(--mg-bg-surface);
 }
 
 .step-marker svg {
@@ -101,14 +99,14 @@ li:not(:last-child)::after {
   position: relative;
   z-index: 1;
   padding-right: 10px;
-  background: #fff;
+  background: var(--mg-bg-surface);
   white-space: nowrap;
 }
 
-li.active { color: #2457d6; }
-li.active .step-marker { border-color: #3568e8; background: #3568e8; color: #fff; box-shadow: 0 0 0 4px #e8efff; }
+li.active { color: var(--mg-brand); }
+li.active .step-marker { border-color: var(--mg-brand); background: var(--mg-brand); color: #fff; box-shadow: 0 0 0 4px #e8efff; }
 li.complete { color: #248466; }
-li.complete .step-marker { border-color: #b7ead8; background: #e8f8f2; color: #168461; }
+li.complete .step-marker { border-color: #b7ead8; background: #e8f8f2; color: var(--mg-success-text); }
 li.complete::after { background: #b7ead8; }
 
 @media (max-width: 540px) {

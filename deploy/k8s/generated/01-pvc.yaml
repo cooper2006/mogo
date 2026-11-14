@@ -1,0 +1,116 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: admin-static
+  namespace: mogo
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: askai-storage
+  namespace: mogo
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: deployment-secrets
+  namespace: mogo
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 100Mi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dsh-runtime-data
+  namespace: mogo
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: knowledge-storage
+  namespace: mogo
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mongo-backup
+  namespace: mogo
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mongo-data
+  namespace: mogo
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-data
+  namespace: mogo
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: weaviate-data
+  namespace: mogo
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi

@@ -1,0 +1,93 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["mogo", "business-metrics"],
+  "templating": {"list": []},
+  "time": {"from": "now-1h", "to": "now"},
+  "timepicker": {},
+  "timezone": "",
+  "title": "MOGO Business Metrics",
+  "uid": "mogo-business-metrics",
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "title": "LLM Calls Rate",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {"expr": "sum(rate(mogo_chat_llm_calls_total[1m])) by (provider)", "refId": "A", "legendFormat": "{{provider}}"}
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Tokens Used Rate",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [
+        {"expr": "sum(rate(mogo_chat_llm_tokens_used_total[1m])) by (provider, token_type)", "refId": "A", "legendFormat": "{{provider}} {{token_type}}"}
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Messages Sent",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 8},
+      "targets": [
+        {"expr": "sum(mogo_chat_messages_sent_total)", "refId": "A", "legendFormat": "total"}
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Active Sessions",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 8},
+      "targets": [
+        {"expr": "sum(mogo_chat_sessions_active)", "refId": "A", "legendFormat": "active"}
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Doc Parse Requests",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 8},
+      "targets": [
+        {"expr": "sum(mogo_doc_parse_requests_total)", "refId": "A", "legendFormat": "total"}
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Admin Sessions",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 8},
+      "targets": [
+        {"expr": "sum(mogo_admin_sessions_created_total)", "refId": "A", "legendFormat": "created"}
+      ]
+    },
+    {
+      "id": 7,
+      "title": "LLM Latency",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 12},
+      "targets": [
+        {"expr": "histogram_quantile(0.95, sum(rate(mogo_chat_llm_request_duration_seconds_bucket[1m])) by (le, provider))", "refId": "A", "legendFormat": "{{provider}} p95"}
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Doc Parse Latency",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 20},
+      "targets": [
+        {"expr": "histogram_quantile(0.95, sum(rate(mogo_doc_parse_duration_seconds_bucket[1m])) by (le, doc_type))", "refId": "A", "legendFormat": "{{doc_type}} p95"}
+      ]
+    }
+  ]
+}

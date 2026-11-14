@@ -2,7 +2,7 @@
 
 The single batch resolver shared by the participant listing and the session
 detail message projection: every ``end_users`` read is scoped by the tenant's
-``main_id`` (a cross-tenant id never resolves), every display name goes
+``tenant_id`` (a cross-tenant id never resolves), every display name goes
 through :func:`public_display_name`, and every avatar is either a safe direct
 URL under the pinned grammar or the trusted signed URL of its object path -
 the raw object path is never returned.
@@ -20,9 +20,9 @@ from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 from urllib.parse import urlsplit
 
-from bson import ObjectId
+from app.core.ids import is_valid_backend_id
 
-from app.core.tenant import add_main_scope
+from app.core.tenant import add_tenant_scope
 from app.services.member_identity import public_display_name
 from app.utils.oss_uploader import ObjectStorageClient
 
@@ -126,12 +126,9 @@ async def resolve_author_projections(
     requested = {str(value) for value in user_ids if str(value or "")}
     if not requested:
         return {}
-    candidates = [
-        ObjectId(value) if ObjectId.is_valid(value) else value
-        for value in sorted(requested)
-    ]
+    candidates = [value for value in sorted(requested) if is_valid_backend_id(value)]
     rows = db.end_users.find(
-        add_main_scope({"_id": {"$in": candidates}}, tenant_id),
+        add_tenant_scope({"_id": {"$in": candidates}}, tenant_id),
         _AUTHOR_FIELDS,
     )
     projections: dict[str, dict[str, Any]] = {}

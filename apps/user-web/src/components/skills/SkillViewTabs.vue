@@ -18,9 +18,9 @@ const emit = defineEmits<{ 'update:modelValue': [value: 'mine' | 'shared'] }>()
 </script>
 
 <style scoped>
-.view-tabs { display: flex; align-items: center; gap: 4px; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid #edf1f7; }
-.view-tabs button { position: relative; padding: 8px 14px; border: 0; border-radius: 8px; color: #667085; background: transparent; font-size: 14px; font-weight: 650; cursor: pointer; }
-.view-tabs button:hover { color: #344054; background: #f5f7fb; }
-.view-tabs button.active { color: #2459e8; background: #edf3ff; }
-.pending-badge { min-width: 18px; height: 18px; margin-left: 5px; padding: 0 5px; display: inline-grid; place-items: center; border-radius: 9px; color: #fff; background: #e5484d; font-size: 10px; line-height: 1; }
+.view-tabs { display: flex; align-items: center; gap: 4px; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--mg-border); }
+.view-tabs button { position: relative; padding: 8px 14px; border: 0; border-radius: 8px; color: var(--mg-text-2); background: transparent; font-size: 14px; font-weight: 650; cursor: pointer; }
+.view-tabs button:hover { color: var(--mg-text-1); background: var(--mg-bg-subtle); }
+.view-tabs button.active { color: var(--mg-brand); background: var(--mg-brand-soft); }
+.pending-badge { min-width: 18px; height: 18px; margin-left: 5px; padding: 0 5px; display: inline-grid; place-items: center; border-radius: 9px; color: #fff; background: var(--mg-danger-text); font-size: 10px; line-height: 1; }
 </style>

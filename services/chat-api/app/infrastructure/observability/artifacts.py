@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 import logging
@@ -19,7 +20,8 @@ def write_debug_artifact(domain: str, name: str, payload: Any, *, enabled: bool 
             from app.core.config import get_settings
 
             enabled = bool(get_settings().DEBUG_ARTIFACTS_ENABLED)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[infrastructure.observability.artifacts.write_debug_artifact] suppressed {type(exc).__name__}: {exc}", flush=True)
             enabled = True
     if not enabled:
         return ""

@@ -2,58 +2,61 @@
   <div class="presentation-settings">
     <header class="panel-header">
       <div>
-        <div class="panel-title">{{ t('legacy.ppt_generation_settings') }}</div>
-        <div class="panel-subtitle">{{ t('presentation.description') }}</div>
+        <div class="panel-title">{{ t('PPT 生成设置') }}</div>
+        <div class="panel-subtitle">{{ t('配置内容规划、整页视觉生成与可编辑重建所使用的模型。') }}</div>
       </div>
       <n-button type="primary" :loading="saving" :disabled="loading" @click="save">
-        {{ t('legacy.save_817af18') }}
+        {{ t('保存配置') }}
       </n-button>
     </header>
 
     <n-spin :show="loading">
-      <section class="settings-section">
-        <n-space justify="space-between" align="center">
-          <div class="section-title">{{ t('presentation.enable') }}</div>
-          <n-switch v-model:value="form.enabled" :disabled="!modelsReady && !form.enabled" />
-        </n-space>
-        <div class="section-help">{{ t(modelsReady ? 'presentation.help' : 'presentation.unavailable') }}</div>
-      </section>
       <section class="settings-section model-section" aria-labelledby="presentation-model-title">
-        <div id="presentation-model-title" class="section-title">{{ t('legacy.ppt_model_configuration') }}</div>
-        <n-alert type="info" :bordered="false" class="section-help">{{ t('presentation.modelHelp') }}</n-alert>
+        <div id="presentation-model-title" class="section-title">{{ t('PPT 模型配置') }}</div>
+        <div class="section-help">{{ t('PPT 生成需要内容、图片生成和视觉理解三类模型，保存时会逐项校验。') }}</div>
 
         <n-form label-placement="top" :show-feedback="false">
-          <n-form-item :label="t('legacy.content_layout_model')" required>
-            <div class="model-field">
-              <ModelCapabilitySelect
-                v-model="form.llmModelId"
-                @availability="modelAvailability.llm = $event"
-                capability="chat"
-                :placeholder="t('legacy.select_a_chat_capable_model')"
-              />
-              <div class="field-help">{{ t('presentation.contentHelp') }}</div>
-            </div>
+          <n-form-item :label="t('内容与布局模型')" required>
+            <ModelCapabilitySelect
+              v-model="form.llmModelId"
+              capability="chat"
+              :placeholder="t('选择支持对话能力的模型')"
+            />
+            <div class="field-help">{{ t('负责故事线、页面内容与可编辑布局规划。') }}</div>
           </n-form-item>
 
-          <n-form-item :label="t('legacy.image_generation_model')" required>
-            <div class="model-field">
-              <ModelCapabilitySelect
-                v-model="form.imageModelId"
-                @availability="modelAvailability.image = $event"
-                capability="image_generation"
-                :placeholder="t('legacy.select_an_image_generation_model')"
-              />
-              <div class="field-help">{{ t('presentation.imageHelp') }}</div>
-            </div>
+          <n-form-item :label="t('图片生成模型')" required>
+            <ModelCapabilitySelect
+              v-model="form.imageModelId"
+              capability="image_generation"
+              :placeholder="t('选择支持图片生成能力的模型')"
+            />
+            <div class="field-help">{{ t('负责生成每页完整视觉稿和必要的图片素材。') }}</div>
+          </n-form-item>
+
+          <n-form-item :label="t('视觉重建模型')" required>
+            <ModelCapabilitySelect
+              v-model="form.visionModelId"
+              capability="vision"
+              :placeholder="t('选择支持视觉理解能力的模型')"
+            />
+            <div class="field-help">{{ t('负责理解视觉稿并重建为可编辑的文字、图形和图片元素。') }}</div>
           </n-form-item>
         </n-form>
       </section>
+
+      <n-alert v-if="!configured" type="info" :bordered="false" class="status-alert">
+        {{ t('尚未完成企业 PPT 模型配置。请配置三类模型后再生成 PPT。') }}
+      </n-alert>
+      <n-alert v-else type="success" :bordered="false" class="status-alert">
+        {{ t('当前配置已生效。模型被禁用或删除后，PPT 生成会停止并提示管理员修复配置。') }}
+      </n-alert>
     </n-spin>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
+import { onMounted, reactive, ref } from 'vue';
 import axios from 'axios';
 import { useMessage } from 'naive-ui';
 import ModelCapabilitySelect from '@/components/models/ModelCapabilitySelect.vue';
@@ -62,33 +65,29 @@ import {
   savePresentationSettings,
 } from '@/api/presentation-settings';
 import { t } from '@/composables/i18n';
-import { localizedServerText } from '@/utils/serverText';
 
 const message = useMessage();
 const loading = ref(false);
 const saving = ref(false);
-const modelAvailability = reactive({ llm: false, image: false });
-const modelsReady = computed(() => Object.values(modelAvailability).every(Boolean));
+const configured = ref(false);
 const form = reactive({
-  enabled: false,
   llmModelId: '',
   imageModelId: '',
+  visionModelId: '',
 });
 
 function applySettings(settings: Awaited<ReturnType<typeof fetchPresentationSettings>>) {
-  form.enabled = settings.enabled;
+  configured.value = settings.configured;
   form.llmModelId = settings.llmModelId;
   form.imageModelId = settings.imageModelId;
+  form.visionModelId = settings.visionModelId;
 }
 
 function errorText(error: unknown): string {
   if (axios.isAxiosError(error)) {
-    if (String(error.response?.data?.detail || '').startsWith('Presentation model unavailable:')) {
-      return t('presentation.unavailable');
-    }
-    return localizedServerText(error.response?.data?.detail || error.message, t('legacy.failed_to_save_configuration'));
+    return String(error.response?.data?.detail || error.message || t('配置保存失败'));
   }
-  return error instanceof Error ? error.message : String(error || t('legacy.failed_to_save_configuration'));
+  return error instanceof Error ? error.message : String(error || t('配置保存失败'));
 }
 
 async function load() {
@@ -103,18 +102,18 @@ async function load() {
 }
 
 async function save() {
-  if (form.enabled && !form.llmModelId) {
-    message.error(t('legacy.select_a_content_and_layout_model'));
+  if (!form.llmModelId) {
+    message.error(t('请选择内容与布局模型'));
     return;
   }
-  if (form.enabled && !form.imageModelId) {
-    message.error(t('presentation.selectImage'));
+  if (!form.imageModelId || !form.visionModelId) {
+    message.error(t('请选择图片生成模型和视觉重建模型'));
     return;
   }
   saving.value = true;
   try {
     applySettings(await savePresentationSettings({ ...form }));
-    message.success(t('legacy.ppt_generation_settings_saved'));
+    message.success(t('PPT 生成配置已保存'));
   } catch (error) {
     message.error(errorText(error));
   } finally {
@@ -127,8 +126,7 @@ onMounted(load);
 
 <style scoped>
 .presentation-settings {
-  width: 100%;
-  min-width: 0;
+  max-width: 820px;
 }
 
 .panel-header {
@@ -137,11 +135,11 @@ onMounted(load);
   align-items: flex-start;
   gap: 20px;
   padding-bottom: 18px;
-  border-bottom: 1px solid #eef1f6;
+  border-bottom: 1px solid var(--mg-border);
 }
 
 .panel-title {
-  color: #172033;
+  color: var(--mg-text-1);
   font-size: 22px;
   font-weight: 700;
 }
@@ -149,7 +147,7 @@ onMounted(load);
 .panel-subtitle,
 .section-help,
 .field-help {
-  color: #667085;
+  color: var(--mg-text-2);
   font-size: 13px;
   line-height: 1.6;
 }
@@ -160,11 +158,11 @@ onMounted(load);
 
 .settings-section {
   padding: 24px 0;
-  border-bottom: 1px solid #eef1f6;
+  border-bottom: 1px solid var(--mg-border);
 }
 
 .section-title {
-  color: #172033;
+  color: var(--mg-text-1);
   font-size: 16px;
   font-weight: 700;
 }
@@ -174,23 +172,15 @@ onMounted(load);
 }
 
 .model-section :deep(.n-form) {
-  max-width: 760px;
+  max-width: 640px;
 }
-
-.model-field { width:100%; min-width:0; }
 
 .field-help {
   margin-top: 6px;
 }
 
-:global(html.dark) .panel-title,
-:global(html.dark) .section-title {
-  color: #f4f4f5;
-}
-
-:global(html.dark) .panel-header,
-:global(html.dark) .settings-section {
-  border-color: #263044;
+.status-alert {
+  margin-top: 20px;
 }
 
 @media (max-width: 760px) {

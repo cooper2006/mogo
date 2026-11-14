@@ -2,10 +2,10 @@ from app.dependency_sources import build_attempts, retryable_failure, source_att
 
 
 def test_china_deployment_uses_china_then_global(monkeypatch):
-    monkeypatch.setenv("MOVO_DEPENDENCY_MIRROR", "cn")
-    monkeypatch.delenv("MOVO_PIP_INDEX_URL", raising=False)
-    monkeypatch.delenv("MOVO_NPM_REGISTRY", raising=False)
-    monkeypatch.delenv("MOVO_APT_MIRROR", raising=False)
+    monkeypatch.setenv("MOGO_DEPENDENCY_MIRROR", "cn")
+    monkeypatch.delenv("MOGO_PIP_INDEX_URL", raising=False)
+    monkeypatch.delenv("MOGO_NPM_REGISTRY", raising=False)
+    monkeypatch.delenv("MOGO_APT_MIRROR", raising=False)
     attempts = source_attempts()
     assert [item.name for item in attempts] == ["cn", "global"]
     assert attempts[0].pip_index == "https://mirrors.aliyun.com/pypi/simple"
@@ -13,18 +13,18 @@ def test_china_deployment_uses_china_then_global(monkeypatch):
 
 
 def test_global_deployment_uses_global_then_china(monkeypatch):
-    monkeypatch.setenv("MOVO_DEPENDENCY_MIRROR", "global")
-    monkeypatch.delenv("MOVO_PIP_INDEX_URL", raising=False)
-    monkeypatch.delenv("MOVO_NPM_REGISTRY", raising=False)
-    monkeypatch.delenv("MOVO_APT_MIRROR", raising=False)
+    monkeypatch.setenv("MOGO_DEPENDENCY_MIRROR", "global")
+    monkeypatch.delenv("MOGO_PIP_INDEX_URL", raising=False)
+    monkeypatch.delenv("MOGO_NPM_REGISTRY", raising=False)
+    monkeypatch.delenv("MOGO_APT_MIRROR", raising=False)
     assert [item.name for item in source_attempts()] == ["global", "cn"]
 
 
 def test_custom_source_takes_precedence(monkeypatch):
-    monkeypatch.setenv("MOVO_DEPENDENCY_MIRROR", "cn")
-    monkeypatch.setenv("MOVO_PIP_INDEX_URL", "https://internal.example/simple")
-    monkeypatch.delenv("MOVO_NPM_REGISTRY", raising=False)
-    monkeypatch.delenv("MOVO_APT_MIRROR", raising=False)
+    monkeypatch.setenv("MOGO_DEPENDENCY_MIRROR", "cn")
+    monkeypatch.setenv("MOGO_PIP_INDEX_URL", "https://internal.example/simple")
+    monkeypatch.delenv("MOGO_NPM_REGISTRY", raising=False)
+    monkeypatch.delenv("MOGO_APT_MIRROR", raising=False)
     attempts = source_attempts()
     assert attempts[0].pip_index == "https://internal.example/simple"
     assert attempts[0].npm_registry == "https://registry.npmmirror.com"
@@ -39,8 +39,8 @@ def test_only_transport_failures_trigger_fallback():
 
 
 def test_extra_attempts_are_bounded_and_follow_source_order(monkeypatch):
-    monkeypatch.setenv("MOVO_DEPENDENCY_MIRROR", "cn")
-    monkeypatch.setenv("MOVO_SKILL_DEPENDENCY_RETRIES", "9")
+    monkeypatch.setenv("MOGO_DEPENDENCY_MIRROR", "cn")
+    monkeypatch.setenv("MOGO_SKILL_DEPENDENCY_RETRIES", "9")
     assert [source.name for source in build_attempts()] == ["cn", "global", "cn", "global"]
-    monkeypatch.setenv("MOVO_SKILL_DEPENDENCY_RETRIES", "0")
+    monkeypatch.setenv("MOGO_SKILL_DEPENDENCY_RETRIES", "0")
     assert [source.name for source in build_attempts()] == ["cn", "global"]

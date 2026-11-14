@@ -26,7 +26,7 @@ def content_production_input_schema() -> dict[str, Any]:
             "visual_max": {"type": "integer", "minimum": 0, "maximum": 6},
             "writing_style_ref": {
                 "type": "string",
-                "description": "Opaque writing standard reference supplied by a MOVO workflow Skill.",
+                "description": "Opaque writing standard reference supplied by a MOGO workflow Skill.",
             },
         },
         "required": ["request"],

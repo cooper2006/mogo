@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plan the smallest safe MOVO container release for a Git diff."""
+"""Plan the smallest safe MOGO container release for a Git diff."""
 
 from __future__ import annotations
 

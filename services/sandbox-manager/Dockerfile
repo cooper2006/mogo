@@ -1,11 +1,10 @@
-ARG PYTHON_BASE_IMAGE=python:3.10-slim-bookworm
-FROM ${PYTHON_BASE_IMAGE}
+FROM python:3.10-slim-bookworm
 
-ARG MOVO_PIP_INDEX_URL=
+ARG MOGO_PIP_INDEX_URL=
 WORKDIR /app
 COPY requirements.txt .
-RUN if [ -n "${MOVO_PIP_INDEX_URL}" ]; then \
-      python -m pip install --no-cache-dir --index-url "${MOVO_PIP_INDEX_URL}" -r requirements.txt; \
+RUN if [ -n "${MOGO_PIP_INDEX_URL}" ]; then \
+      python -m pip install --no-cache-dir --index-url "${MOGO_PIP_INDEX_URL}" -r requirements.txt; \
     else \
       python -m pip install --no-cache-dir -r requirements.txt; \
     fi

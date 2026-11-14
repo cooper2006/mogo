@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import logging
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from bson import ObjectId
-from bson.errors import InvalidId
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from app.core.ids import is_valid_backend_id, to_backend_id
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
@@ -33,11 +34,10 @@ from app.position_roles.constants import POSITION_ROLE_COLLECTION, USER_ROLE_COL
 from app.position_roles.service import PositionRoleService
 from app.services.employee_credentials import normalize_employee_credentials, redact_credential_payload
 from app.services.employee_tenant_identity import employee_tenant_fields
-from app.services.invite_links import request_portal_origin, resolve_portal_base
-from app.services.invite_policy import single_invite_role_ids, validate_invite_placement
-from app.services.invite_acceptances import record_invite_acceptance
+from app.services.tenant_registry import is_tenant_active
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _now() -> datetime:
@@ -56,26 +56,39 @@ def _is_login_name_duplicate(error: DuplicateKeyError) -> bool:
     return "login_name" in str(error) or "user_main_login_name_unique" in str(error)
 
 
-def _safe_oid(value: str, detail: str) -> ObjectId:
-    try:
-        return ObjectId(value)
-    except InvalidId as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail) from exc
+#: 已淘汰的 ObjectId / 24-hex 主键形态：终态明确 400，不再静默放行。
+_LEGACY_HEX24 = re.compile(r"^[0-9a-fA-F]{24}$")
 
 
-def _main_id(current_user: dict) -> str:
-    return str(current_user.get("main_id", "default"))
+def _safe_oid(value: str, detail: str) -> Any:
+    """终态主键校验：32-hex 直接返回；业务自然键原样返回；24-hex 明确拒绝。
+
+    阶段 2 之前这里在 mongo 模式用 ``ObjectId(value)`` 规范化，导致 32-hex
+    部门 / 用户 ID（含 PanWeiDB 遗留主键）抛 InvalidId → 400。全库归一后实体
+    主键只认 32-hex；组织编码 ``"13000"`` 之类的业务自然键不是实体 ID，保持
+    原样由查询自行处理。见 docs/id-unification-hex32-runbook.md。
+    """
+    text = str(value or "").strip()
+    if not text:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+    if _LEGACY_HEX24.match(text):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+    return text
+
+
+def _tenant_id(current_user: dict) -> str:
+    return str(current_user.get("tenant_id", "default"))
 
 
 def _fmt_time(value: datetime | None) -> str:
     return utc_iso(value)
 
 
-async def _write_audit(main_id: str, operator: str, action: str, target_type: str, target_id: str, payload: dict[str, Any]) -> None:
+async def _write_audit(tenant_id: str, operator: str, action: str, target_type: str, target_id: str, payload: dict[str, Any]) -> None:
     db = get_db()
     await db[AUDIT_LOG_COLLECTION].insert_one(
         {
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "operator": operator,
             "action": action,
             "target_type": target_type,
@@ -86,9 +99,9 @@ async def _write_audit(main_id: str, operator: str, action: str, target_type: st
     )
 
 
-async def _all_departments(main_id: str) -> list[dict]:
+async def _all_departments(tenant_id: str) -> list[dict]:
     db = get_db()
-    cursor = db[DEPARTMENT_COLLECTION].find({"main_id": main_id}).sort("created_at", 1)
+    cursor = db[DEPARTMENT_COLLECTION].find({"tenant_id": tenant_id}).sort("created_at", 1)
     return await cursor.to_list(length=5000)
 
 
@@ -122,7 +135,7 @@ def _build_dept_path(parent: dict | None, dept_name: str) -> tuple[list[str], li
 
 
 async def _update_descendant_paths(
-    main_id: str,
+    tenant_id: str,
     moved_id: str,
     moved_name: str,
     old_path_ids: list[str],
@@ -131,7 +144,7 @@ async def _update_descendant_paths(
     new_path_names: list[str],
 ) -> None:
     db = get_db()
-    cursor = db[DEPARTMENT_COLLECTION].find({"main_id": main_id, "path_ids": moved_id})
+    cursor = db[DEPARTMENT_COLLECTION].find({"tenant_id": tenant_id, "path_ids": moved_id})
     descendants = await cursor.to_list(length=5000)
     for doc in descendants:
         path_ids = doc.get("path_ids", [])
@@ -180,18 +193,23 @@ class UserCreatePayload(BaseModel):
 
 
 class UserUpdatePayload(BaseModel):
+    """编辑用户。自助注册 / 迁移来的历史用户可能缺手机号、邮箱或岗位角色，
+    因此除 name / primaryDepartmentId 外均允许留空；可选字段留空的语义是
+    「保持库中原值」，不会覆盖联系方式、清空角色或清除登录凭据（见 update_user）。
+    """
+
     name: str = Field(min_length=1, max_length=64)
-    mobile: str = Field(min_length=1, max_length=32)
-    email: str = Field(min_length=1, max_length=128)
+    mobile: str = Field(default="", max_length=32)
+    email: str = Field(default="", max_length=128)
     status: str = Field(default="active", pattern=r"^(active|disabled)$")
-    source: str = Field(default="local", pattern=r"^(local|dingtalk|wecom|feishu)$")
+    source: str = Field(default="local", pattern=r"^(local|self_register|dingtalk|wecom|feishu)$")
     sourceUserId: str = Field(default="", max_length=128)
     primaryDepartmentId: str = Field(min_length=1)
     departmentIds: list[str] = Field(default_factory=list)
     loginName: str = Field(default="", max_length=64)
     resetPassword: str = Field(default="", max_length=128)
-    primaryRoleId: str = Field(min_length=1)
-    roleIds: list[str] = Field(min_length=1)
+    primaryRoleId: str = Field(default="")
+    roleIds: list[str] = Field(default_factory=list)
 
 
 class UserFieldDefPayload(BaseModel):
@@ -223,12 +241,12 @@ class UserIdentityPayload(BaseModel):
 class OrgInviteCreatePayload(BaseModel):
     defaultDepartmentId: str | None = None
     expiresHours: int | None = Field(default=None, ge=1, le=24 * 30)
-    primaryRoleId: str = ""
-    roleIds: list[str] = Field(default_factory=list)
+    primaryRoleId: str = Field(min_length=1)
+    roleIds: list[str] = Field(min_length=1)
 
 
 class InviteAcceptPayload(BaseModel):
-    name: str = Field(min_length=1, max_length=64)
+    name: str = Field(default="", max_length=64)
     mobile: str = Field(default="", max_length=32)
     email: str = Field(default="", max_length=128)
     loginName: str = Field(default="", max_length=64)
@@ -237,10 +255,10 @@ class InviteAcceptPayload(BaseModel):
 
 @router.get("/departments/tree")
 async def get_department_tree(current_user: dict = Depends(get_current_admin_user)) -> list[dict[str, Any]]:
-    main_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
-    departments = await _all_departments(main_id)
-    rel_rows = await db[USER_ORG_REL_COLLECTION].find({"main_id": main_id}).to_list(length=20000)
+    departments = await _all_departments(tenant_id)
+    rel_rows = await db[USER_ORG_REL_COLLECTION].find({"tenant_id": tenant_id}).to_list(length=20000)
     dept_scope_map = {
         str(department.get("_id")): {
             str(department.get("_id")),
@@ -263,24 +281,24 @@ async def get_department_tree(current_user: dict = Depends(get_current_admin_use
 
 @router.post("/departments", status_code=status.HTTP_201_CREATED)
 async def create_department(payload: DepartmentCreatePayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    main_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     parent = None
     if payload.parentId:
-        parent = await db[DEPARTMENT_COLLECTION].find_one({"_id": _safe_oid(payload.parentId, "父部门ID无效"), "main_id": main_id})
+        parent = await db[DEPARTMENT_COLLECTION].find_one({"_id": _safe_oid(payload.parentId, "父部门ID无效"), "tenant_id": tenant_id})
         if parent is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="父部门不存在")
     path_ids, path_names = _build_dept_path(parent, payload.name)
     code_base = payload.name.strip().lower().replace(" ", "_")
     code = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in code_base).strip("_") or "dept"
     suffix = 1
-    while await db[DEPARTMENT_COLLECTION].find_one({"main_id": main_id, "code": code}):
+    while await db[DEPARTMENT_COLLECTION].find_one({"tenant_id": tenant_id, "code": code}):
         suffix += 1
         code = f"{code_base}_{suffix}"
     now = _now()
     result = await db[DEPARTMENT_COLLECTION].insert_one(
         {
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "name": payload.name.strip(),
             "code": code,
             "parent_id": str(parent["_id"]) if parent else None,
@@ -294,7 +312,7 @@ async def create_department(payload: DepartmentCreatePayload, current_user: dict
         }
     )
     created = await db[DEPARTMENT_COLLECTION].find_one({"_id": result.inserted_id})
-    await _write_audit(main_id, str(current_user.get("username", "")), "create", "department", str(result.inserted_id), payload.model_dump())
+    await _write_audit(tenant_id, str(current_user.get("username", "")), "create", "department", str(result.inserted_id), payload.model_dump())
     return {
         "id": str(created["_id"]),
         "name": created.get("name", ""),
@@ -310,15 +328,15 @@ async def update_department(
     payload: DepartmentUpdatePayload,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
-    main_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     dep_oid = _safe_oid(department_id, "部门ID无效")
-    existing = await db[DEPARTMENT_COLLECTION].find_one({"_id": dep_oid, "main_id": main_id})
+    existing = await db[DEPARTMENT_COLLECTION].find_one({"_id": dep_oid, "tenant_id": tenant_id})
     if existing is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="部门不存在")
     old_name = existing.get("name", "")
     updated = await db[DEPARTMENT_COLLECTION].find_one_and_update(
-        {"_id": dep_oid, "main_id": main_id},
+        {"_id": dep_oid, "tenant_id": tenant_id},
         {"$set": {"name": payload.name.strip(), "status": payload.status, "updated_at": _now()}},
         return_document=ReturnDocument.AFTER,
     )
@@ -326,7 +344,7 @@ async def update_department(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="部门不存在")
     if old_name != payload.name.strip():
         prefix = [*existing.get("path_names", []), old_name]
-        cursor = db[DEPARTMENT_COLLECTION].find({"main_id": main_id, "path_ids": department_id})
+        cursor = db[DEPARTMENT_COLLECTION].find({"tenant_id": tenant_id, "path_ids": department_id})
         descendants = await cursor.to_list(length=5000)
         for row in descendants:
             names = row.get("path_names", [])
@@ -336,7 +354,7 @@ async def update_department(
                     {"_id": row["_id"]},
                     {"$set": {"path_names": new_names, "updated_at": _now()}},
                 )
-    await _write_audit(main_id, str(current_user.get("username", "")), "update", "department", department_id, payload.model_dump())
+    await _write_audit(tenant_id, str(current_user.get("username", "")), "update", "department", department_id, payload.model_dump())
     return {"success": True}
 
 
@@ -346,10 +364,10 @@ async def move_department(
     payload: DepartmentMovePayload,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, bool]:
-    main_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     dep_oid = _safe_oid(department_id, "部门ID无效")
-    department = await db[DEPARTMENT_COLLECTION].find_one({"_id": dep_oid, "main_id": main_id})
+    department = await db[DEPARTMENT_COLLECTION].find_one({"_id": dep_oid, "tenant_id": tenant_id})
     if department is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="部门不存在")
 
@@ -357,7 +375,7 @@ async def move_department(
     if payload.parentId:
         if payload.parentId == department_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不能移动到自身或子部门下")
-        parent = await db[DEPARTMENT_COLLECTION].find_one({"_id": _safe_oid(payload.parentId, "父部门ID无效"), "main_id": main_id})
+        parent = await db[DEPARTMENT_COLLECTION].find_one({"_id": _safe_oid(payload.parentId, "父部门ID无效"), "tenant_id": tenant_id})
         if parent is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="父部门不存在")
         if department_id in parent.get("path_ids", []):
@@ -377,7 +395,7 @@ async def move_department(
         },
     )
     await _update_descendant_paths(
-        main_id=main_id,
+        tenant_id=tenant_id,
         moved_id=department_id,
         moved_name=department.get("name", ""),
         old_path_ids=old_path_ids,
@@ -386,7 +404,7 @@ async def move_department(
         new_path_names=new_path_names,
     )
     await _write_audit(
-        main_id,
+        tenant_id,
         str(current_user.get("username", "")),
         "move",
         "department",
@@ -398,26 +416,26 @@ async def move_department(
 
 @router.delete("/departments/{department_id}")
 async def delete_department(department_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, bool]:
-    main_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     dep_oid = _safe_oid(department_id, "部门ID无效")
-    existing = await db[DEPARTMENT_COLLECTION].find_one({"_id": dep_oid, "main_id": main_id})
+    existing = await db[DEPARTMENT_COLLECTION].find_one({"_id": dep_oid, "tenant_id": tenant_id})
     if existing is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="部门不存在")
     if existing.get("code") == "root":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="根部门不可删除")
     child_rows = await db[DEPARTMENT_COLLECTION].find(
-        {"main_id": main_id, "$or": [{"parent_id": department_id}, {"path_ids": department_id}]},
+        {"tenant_id": tenant_id, "$or": [{"parent_id": department_id}, {"path_ids": department_id}]},
         {"_id": 1},
     ).to_list(length=5000)
     child_ids = [str(row["_id"]) for row in child_rows]
     if child_ids:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="请先删除子部门")
-    rel_count = await db[USER_ORG_REL_COLLECTION].count_documents({"main_id": main_id, "org_id": {"$in": [department_id, *child_ids]}})
+    rel_count = await db[USER_ORG_REL_COLLECTION].count_documents({"tenant_id": tenant_id, "org_id": {"$in": [department_id, *child_ids]}})
     if rel_count > 0:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="该部门下仍有用户")
-    await db[DEPARTMENT_COLLECTION].delete_one({"_id": dep_oid, "main_id": main_id})
-    await _write_audit(main_id, str(current_user.get("username", "")), "delete", "department", department_id, {"name": existing.get("name", "")})
+    await db[DEPARTMENT_COLLECTION].delete_one({"_id": dep_oid, "tenant_id": tenant_id})
+    await _write_audit(tenant_id, str(current_user.get("username", "")), "delete", "department", department_id, {"name": existing.get("name", "")})
     return {"success": True}
 
 
@@ -429,9 +447,9 @@ async def list_users(
     statusFilter: str | None = Query(default=None),
     sourceFilter: str | None = Query(default=None),
 ) -> list[dict[str, Any]]:
-    main_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
-    query: dict[str, Any] = {"main_id": main_id}
+    query: dict[str, Any] = {"tenant_id": tenant_id}
     if statusFilter:
         query["status"] = statusFilter
     if sourceFilter:
@@ -442,25 +460,44 @@ async def list_users(
     if departmentId:
         dept_filter_ids = [departmentId]
         child_rows = await db[DEPARTMENT_COLLECTION].find(
-            {"main_id": main_id, "path_ids": departmentId},
+            {"tenant_id": tenant_id, "path_ids": departmentId},
             {"_id": 1},
         ).to_list(length=5000)
         dept_filter_ids.extend(str(row["_id"]) for row in child_rows)
-        rel_rows = await db[USER_ORG_REL_COLLECTION].find({"main_id": main_id, "org_id": {"$in": dept_filter_ids}}).to_list(length=20000)
+        rel_rows = await db[USER_ORG_REL_COLLECTION].find({"tenant_id": tenant_id, "org_id": {"$in": dept_filter_ids}}).to_list(length=20000)
         user_ids = [row.get("user_id") for row in rel_rows]
-        query["_id"] = {"$in": [ObjectId(uid) for uid in user_ids if ObjectId.is_valid(uid)]} if user_ids else {"$in": []}
+        valid_ids = [to_backend_id(uid) for uid in user_ids if is_valid_backend_id(uid)]
+        if valid_ids:
+            query["_id"] = {"$in": valid_ids}
+        else:
+            # 外部导入若只写 end_users、漏写 end_user_org_relations，按部门反查必然
+            # 得到空集；直接下推 _id $in [] 会让该租户全部用户从「用户管理」里消失。
+            # 仅当整个租户都没有部门关联时才退回「不加 _id 过滤」（仍受 tenant_id
+            # 约束）；若关联表另有数据，说明只是当前部门确实无人，保持 0 条，避免
+            # 把别的部门的人错误展示出来。
+            any_rel = await db[USER_ORG_REL_COLLECTION].find(
+                {"tenant_id": tenant_id}, {"_id": 1}
+            ).to_list(length=1)
+            if any_rel:
+                query["_id"] = {"$in": []}
+            else:
+                logger.warning(
+                    "directory: tenant %s has no org relations, fallback to unfiltered user list (departmentId=%s)",
+                    tenant_id,
+                    departmentId,
+                )
     users = await db[USER_COLLECTION].find(query).sort("updated_at", -1).to_list(length=5000)
-    deps = await db[DEPARTMENT_COLLECTION].find({"main_id": main_id}).to_list(length=5000)
+    deps = await db[DEPARTMENT_COLLECTION].find({"tenant_id": tenant_id}).to_list(length=5000)
     dep_map = {str(item["_id"]): item.get("name", "") for item in deps}
-    rel_rows = await db[USER_ORG_REL_COLLECTION].find({"main_id": main_id}).to_list(length=20000)
+    rel_rows = await db[USER_ORG_REL_COLLECTION].find({"tenant_id": tenant_id}).to_list(length=20000)
     primary_map: dict[str, str] = {}
     for rel in rel_rows:
         if rel.get("is_primary"):
             primary_map[str(rel.get("user_id", ""))] = str(rel.get("org_id", ""))
     user_ids = [str(row["_id"]) for row in users]
-    role_assignments = await db[USER_ROLE_COLLECTION].find({"main_id": main_id, "user_id": {"$in": user_ids}}).to_list(length=50000) if user_ids else []
+    role_assignments = await db[USER_ROLE_COLLECTION].find({"tenant_id": tenant_id, "user_id": {"$in": user_ids}}).to_list(length=50000) if user_ids else []
     role_ids = list({str(row.get("role_id") or "") for row in role_assignments if row.get("role_id")})
-    role_rows = await db[POSITION_ROLE_COLLECTION].find({"main_id": main_id, "_id": {"$in": role_ids}}).to_list(length=5000) if role_ids else []
+    role_rows = await db[POSITION_ROLE_COLLECTION].find({"tenant_id": tenant_id, "_id": {"$in": role_ids}}).to_list(length=5000) if role_ids else []
     role_name_map = {str(row.get("_id")): str(row.get("name") or "") for row in role_rows}
     roles_by_user: dict[str, list[dict[str, Any]]] = {user_id: [] for user_id in user_ids}
     for assignment in role_assignments:
@@ -473,7 +510,7 @@ async def list_users(
     custom_value_map: dict[str, dict[str, Any]] = {user_id: {} for user_id in user_ids}
     if user_ids:
         value_rows = await db[USER_FIELD_VALUE_COLLECTION].find(
-            {"main_id": main_id, "user_id": {"$in": user_ids}},
+            {"tenant_id": tenant_id, "user_id": {"$in": user_ids}},
         ).to_list(length=50000)
         for value_row in value_rows:
             user_id = str(value_row.get("user_id") or "")
@@ -501,15 +538,15 @@ async def list_users(
     ]
 
 
-async def _upsert_user_relations(main_id: str, user_id: str, primary_dept_id: str, department_ids: list[str]) -> None:
+async def _upsert_user_relations(tenant_id: str, user_id: str, primary_dept_id: str, department_ids: list[str]) -> None:
     db = get_db()
     unique_ids = list(dict.fromkeys([primary_dept_id, *department_ids]))
-    await db[USER_ORG_REL_COLLECTION].delete_many({"main_id": main_id, "user_id": user_id})
+    await db[USER_ORG_REL_COLLECTION].delete_many({"tenant_id": tenant_id, "user_id": user_id})
     if not unique_ids:
         return
     rows = [
         {
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "user_id": user_id,
             "org_id": dept_id,
             "is_primary": dept_id == primary_dept_id,
@@ -521,23 +558,27 @@ async def _upsert_user_relations(main_id: str, user_id: str, primary_dept_id: st
     await db[USER_ORG_REL_COLLECTION].insert_many(rows)
 
 
-async def _validate_departments(main_id: str, dept_ids: list[str]) -> None:
+async def _validate_departments(tenant_id: str, dept_ids: list[str]) -> None:
     db = get_db()
     for dept_id in dept_ids:
-        dep = await db[DEPARTMENT_COLLECTION].find_one({"_id": _safe_oid(dept_id, "部门ID无效"), "main_id": main_id, "status": "active"})
+        dep = await db[DEPARTMENT_COLLECTION].find_one({"_id": _safe_oid(dept_id, "部门ID无效"), "tenant_id": tenant_id, "status": "active"})
         if dep is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="存在无效部门")
 
 
 @router.post("/users", status_code=status.HTTP_201_CREATED)
 async def create_user(payload: UserCreatePayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    main_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
-    await assert_member_capacity(main_id)
+    # FR-024: an archived/disabled tenant must not gain new members. The
+    # admin's own session may predate the archive, so check live status.
+    if not await is_tenant_active(tenant_id):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="该租户已停用或已归档，无法新增成员")
+    await assert_member_capacity(tenant_id)
     department_ids = payload.departmentIds or [payload.primaryDepartmentId]
-    await _validate_departments(main_id, [payload.primaryDepartmentId, *department_ids])
+    await _validate_departments(tenant_id, [payload.primaryDepartmentId, *department_ids])
     role_service = PositionRoleService()
-    await role_service.validate_roles(main_id, payload.roleIds, payload.primaryRoleId)
+    await role_service.validate_roles(tenant_id, payload.roleIds, payload.primaryRoleId)
     mobile = payload.mobile.strip()
     email = payload.email.strip()
     if not mobile:
@@ -547,7 +588,7 @@ async def create_user(payload: UserCreatePayload, current_user: dict = Depends(g
 
     now = _now()
     try:
-        login_name, initial_password = normalize_employee_credentials(
+        login_name, initial_password = normalize_employee_credentials(  # pragma: allowlist secret
             source=payload.source,
             login_name=payload.loginName,
             password=payload.initialPassword,
@@ -556,8 +597,8 @@ async def create_user(payload: UserCreatePayload, current_user: dict = Depends(g
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     user_doc: dict[str, Any] = {
-        "main_id": main_id,
-        **employee_tenant_fields(main_id, str(current_user.get("org_name") or "")),
+        "tenant_id": tenant_id,
+        **employee_tenant_fields(tenant_id, str(current_user.get("org_name") or "")),
         "name": payload.name.strip(),
         "mobile": mobile,
         "email": email,
@@ -586,10 +627,10 @@ async def create_user(payload: UserCreatePayload, current_user: dict = Depends(g
         else:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="登录名已存在") from exc
     user_id = str(result.inserted_id)
-    await _upsert_user_relations(main_id, user_id, payload.primaryDepartmentId, department_ids)
-    await role_service.repository.replace_user_roles(main_id, user_id, payload.roleIds, payload.primaryRoleId, actor=str(current_user.get("username", "")))
+    await _upsert_user_relations(tenant_id, user_id, payload.primaryDepartmentId, department_ids)
+    await role_service.repository.replace_user_roles(tenant_id, user_id, payload.roleIds, payload.primaryRoleId, actor=str(current_user.get("username", "")))
     await role_service.repository.audit(
-        main_id,
+        tenant_id,
         str(current_user.get("username", "")),
         "assign",
         "employee_position_roles",
@@ -597,7 +638,7 @@ async def create_user(payload: UserCreatePayload, current_user: dict = Depends(g
         {"primaryRoleId": payload.primaryRoleId, "roleIds": payload.roleIds},
     )
     await _write_audit(
-        main_id,
+        tenant_id,
         str(current_user.get("username", "")),
         "create",
         "user",
@@ -609,26 +650,29 @@ async def create_user(payload: UserCreatePayload, current_user: dict = Depends(g
 
 @router.put("/users/{user_id}")
 async def update_user(user_id: str, payload: UserUpdatePayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, bool]:
-    main_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     user_oid = _safe_oid(user_id, "用户ID无效")
-    existing = await db[USER_COLLECTION].find_one({"_id": user_oid, "main_id": main_id})
+    existing = await db[USER_COLLECTION].find_one({"_id": user_oid, "tenant_id": tenant_id})
     if existing is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     department_ids = payload.departmentIds or [payload.primaryDepartmentId]
-    await _validate_departments(main_id, [payload.primaryDepartmentId, *department_ids])
-    role_service = PositionRoleService()
-    await role_service.validate_roles(main_id, payload.roleIds, payload.primaryRoleId)
+    await _validate_departments(tenant_id, [payload.primaryDepartmentId, *department_ids])
+    # 空 roleIds / primaryRoleId 表示「不改动岗位角色」：历史自助注册用户和
+    # 停用兜底请求都可能不带角色，不能把它当成「清空该用户全部角色」。
+    roles_to_apply = bool(payload.roleIds and payload.primaryRoleId)
+    if roles_to_apply:
+        role_service = PositionRoleService()
+        await role_service.validate_roles(tenant_id, payload.roleIds, payload.primaryRoleId)
     mobile = payload.mobile.strip()
     email = payload.email.strip()
-    if not mobile:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请填写手机号")
-    if not email:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请填写邮箱")
 
     try:
-        login_name, reset_password = normalize_employee_credentials(
-            source=payload.source,
+        # self_register 是本地账号（有 login_name / password_hash），不能按
+        # 「外部身份用户」处理，否则一次编辑保存就会清掉它的登录凭据。
+        credential_source = "local" if payload.source == "self_register" else payload.source
+        login_name, reset_password = normalize_employee_credentials(  # pragma: allowlist secret
+            source=credential_source,
             login_name=payload.loginName,
             password=payload.resetPassword,
             creating=False,
@@ -638,14 +682,17 @@ async def update_user(user_id: str, payload: UserUpdatePayload, current_user: di
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     update_doc: dict[str, Any] = {
         "name": payload.name.strip(),
-        "mobile": mobile,
-        "email": email,
         "status": payload.status,
         "source": payload.source,
         "source_user_id": payload.sourceUserId.strip(),
         "primary_org_id": payload.primaryDepartmentId,
         "updated_at": _now(),
     }
+    # 留空表示「保持库中原值」：历史用户可能根本没有 mobile / email 字段。
+    if mobile:
+        update_doc["mobile"] = mobile
+    if email:
+        update_doc["email"] = email
     update_ops: dict[str, Any] = {"$set": update_doc}
     if login_name:
         update_doc["login_name"] = login_name
@@ -656,28 +703,29 @@ async def update_user(user_id: str, payload: UserUpdatePayload, current_user: di
         update_doc["password_hash"] = password_hash
         update_doc["password_salt"] = password_salt
     try:
-        await db[USER_COLLECTION].update_one({"_id": user_oid, "main_id": main_id}, update_ops)
+        await db[USER_COLLECTION].update_one({"_id": user_oid, "tenant_id": tenant_id}, update_ops)
     except DuplicateKeyError as exc:
         if not login_name and _is_login_name_duplicate(exc):
             await ensure_directory_indexes()
             try:
-                await db[USER_COLLECTION].update_one({"_id": user_oid, "main_id": main_id}, update_ops)
+                await db[USER_COLLECTION].update_one({"_id": user_oid, "tenant_id": tenant_id}, update_ops)
             except DuplicateKeyError as retry_exc:
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="登录名已存在") from retry_exc
         else:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="登录名已存在") from exc
-    await _upsert_user_relations(main_id, user_id, payload.primaryDepartmentId, department_ids)
-    await role_service.repository.replace_user_roles(main_id, user_id, payload.roleIds, payload.primaryRoleId, actor=str(current_user.get("username", "")))
-    await role_service.repository.audit(
-        main_id,
-        str(current_user.get("username", "")),
-        "assign",
-        "employee_position_roles",
-        user_id,
-        {"primaryRoleId": payload.primaryRoleId, "roleIds": payload.roleIds},
-    )
+    await _upsert_user_relations(tenant_id, user_id, payload.primaryDepartmentId, department_ids)
+    if roles_to_apply:
+        await role_service.repository.replace_user_roles(tenant_id, user_id, payload.roleIds, payload.primaryRoleId, actor=str(current_user.get("username", "")))
+        await role_service.repository.audit(
+            tenant_id,
+            str(current_user.get("username", "")),
+            "assign",
+            "employee_position_roles",
+            user_id,
+            {"primaryRoleId": payload.primaryRoleId, "roleIds": payload.roleIds},
+        )
     await _write_audit(
-        main_id,
+        tenant_id,
         str(current_user.get("username", "")),
         "update",
         "user",
@@ -689,79 +737,75 @@ async def update_user(user_id: str, payload: UserUpdatePayload, current_user: di
 
 @router.delete("/users/{user_id}")
 async def delete_user(user_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, bool]:
-    main_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     user_oid = _safe_oid(user_id, "用户ID无效")
-    exists = await db[USER_COLLECTION].find_one({"_id": user_oid, "main_id": main_id})
+    exists = await db[USER_COLLECTION].find_one({"_id": user_oid, "tenant_id": tenant_id})
     if exists is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
-    await db[USER_COLLECTION].delete_one({"_id": user_oid, "main_id": main_id})
-    await db[USER_ORG_REL_COLLECTION].delete_many({"main_id": main_id, "user_id": user_id})
-    await db[USER_FIELD_VALUE_COLLECTION].delete_many({"main_id": main_id, "user_id": user_id})
-    await db[USER_IDENTITY_COLLECTION].delete_many({"main_id": main_id, "user_id": user_id})
-    await db[USER_ROLE_COLLECTION].delete_many({"main_id": main_id, "user_id": user_id})
-    await db[USER_QUOTA_POLICY_COLLECTION].delete_many({"main_id": main_id, "scope_type": "user", "scope_id": user_id})
-    await db[USER_QUOTA_OVERRIDE_COLLECTION].delete_many({"main_id": main_id, "user_id": user_id})
-    await _write_audit(main_id, str(current_user.get("username", "")), "delete", "user", user_id, {"name": exists.get("name", "")})
+    await db[USER_COLLECTION].delete_one({"_id": user_oid, "tenant_id": tenant_id})
+    await db[USER_ORG_REL_COLLECTION].delete_many({"tenant_id": tenant_id, "user_id": user_id})
+    await db[USER_FIELD_VALUE_COLLECTION].delete_many({"tenant_id": tenant_id, "user_id": user_id})
+    await db[USER_IDENTITY_COLLECTION].delete_many({"tenant_id": tenant_id, "user_id": user_id})
+    await db[USER_ROLE_COLLECTION].delete_many({"tenant_id": tenant_id, "user_id": user_id})
+    await db[USER_QUOTA_POLICY_COLLECTION].delete_many({"tenant_id": tenant_id, "scope_type": "user", "scope_id": user_id})
+    await db[USER_QUOTA_OVERRIDE_COLLECTION].delete_many({"tenant_id": tenant_id, "user_id": user_id})
+    await _write_audit(tenant_id, str(current_user.get("username", "")), "delete", "user", user_id, {"name": exists.get("name", "")})
     return {"success": True}
 
 
 @router.post("/users/{user_id}/disable")
 async def disable_user(user_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, bool]:
-    main_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     user_oid = _safe_oid(user_id, "用户ID无效")
-    exists = await db[USER_COLLECTION].find_one({"_id": user_oid, "main_id": main_id})
+    exists = await db[USER_COLLECTION].find_one({"_id": user_oid, "tenant_id": tenant_id})
     if exists is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
-    await db[USER_COLLECTION].update_one({"_id": user_oid, "main_id": main_id}, {"$set": {"status": "disabled", "updated_at": _now()}})
-    await _write_audit(main_id, str(current_user.get("username", "")), "disable", "user", user_id, {})
+    await db[USER_COLLECTION].update_one({"_id": user_oid, "tenant_id": tenant_id}, {"$set": {"status": "disabled", "updated_at": _now()}})
+    await _write_audit(tenant_id, str(current_user.get("username", "")), "disable", "user", user_id, {})
     return {"success": True}
 
 
 @router.post("/users/{user_id}/enable")
 async def enable_user(user_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, bool]:
-    main_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     user_oid = _safe_oid(user_id, "用户ID无效")
-    exists = await db[USER_COLLECTION].find_one({"_id": user_oid, "main_id": main_id})
+    exists = await db[USER_COLLECTION].find_one({"_id": user_oid, "tenant_id": tenant_id})
     if exists is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     await db[USER_COLLECTION].update_one({"_id": user_oid}, {"$set": {"status": "active", "updated_at": _now()}})
-    await _write_audit(main_id, str(current_user.get("username", "")), "enable", "user", user_id, {})
+    await _write_audit(tenant_id, str(current_user.get("username", "")), "enable", "user", user_id, {})
     return {"success": True}
 
 
 @router.post("/invites")
 async def create_org_invite_link(
     payload: OrgInviteCreatePayload,
-    request: Request,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
-    main_id = _main_id(current_user)
-    if str(main_id).strip() == "default":
+    tenant_id = _tenant_id(current_user)
+    if str(tenant_id).strip() == "default":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="当前管理员租户ID仍为 default，请先配置真实租户ID后再生成邀请链接",
         )
     db = get_db()
     role_service = PositionRoleService()
+    await role_service.validate_roles(tenant_id, payload.roleIds, payload.primaryRoleId)
     default_department_id = payload.defaultDepartmentId or None
-    role_ids = single_invite_role_ids(payload.primaryRoleId, payload.roleIds)
-    await validate_invite_placement(db, main_id, default_department_id, payload.primaryRoleId, role_ids, role_service)
     if default_department_id:
         dep = await db[DEPARTMENT_COLLECTION].find_one(
-            {"_id": _safe_oid(default_department_id, "部门ID无效"), "main_id": main_id, "status": "active"}
+            {"_id": _safe_oid(default_department_id, "部门ID无效"), "tenant_id": tenant_id, "status": "active"}
         )
         if dep is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="默认部门不存在或已停用")
     ttl_hours = payload.expiresHours or max(1, int(settings.invite_token_ttl_hours))
     expires_at = _now() + timedelta(hours=ttl_hours)
     token = secrets.token_urlsafe(32)
-    portal_base = resolve_portal_base(settings.user_portal_base_url, settings.public_base_url, request_portal_origin(request), str(request.base_url))
-    invite_url = f"{portal_base}/?invite_code={token}&register=1"
     invite_doc = {
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "user_id": None,
         "token": token,
         "purpose": "register",
@@ -772,19 +816,20 @@ async def create_org_invite_link(
         "updated_at": _now(),
         "expires_at": expires_at,
         "used_at": None,
-        "accepted_count": 0,
         "default_department_id": default_department_id,
         "primary_role_id": payload.primaryRoleId,
-        "role_ids": role_ids,
+        "role_ids": payload.roleIds,
     }
     await db[USER_INVITE_COLLECTION].insert_one(invite_doc)
+    portal_base = settings.user_portal_base_url.rstrip("/")
+    invite_url = f"{portal_base}/?invite_code={token}&register=1"
     await _write_audit(
-        main_id,
+        tenant_id,
         str(current_user.get("username", "")),
         "create",
         "org_invite",
         token,
-        {"expiresHours": ttl_hours, "defaultDepartmentId": default_department_id, "primaryRoleId": payload.primaryRoleId, "roleIds": role_ids},
+        {"expiresHours": ttl_hours, "defaultDepartmentId": default_department_id, "primaryRoleId": payload.primaryRoleId, "roleIds": payload.roleIds},
     )
     return {
         "inviteUrl": invite_url,
@@ -814,7 +859,7 @@ async def get_invite_link_detail(token: str) -> dict[str, Any]:
     raw_user_id = invite.get("user_id")
     if raw_user_id:
         user_oid = _safe_oid(str(raw_user_id), "邀请数据异常")
-        user = await db[USER_COLLECTION].find_one({"_id": user_oid, "main_id": invite.get("main_id")})
+        user = await db[USER_COLLECTION].find_one({"_id": user_oid, "tenant_id": invite.get("tenant_id")})
         if user is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="邀请用户不存在")
     return {
@@ -837,21 +882,25 @@ async def get_invite_link_detail(token: str) -> dict[str, Any]:
 async def accept_invite_link(token: str, payload: InviteAcceptPayload) -> dict[str, bool]:
     db = get_db()
     invite = await _find_active_invite(token)
-    main_id = str(invite.get("main_id", "default"))
-    if main_id == "default":
+    tenant_id = str(invite.get("tenant_id", "default"))
+    if tenant_id == "default":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="邀请所属租户ID无效，请联系管理员重新生成邀请链接")
+    # FR-024: an archived/disabled tenant must not gain new members, even via
+    # an invite link that was generated before the tenant was archived.
+    if not await is_tenant_active(tenant_id):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="该租户已停用或已归档，无法接受邀请")
     role_service = PositionRoleService()
     invite_role_ids = [str(item) for item in invite.get("role_ids") or []]
     invite_primary_role_id = str(invite.get("primary_role_id") or "")
-    await validate_invite_placement(db, main_id, invite.get("default_department_id"), invite_primary_role_id, invite_role_ids, role_service)
+    await role_service.validate_roles(tenant_id, invite_role_ids, invite_primary_role_id)
     if invite.get("user_id"):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="当前邀请策略仅支持新用户注册，请联系管理员重置密码")
     user_id = str(invite.get("user_id", "") or "")
     user: dict[str, Any] | None = None
-    user_oid: ObjectId | None = None
+    user_oid: Any | None = None
     if user_id:
         user_oid = _safe_oid(user_id, "邀请数据异常")
-        user = await db[USER_COLLECTION].find_one({"_id": user_oid, "main_id": main_id})
+        user = await db[USER_COLLECTION].find_one({"_id": user_oid, "tenant_id": tenant_id})
         if user is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="邀请用户不存在")
 
@@ -869,33 +918,31 @@ async def accept_invite_link(token: str, payload: InviteAcceptPayload) -> dict[s
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="当前用户未配置登录名")
 
     if next_login != current_login:
-        duplicate = await db[USER_COLLECTION].find_one({"main_id": main_id, "login_name": next_login})
+        duplicate = await db[USER_COLLECTION].find_one({"tenant_id": tenant_id, "login_name": next_login})
         if duplicate and str(duplicate["_id"]) != user_id:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="登录名已存在")
 
-    if not payload.name.strip():
-        raise HTTPException(status_code=400, detail="请填写姓名")
     password_hash, password_salt = hash_password(payload.password)
     if user is None:
-        await assert_member_capacity(main_id)
+        await assert_member_capacity(tenant_id)
         default_department_id = str(invite.get("default_department_id") or "")
         if default_department_id:
             dep = await db[DEPARTMENT_COLLECTION].find_one(
-                {"_id": _safe_oid(default_department_id, "默认部门ID无效"), "main_id": main_id, "status": "active"}
+                {"_id": _safe_oid(default_department_id, "默认部门ID无效"), "tenant_id": tenant_id, "status": "active"}
             )
             if dep is None:
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="默认部门不存在或已停用，请联系管理员重发邀请")
             primary_department_id = default_department_id
         else:
-            root_dep = await db[DEPARTMENT_COLLECTION].find_one({"main_id": main_id, "code": "root"})
+            root_dep = await db[DEPARTMENT_COLLECTION].find_one({"tenant_id": tenant_id, "code": "root"})
             if root_dep is None:
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="企业部门初始化异常，请联系管理员")
             primary_department_id = str(root_dep["_id"])
         now = _now()
         create_doc = {
-            "main_id": main_id,
-            **employee_tenant_fields(main_id, str(invite.get("org_name") or "")),
-            "name": payload.name.strip(),
+            "tenant_id": tenant_id,
+            **employee_tenant_fields(tenant_id, str(invite.get("org_name") or "")),
+            "name": payload.name.strip() or next_login,
             "mobile": payload.mobile.strip(),
             "email": payload.email.strip(),
             "status": "active",
@@ -913,10 +960,10 @@ async def accept_invite_link(token: str, payload: InviteAcceptPayload) -> dict[s
         except DuplicateKeyError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="登录名已存在") from exc
         user_id = str(result.inserted_id)
-        await _upsert_user_relations(main_id, user_id, primary_department_id, [primary_department_id])
+        await _upsert_user_relations(tenant_id, user_id, primary_department_id, [primary_department_id])
     else:
         await db[USER_COLLECTION].update_one(
-            {"_id": user_oid, "main_id": main_id},
+            {"_id": user_oid, "tenant_id": tenant_id},
             {
                 "$set": {
                     "name": payload.name.strip() or user.get("name", ""),
@@ -930,14 +977,13 @@ async def accept_invite_link(token: str, payload: InviteAcceptPayload) -> dict[s
                 }
             },
         )
-    await role_service.repository.replace_user_roles(main_id, user_id, invite_role_ids, invite_primary_role_id, actor="invite")
-    if await record_invite_acceptance(db, main_id=main_id, invite_id=str(invite["_id"]), user_id=user_id):
-        await db[USER_INVITE_COLLECTION].update_one(
-            {"_id": invite["_id"], "status": "active"},
-            {"$inc": {"accepted_count": 1}, "$set": {"last_accepted_at": _now(), "updated_at": _now()}},
-        )
+    await db[USER_INVITE_COLLECTION].update_one(
+        {"_id": invite["_id"]},
+        {"$set": {"status": "used", "used_at": _now(), "updated_at": _now()}},
+    )
+    await role_service.repository.replace_user_roles(tenant_id, user_id, invite_role_ids, invite_primary_role_id, actor="invite")
     await role_service.repository.audit(
-        main_id,
+        tenant_id,
         "invite",
         "assign",
         "employee_position_roles",
@@ -945,7 +991,7 @@ async def accept_invite_link(token: str, payload: InviteAcceptPayload) -> dict[s
         {"primaryRoleId": invite_primary_role_id, "roleIds": invite_role_ids},
     )
     await _write_audit(
-        main_id,
+        tenant_id,
         "invite",
         "accept",
         "user_invite",
@@ -957,9 +1003,9 @@ async def accept_invite_link(token: str, payload: InviteAcceptPayload) -> dict[s
 
 @router.get("/user-fields")
 async def list_user_fields(current_user: dict = Depends(get_current_admin_user)) -> list[dict[str, Any]]:
-    main_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
-    rows = await db[USER_FIELD_DEF_COLLECTION].find({"main_id": main_id}).sort("sort", 1).to_list(length=500)
+    rows = await db[USER_FIELD_DEF_COLLECTION].find({"tenant_id": tenant_id}).sort("sort", 1).to_list(length=500)
     return [
         {
             "id": str(row["_id"]),
@@ -980,11 +1026,11 @@ async def list_user_fields(current_user: dict = Depends(get_current_admin_user))
 
 @router.post("/user-fields", status_code=status.HTTP_201_CREATED)
 async def create_user_field(payload: UserFieldDefPayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    main_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     now = _now()
     doc = {
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "field_key": payload.fieldKey,
         "label": payload.label,
         "field_type": payload.fieldType,
@@ -1001,21 +1047,21 @@ async def create_user_field(payload: UserFieldDefPayload, current_user: dict = D
         result = await db[USER_FIELD_DEF_COLLECTION].insert_one(doc)
     except DuplicateKeyError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="字段key已存在") from exc
-    await _write_audit(main_id, str(current_user.get("username", "")), "create", "user_field", str(result.inserted_id), payload.model_dump())
+    await _write_audit(tenant_id, str(current_user.get("username", "")), "create", "user_field", str(result.inserted_id), payload.model_dump())
     return {"id": str(result.inserted_id)}
 
 
 @router.put("/user-fields/{field_id}")
 async def update_user_field(field_id: str, payload: UserFieldDefPayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, bool]:
-    main_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     field_oid = _safe_oid(field_id, "字段ID无效")
-    exists = await db[USER_FIELD_DEF_COLLECTION].find_one({"_id": field_oid, "main_id": main_id})
+    exists = await db[USER_FIELD_DEF_COLLECTION].find_one({"_id": field_oid, "tenant_id": tenant_id})
     if exists is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="字段不存在")
     try:
         await db[USER_FIELD_DEF_COLLECTION].update_one(
-            {"_id": field_oid, "main_id": main_id},
+            {"_id": field_oid, "tenant_id": tenant_id},
             {
                 "$set": {
                     "field_key": payload.fieldKey,
@@ -1033,34 +1079,34 @@ async def update_user_field(field_id: str, payload: UserFieldDefPayload, current
         )
     except DuplicateKeyError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="字段key已存在") from exc
-    await _write_audit(main_id, str(current_user.get("username", "")), "update", "user_field", field_id, payload.model_dump())
+    await _write_audit(tenant_id, str(current_user.get("username", "")), "update", "user_field", field_id, payload.model_dump())
     return {"success": True}
 
 
 @router.delete("/user-fields/{field_id}")
 async def delete_user_field(field_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, bool]:
-    main_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     field_oid = _safe_oid(field_id, "字段ID无效")
-    field = await db[USER_FIELD_DEF_COLLECTION].find_one({"_id": field_oid, "main_id": main_id})
+    field = await db[USER_FIELD_DEF_COLLECTION].find_one({"_id": field_oid, "tenant_id": tenant_id})
     if field is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="字段不存在")
-    await db[USER_FIELD_DEF_COLLECTION].delete_one({"_id": field_oid, "main_id": main_id})
-    await db[USER_FIELD_VALUE_COLLECTION].delete_many({"main_id": main_id, "field_key": field.get("field_key", "")})
-    await _write_audit(main_id, str(current_user.get("username", "")), "delete", "user_field", field_id, {})
+    await db[USER_FIELD_DEF_COLLECTION].delete_one({"_id": field_oid, "tenant_id": tenant_id})
+    await db[USER_FIELD_VALUE_COLLECTION].delete_many({"tenant_id": tenant_id, "field_key": field.get("field_key", "")})
+    await _write_audit(tenant_id, str(current_user.get("username", "")), "delete", "user_field", field_id, {})
     return {"success": True}
 
 
 @router.get("/users/{user_id}/custom-fields")
 async def get_user_custom_fields(user_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    main_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     user_oid = _safe_oid(user_id, "用户ID无效")
-    user = await db[USER_COLLECTION].find_one({"_id": user_oid, "main_id": main_id})
+    user = await db[USER_COLLECTION].find_one({"_id": user_oid, "tenant_id": tenant_id})
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
-    defs = await db[USER_FIELD_DEF_COLLECTION].find({"main_id": main_id, "enabled": True}).to_list(length=500)
-    values = await db[USER_FIELD_VALUE_COLLECTION].find({"main_id": main_id, "user_id": user_id}).to_list(length=500)
+    defs = await db[USER_FIELD_DEF_COLLECTION].find({"tenant_id": tenant_id, "enabled": True}).to_list(length=500)
+    values = await db[USER_FIELD_VALUE_COLLECTION].find({"tenant_id": tenant_id, "user_id": user_id}).to_list(length=500)
     value_map = {row.get("field_key", ""): row.get("value") for row in values}
     return {
         "fields": [
@@ -1085,35 +1131,35 @@ async def upsert_user_custom_fields(
     payload: UserCustomValuesPayload,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, bool]:
-    main_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     user_oid = _safe_oid(user_id, "用户ID无效")
-    user = await db[USER_COLLECTION].find_one({"_id": user_oid, "main_id": main_id})
+    user = await db[USER_COLLECTION].find_one({"_id": user_oid, "tenant_id": tenant_id})
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
-    defs = await db[USER_FIELD_DEF_COLLECTION].find({"main_id": main_id, "enabled": True}).to_list(length=500)
+    defs = await db[USER_FIELD_DEF_COLLECTION].find({"tenant_id": tenant_id, "enabled": True}).to_list(length=500)
     allowed_keys = {row.get("field_key", "") for row in defs}
     for key, value in payload.values.items():
         if key not in allowed_keys:
             continue
         await db[USER_FIELD_VALUE_COLLECTION].update_one(
-            {"main_id": main_id, "user_id": user_id, "field_key": key},
+            {"tenant_id": tenant_id, "user_id": user_id, "field_key": key},
             {"$set": {"value": value, "updated_at": _now()}, "$setOnInsert": {"created_at": _now()}},
             upsert=True,
         )
-    await _write_audit(main_id, str(current_user.get("username", "")), "update", "user_custom_fields", user_id, payload.model_dump())
+    await _write_audit(tenant_id, str(current_user.get("username", "")), "update", "user_custom_fields", user_id, payload.model_dump())
     return {"success": True}
 
 
 @router.get("/users/{user_id}/identities")
 async def list_user_identities(user_id: str, current_user: dict = Depends(get_current_admin_user)) -> list[dict[str, Any]]:
-    main_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     user_oid = _safe_oid(user_id, "用户ID无效")
-    user = await db[USER_COLLECTION].find_one({"_id": user_oid, "main_id": main_id})
+    user = await db[USER_COLLECTION].find_one({"_id": user_oid, "tenant_id": tenant_id})
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
-    rows = await db[USER_IDENTITY_COLLECTION].find({"main_id": main_id, "user_id": user_id}).to_list(length=100)
+    rows = await db[USER_IDENTITY_COLLECTION].find({"tenant_id": tenant_id, "user_id": user_id}).to_list(length=100)
     return [
         {
             "id": str(row["_id"]),
@@ -1136,17 +1182,17 @@ async def add_user_identity(
     payload: UserIdentityPayload,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
-    main_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     user_oid = _safe_oid(user_id, "用户ID无效")
-    user = await db[USER_COLLECTION].find_one({"_id": user_oid, "main_id": main_id})
+    user = await db[USER_COLLECTION].find_one({"_id": user_oid, "tenant_id": tenant_id})
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     now = _now()
     try:
         result = await db[USER_IDENTITY_COLLECTION].insert_one(
             {
-                "main_id": main_id,
+                "tenant_id": tenant_id,
                 "user_id": user_id,
                 "provider": payload.provider,
                 "provider_user_id": payload.providerUserId,
@@ -1162,20 +1208,20 @@ async def add_user_identity(
         )
     except DuplicateKeyError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="该外部身份已被绑定") from exc
-    await _write_audit(main_id, str(current_user.get("username", "")), "create", "user_identity", str(result.inserted_id), payload.model_dump())
+    await _write_audit(tenant_id, str(current_user.get("username", "")), "create", "user_identity", str(result.inserted_id), payload.model_dump())
     return {"id": str(result.inserted_id)}
 
 
 @router.delete("/user-identities/{identity_id}")
 async def delete_user_identity(identity_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, bool]:
-    main_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     id_oid = _safe_oid(identity_id, "身份ID无效")
-    row = await db[USER_IDENTITY_COLLECTION].find_one({"_id": id_oid, "main_id": main_id})
+    row = await db[USER_IDENTITY_COLLECTION].find_one({"_id": id_oid, "tenant_id": tenant_id})
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="身份绑定不存在")
-    await db[USER_IDENTITY_COLLECTION].delete_one({"_id": id_oid, "main_id": main_id})
-    await _write_audit(main_id, str(current_user.get("username", "")), "delete", "user_identity", identity_id, {})
+    await db[USER_IDENTITY_COLLECTION].delete_one({"_id": id_oid, "tenant_id": tenant_id})
+    await _write_audit(tenant_id, str(current_user.get("username", "")), "delete", "user_identity", identity_id, {})
     return {"success": True}
 
 
@@ -1185,13 +1231,13 @@ async def list_audit_logs(
     page: int = Query(default=1, ge=1),
     pageSize: int = Query(default=20, ge=1, le=200),
 ) -> dict[str, Any]:
-    main_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     skip = (page - 1) * pageSize
-    total = await db[AUDIT_LOG_COLLECTION].count_documents({"main_id": main_id})
+    total = await db[AUDIT_LOG_COLLECTION].count_documents({"tenant_id": tenant_id})
     rows = (
         await db[AUDIT_LOG_COLLECTION]
-        .find({"main_id": main_id})
+        .find({"tenant_id": tenant_id})
         .sort("created_at", -1)
         .skip(skip)
         .limit(pageSize)

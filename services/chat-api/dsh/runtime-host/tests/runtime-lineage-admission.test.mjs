@@ -11,7 +11,7 @@ function turnEnded(runtime, sessionId) {
   return runtime.events(sessionId, -1).some(event => event.nativeType === 'turn/end')
 }
 
-test('runtime forks a completed conversation through the stable MOVO lineage contract', async () => {
+test('runtime forks a completed conversation through the stable MOGO lineage contract', async () => {
   const root = await mkdtemp(join(tmpdir(), 'askai-runtime-lineage-admission-'))
   const runtime = new KernelRuntime({
     runtimeId: 'runtime-lineage-admission',

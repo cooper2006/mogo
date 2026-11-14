@@ -28,14 +28,14 @@ async def _verify_search() -> None:
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
     with patch.object(module.httpx, "AsyncClient", return_value=client):
-        rows = await module.DeepSeekProvider(api_key="example-secret").search("MOVO", max_results=3)
+        rows = await module.DeepSeekProvider(api_key="example-secret").search("MOGO", max_results=3)
     assert len(rows) == 1
     assert rows[0].provider == "deepseek"
     assert rows[0].snippet == "Long"
     assert rows[0].score == 2.4
     assert requests[0].url == module.DEFAULT_ENDPOINT
     assert requests[0].headers["authorization"] == "Bearer example-secret"
-    assert json.loads(requests[0].content) == {"query": "MOVO", "count": 3, "need_content": False}
+    assert json.loads(requests[0].content) == {"query": "MOGO", "count": 3, "need_content": False}
 
 
 def test_admin_default_uses_only_selected_provider_and_disabling_does_not_use_host_key() -> None:
@@ -57,7 +57,7 @@ async def _verify_legacy_single_provider() -> None:
             return None
 
         def find(self, query):
-            assert query["main_id"] == "tenant"
+            assert query["tenant_id"] == "tenant"
             assert query["enabled"] is True
             return Cursor()
 
@@ -117,7 +117,7 @@ async def _verify_routing() -> None:
     settings = SimpleNamespace(TAVILY_API_KEY="host-key", SERPER_API_KEY="", SERPAPI_API_KEY="", SERPAPI_ENABLED=False)
     with (
         patch("app.enterprise_capabilities.research.progressive.provider_router.get_settings", return_value=settings),
-        patch("app.enterprise_capabilities.research.progressive.provider_router.get_request_context", return_value={"main_id": "tenant"}),
+        patch("app.enterprise_capabilities.research.progressive.provider_router.get_request_context", return_value={"tenant_id": "tenant"}),
         patch("app.enterprise_capabilities.research.progressive.provider_router.resolve_default_external_search_provider", new=AsyncMock(return_value=configured)),
         patch("app.enterprise_capabilities.research.progressive.provider_router.has_saved_external_search_config", new=AsyncMock(return_value=True)),
     ):
@@ -126,7 +126,7 @@ async def _verify_routing() -> None:
 
     with (
         patch("app.enterprise_capabilities.research.progressive.provider_router.get_settings", return_value=settings),
-        patch("app.enterprise_capabilities.research.progressive.provider_router.get_request_context", return_value={"main_id": "tenant"}),
+        patch("app.enterprise_capabilities.research.progressive.provider_router.get_request_context", return_value={"tenant_id": "tenant"}),
         patch("app.enterprise_capabilities.research.progressive.provider_router.resolve_default_external_search_provider", new=AsyncMock(return_value=None)),
         patch("app.enterprise_capabilities.research.progressive.provider_router.has_saved_external_search_config", new=AsyncMock(return_value=True)),
     ):

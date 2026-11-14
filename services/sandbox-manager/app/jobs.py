@@ -20,16 +20,16 @@ SKILL_DIGEST = re.compile(r"^[0-9a-f]{64}$")
 class ScriptJobs:
     def __init__(self, engine: DockerEngine) -> None:
         self.engine = engine
-        self.root = Path(os.environ.get("MOVO_SANDBOX_WORKSPACE_ROOT", "/workspaces"))
-        self.volume = os.environ["MOVO_SANDBOX_WORKSPACE_VOLUME"]
-        self.image = os.environ["MOVO_SANDBOX_SCRIPT_IMAGE"]
-        self.slots = threading.BoundedSemaphore(int(os.environ.get("MOVO_SANDBOX_MAX_CONCURRENT", "2")))
-        self.project = os.environ.get("MOVO_SANDBOX_COMPOSE_PROJECT", "movo")
+        self.root = Path(os.environ.get("MOGO_SANDBOX_WORKSPACE_ROOT", "/workspaces"))
+        self.volume = os.environ["MOGO_SANDBOX_WORKSPACE_VOLUME"]
+        self.image = os.environ["MOGO_SANDBOX_SCRIPT_IMAGE"]
+        self.slots = threading.BoundedSemaphore(int(os.environ.get("MOGO_SANDBOX_MAX_CONCURRENT", "2")))
+        self.project = os.environ.get("MOGO_SANDBOX_COMPOSE_PROJECT", "mogo")
         self._state_lock = threading.Lock()
         self._running = 0
         self._pending = 0
         self._settings = SettingsStore(manager_state_root(), legacy_root=legacy_runtime_root())
-        self._max_pending = self._settings.max_pending(int(os.environ.get("MOVO_SANDBOX_MAX_PENDING", "8")))
+        self._max_pending = self._settings.max_pending(int(os.environ.get("MOGO_SANDBOX_MAX_PENDING", "8")))
         self.environments = SkillEnvironments(engine)
 
     def set_max_pending(self, value: int) -> dict:
@@ -45,7 +45,7 @@ class ScriptJobs:
             return {
                 "running": self._running,
                 "pending": self._pending,
-                "capacity": int(os.environ.get("MOVO_SANDBOX_MAX_CONCURRENT", "2")),
+                "capacity": int(os.environ.get("MOGO_SANDBOX_MAX_CONCURRENT", "2")),
                 "max_pending": self._max_pending,
             }
 
@@ -77,7 +77,7 @@ class ScriptJobs:
         proxy_id = None
         try:
             proxy_id = self.engine.find_compose_service(self.project, "sandbox-egress")
-            network_id = self.engine.create_outbound_network(f"movo-sandbox-{job_id}")
+            network_id = self.engine.create_internal_network(f"mogo-sandbox-{job_id}")
             self.engine.connect_network(network_id, proxy_id, ["sandbox-egress"])
             payload = {
                 "Image": image,
@@ -90,8 +90,8 @@ class ScriptJobs:
                     "HTTP_PROXY=http://sandbox-egress:3128", "HTTPS_PROXY=http://sandbox-egress:3128",
                     "http_proxy=http://sandbox-egress:3128", "https_proxy=http://sandbox-egress:3128",
                     "NO_PROXY=", "no_proxy=",
-                    "NODE_PATH=/opt/movo-skill-node-modules",
-                    "PATH=/opt/movo-skill-node-modules/.bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                    "NODE_PATH=/opt/mogo-skill-node-modules",
+                    "PATH=/opt/mogo-skill-node-modules/.bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
                 ],
                 "HostConfig": {
                     "NetworkMode": network_id,
@@ -111,9 +111,9 @@ class ScriptJobs:
                         "VolumeOptions": {"Subpath": f"skill-cache/{skill_digest}", "NoCopy": True},
                     }] if skill_digest else []),
                 },
-                "Labels": {"movo.role": "script-job", "movo.job": job_id},
+                "Labels": {"mogo.role": "script-job", "mogo.job": job_id},
             }
-            container_id = self.engine.create(f"movo-script-{job_id}", payload)
+            container_id = self.engine.create(f"mogo-script-{job_id}", payload)
             self.engine.start(container_id)
             try:
                 exit_code = self.engine.wait(container_id, 70)

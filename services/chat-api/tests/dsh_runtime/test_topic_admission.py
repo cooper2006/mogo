@@ -22,7 +22,7 @@ class Policies:
         self.queries.append((query, projection))
         if self.error is not None:
             raise self.error
-        return self.rows.get(query["main_id"])
+        return self.rows.get(query["tenant_id"])
 
 
 def admission(policies: Policies, audience_policy=None) -> TopicAdmissionService:
@@ -34,9 +34,9 @@ def admission(policies: Policies, audience_policy=None) -> TopicAdmissionService
 def test_missing_policy_defaults_off_and_reads_only_the_requested_tenant() -> None:
     policies = Policies({"other": {"mode": "allowlist", "rules": []}})
     assert asyncio.run(admission(policies).evaluate(
-        main_id="tenant-a", user_id="user-a", text="anything",
+        tenant_id="tenant-a", user_id="user-a", text="anything",
     )) == (True, None)
-    assert policies.queries == [({"main_id": "tenant-a"}, {"mode": 1, "rules": 1})]
+    assert policies.queries == [({"tenant_id": "tenant-a"}, {"mode": 1, "rules": 1})]
 
 
 def test_allowlist_denylist_disabled_rule_and_audience_filter() -> None:
@@ -45,15 +45,15 @@ def test_allowlist_denylist_disabled_rule_and_audience_filter() -> None:
     policies = Policies({"tenant-a": {"mode": "allowlist", "rules": [rule, disabled]}})
     gate = admission(policies)
     assert asyncio.run(gate.evaluate(
-        main_id="tenant-a", user_id="user-a", text="查询知识库",
+        tenant_id="tenant-a", user_id="user-a", text="查询知识库",
     )) == (True, "allowed")
     with pytest.raises(TopicAdmissionDenied):
-        asyncio.run(gate.require(main_id="tenant-a", user_id="user-a", text="查询机密"))
+        asyncio.run(gate.require(tenant_id="tenant-a", user_id="user-a", text="查询机密"))
 
     policies.rows["tenant-a"]["mode"] = "denylist"
     with pytest.raises(TopicAdmissionDenied):
-        asyncio.run(gate.require(main_id="tenant-a", user_id="user-a", text="查询知识库"))
-    asyncio.run(gate.require(main_id="tenant-a", user_id="user-a", text="查询机密"))
+        asyncio.run(gate.require(tenant_id="tenant-a", user_id="user-a", text="查询知识库"))
+    asyncio.run(gate.require(tenant_id="tenant-a", user_id="user-a", text="查询机密"))
 
     class Audience:
         async def filter_rules(self, *, main_id, user_id, rules):
@@ -61,28 +61,28 @@ def test_allowlist_denylist_disabled_rule_and_audience_filter() -> None:
             return []
 
     asyncio.run(admission(policies, Audience()).require(
-        main_id="tenant-a", user_id="user-b", text="查询知识库",
+        tenant_id="tenant-a", user_id="user-b", text="查询知识库",
     ))
 
 
 def test_database_failure_is_not_treated_as_an_absent_policy() -> None:
     gate = admission(Policies(error=RuntimeError("database unavailable")))
     with pytest.raises(RuntimeError, match="database unavailable"):
-        asyncio.run(gate.require(main_id="tenant-a", user_id="user-a", text="anything"))
+        asyncio.run(gate.require(tenant_id="tenant-a", user_id="user-a", text="anything"))
 
 
 def test_real_policy_read_stays_in_the_isolated_test_database(real_mongo_db) -> None:
     harness = real_mongo_db
     harness.run(harness.db.topic_admission_policies.insert_one({
-        "main_id": "tenant-a", "mode": "allowlist",
+        "tenant_id": "tenant-a", "mode": "allowlist",
         "rules": [{"id": "allowed", "enabled": True, "terms": [{"keyword": "知识库"}]}],
     }))
     gate = TopicAdmissionService(harness.db)
     assert harness.run(gate.evaluate(
-        main_id="tenant-a", user_id="user-a", text="查询知识库",
+        tenant_id="tenant-a", user_id="user-a", text="查询知识库",
     )) == (True, "allowed")
     assert harness.run(gate.evaluate(
-        main_id="tenant-b", user_id="user-a", text="查询其他内容",
+        tenant_id="tenant-b", user_id="user-a", text="查询其他内容",
     )) == (True, None)
 
 
@@ -108,7 +108,7 @@ def test_desktop_turn_uses_the_same_explicit_gate_before_starting(monkeypatch) -
     async def identity(_authorization):
         return "tenant-a", "user-a", {}
 
-    async def capability(_tenant_id, _user_id, _accept_language):
+    async def capability(_tenant_id, _user_id):
         return None
 
     class Bindings:

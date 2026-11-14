@@ -1,4 +1,4 @@
-"""Durable execution primitives for MOVO presentation generation."""
+"""Durable execution primitives for MOGO presentation generation."""
 
 from .identity import PresentationJobIdentity, build_presentation_job_identity
 from .repository import PresentationJobRepository

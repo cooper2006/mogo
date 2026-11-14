@@ -56,7 +56,7 @@ const targetUrl = computed({
 }
 
 .field-label {
-  color: #334155;
+  color: var(--mg-text-1);
   font-size: 12px;
   font-weight: 600;
 }

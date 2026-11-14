@@ -1,0 +1,58 @@
+# 024 T038 (FR-020)：灰度发布档位计划
+# 新版本发布按 `1% → 10% → 50% → 100%` 推进，每档有观察窗口与校验点。
+# `deploy/cli/canary.sh start|promote` 读取本文件决定当前档位与等待时长；
+# 校验点由 `deploy/cli/auto-rollback.sh` 在观察窗口结束时评估
+# `deploy/canary/rollback-conditions.yml`。
+
+version: 1
+canary:
+  # 目标业务服务（灰度通道只覆盖这三项，基础设施不动）
+  services:
+    - chat-api
+    - admin-api
+    - document-api
+
+  # ── 档位序列 ────────────────────────────────────────────────────────
+  # weight = 走 canary 副本的流量百分比（nginx split_clients 比例）
+  # window_minutes = 该档观察窗口时长，窗口内评估 rollback-conditions.yml
+  # checkpoints = 该档必须通过的校验点（全过才允许 promote 到下一档）
+  steps:
+    - weight: 1
+      window_minutes: 10
+      checkpoints:
+        - "error_rate_canary_lt_baseline_plus_2pct"
+        - "p95_latency_canary_le_baseline_plus_20pct"
+        - "service_healthy"
+    - weight: 10
+      window_minutes: 15
+      checkpoints:
+        - "error_rate_canary_lt_baseline_plus_2pct"
+        - "p95_latency_canary_le_baseline_plus_20pct"
+        - "5xx_rate_lt_1pct"
+        - "timeout_rate_lt_2pct"
+        - "service_healthy"
+    - weight: 50
+      window_minutes: 30
+      checkpoints:
+        - "error_rate_canary_lt_baseline_plus_2pct"
+        - "p95_latency_canary_le_baseline_plus_20pct"
+        - "5xx_rate_lt_1pct"
+        - "timeout_rate_lt_2pct"
+        - "service_healthy"
+    - weight: 100
+      window_minutes: 30
+      checkpoints:
+        - "error_rate_total_le_baseline_plus_1pct"
+        - "service_healthy"
+
+  # ── 灰度触发方式（nginx 侧）─────────────────────────────────────────
+  routing:
+    header: "X-MOGO-CANARY"     # 请求头显式指定走 canary（取值 "1"）
+    hash_key: "$remote_addr"     # 无头时按来源 IP hash 落到灰度档位
+
+  # ── 回滚兜底 ────────────────────────────────────────────────────────
+  # 观察窗口内任一 rollback-conditions.yml 触发 → 自动回滚，回滚耗时记录见
+  # `deploy/runbook/rollbacks/<date>-<version>.md`（T047 / FR-025）
+  rollback:
+    max_auto_rollbacks_per_step: 2
+    t1_rollback_seconds_max: 300

@@ -1,5 +1,6 @@
 """Collect durable business-object identity changes from browser URLs."""
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import re
 from typing import Dict, Iterable
@@ -60,7 +61,8 @@ def collect_resource_identity_evidence(
 def _resource_identifiers(raw_url: str) -> Dict[str, str]:
     try:
         parsed = urlsplit(str(raw_url or "").strip())
-    except Exception:
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.browser.engine.effect_verification.resource_identity] silent exception caught: {exc}", flush=True)
         return {}
     identifiers = _query_identifiers(parse_qsl(parsed.query, keep_blank_values=False))
     if parsed.fragment.startswith("/") and "?" in parsed.fragment:
@@ -83,7 +85,8 @@ def _same_origin(left: str, right: str) -> bool:
     try:
         left_url = urlsplit(str(left or "").strip())
         right_url = urlsplit(str(right or "").strip())
-    except Exception:
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.browser.engine.effect_verification.resource_identity] silent exception caught: {exc}", flush=True)
         return False
     return bool(
         left_url.hostname

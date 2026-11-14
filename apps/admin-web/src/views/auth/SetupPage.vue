@@ -3,11 +3,11 @@
     <div class="setup-panel">
       <header class="setup-copy">
         <div class="brand-mark">
-          <img :src="movoLogo" alt="MOVO" />
+          <img :src="mogoLogo" alt="MOGO" />
         </div>
         <div>
-          <div class="eyebrow">MOVO INITIAL SETUP</div>
-          <h1>{{ setupCompleted ? t('legacy.system_ready') : t('legacy.set_up_enterprise_service') }}</h1>
+          <div class="eyebrow">MOGO PLATFORM SETUP</div>
+          <h1>{{ setupStore.completed ? t('系统已准备就绪') : t('初始化平台服务') }}</h1>
           <p>{{ heroDescription }}</p>
         </div>
       </header>
@@ -15,68 +15,39 @@
       <SetupProgressSteps :current="currentStep" />
 
       <n-card class="setup-card" :bordered="false">
-        <SetupDeploymentStatus
-          v-if="currentStep === 1"
-          :ready="setupStore.ready"
-          :loading="setupStore.loading"
-          :services="setupStore.services"
-          @refresh="refreshStatus"
-        />
-
         <SetupCompleteStep
-          v-if="setupCompleted"
-          :urls="setupStore.urls"
-          :org-name="setupStore.orgName || accountForm.orgName"
-          :main-id="setupStore.mainId"
-          :org-total-tokens="accountForm.orgTotalTokens || 0"
-          :default-user-tokens="accountForm.defaultUserTokens || 0"
-          @copy="copyText"
+          v-if="setupStore.completed"
+          :platform-admin-username="createdUsername"
           @login="router.push('/login')"
+          @create-tenant="router.push('/platform/tenants')"
         />
 
         <template v-else>
-          <n-alert v-if="currentStep === 1 && !setupStore.ready" type="warning" :show-icon="true" class="readiness-alert">
-            {{ t('legacy.some_services_are_not_ready_refresh_later_and_complete') }}
-          </n-alert>
-          <div v-if="currentStep === 1" class="deployment-actions">
-            <n-button block type="primary" size="large" :disabled="!setupStore.ready" @click="currentStep = 2">
-              {{ t('legacy.next_organization_accounts') }}
-            </n-button>
-          </div>
-          <SetupAccountStep v-else-if="currentStep === 2" :model-value="accountForm" @next="goToModelStep" />
-          <SetupModelStep
-            v-else-if="currentStep === 3"
-            :model-value="modelForm"
-            :providers="providers"
-            :providers-loading="providersLoading"
-            :test-state="modelTestState"
-            :test-message="modelTestMessage"
+          <template v-if="currentStep === 1">
+            <SetupDeploymentStatus
+              :ready="setupStore.ready"
+              :loading="setupStore.loading"
+              :services="setupStore.services"
+              @refresh="refreshStatus"
+            />
+            <n-alert v-if="!setupStore.ready" type="warning" :show-icon="true" class="readiness-alert">
+              {{ t('核心服务（MongoDB）尚未就绪，无法继续；其余服务可稍后恢复。') }}
+            </n-alert>
+            <n-alert v-else-if="setupStore.platformAdminMissing" type="info" :show-icon="true" class="readiness-alert">
+              {{ t('尚未检测到平台超级管理员。请在此创建。') }}
+            </n-alert>
+            <div class="deployment-actions">
+              <n-button block type="primary" size="large" :disabled="!setupStore.ready" @click="currentStep = 2">
+                {{ t('下一步：创建平台超管') }}
+              </n-button>
+            </div>
+          </template>
+
+          <SetupPlatformAdminStep
+            v-else-if="currentStep === 2"
+            v-model="platformAdminForm"
             :submitting="submitting"
-            @back="currentStep = 2"
-            @test="runModelTest"
-            @next="currentStep = 4"
-          />
-          <SetupOptionalModelsStep
-            v-else-if="currentStep === 4"
-            v-model="optionalModelForms"
-            :providers="providers"
-            :providers-loading="providersLoading"
-            :submitting="submitting"
-            @back="currentStep = 3"
-            @next="goToSearchStep"
-          />
-          <SetupSearchStep
-            v-else-if="currentStep === 5"
-            :model-value="searchForm"
-            @update:model-value="updateSearchForm"
-            :providers="searchProviders"
-            :providers-loading="providersLoading"
-            :test-state="searchTestState"
-            :test-message="searchTestMessage"
-            :submitting="submitting"
-            @back="currentStep = 4"
-            @test="runSearchTest"
-            @submit="submitSetup"
+            @submit="submitPlatformAdmin"
           />
         </template>
       </n-card>
@@ -85,38 +56,18 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useMessage } from 'naive-ui';
 import axios from 'axios';
-import movoLogo from '@/assets/images/movo-logo.png';
-import {
-  fetchSetupModelProviders,
-  fetchSetupSearchProviders,
-  initializeSetup,
-  testSetupModel,
-  testSetupSearch,
-  type SetupModelProvider,
-  type SetupSearchProvider,
-} from '@/api/setup';
-import SetupAccountStep from '@/components/setup/SetupAccountStep.vue';
+import mogoLogo from '@/assets/images/mogo-logo.png';
+import { createPlatformAdmin } from '@/api/setup';
 import SetupCompleteStep from '@/components/setup/SetupCompleteStep.vue';
 import SetupDeploymentStatus from '@/components/setup/SetupDeploymentStatus.vue';
-import SetupModelStep from '@/components/setup/SetupModelStep.vue';
-import SetupOptionalModelsStep from '@/components/setup/SetupOptionalModelsStep.vue';
+import SetupPlatformAdminStep from '@/components/setup/SetupPlatformAdminStep.vue';
 import SetupProgressSteps from '@/components/setup/SetupProgressSteps.vue';
-import SetupSearchStep from '@/components/setup/SetupSearchStep.vue';
-import type {
-  ModelTestState,
-  SearchTestState,
-  SetupAccountForm,
-  SetupModelForm,
-  SetupOptionalModelForm,
-  SetupSearchForm,
-} from '@/components/setup/types';
+import type { SetupPlatformAdminForm } from '@/components/setup/types';
 import { t } from '@/composables/i18n';
-import { localizedServerText } from '@/utils/serverText';
-import { getBrowserTimezone } from '@/composables/adminTimezone';
 import { useSetupStore } from '@/stores/setup';
 
 const router = useRouter();
@@ -124,257 +75,75 @@ const message = useMessage();
 const setupStore = useSetupStore();
 const currentStep = ref(1);
 const submitting = ref(false);
-const setupCompleted = ref(false);
-const providers = ref<SetupModelProvider[]>([]);
-const searchProviders = ref<SetupSearchProvider[]>([]);
-const providersLoading = ref(false);
-const modelTestState = ref<ModelTestState>('idle');
-const modelTestMessage = ref('');
-const searchTestState = ref<SearchTestState>('idle');
-const searchTestMessage = ref('');
+const createdUsername = ref('');
 
-const accountForm = reactive<SetupAccountForm>({
-  orgName: '',
-  adminUsername: 'admin',
-  adminPassword: '',
-  adminDisplayName: t('legacy.system_administrator'),
-  employeeUsername: 'user01',
-  employeePassword: '',
-  employeeName: '',
-  orgTotalTokens: null,
-  defaultUserTokens: null,
-  quotaPeriod: 'monthly',
-  quotaTimezone: getBrowserTimezone(),
+const platformAdminForm = reactive<SetupPlatformAdminForm>({
+  username: 'platform',
+  password: '',
+  displayName: t('平台管理员'),
 });
 
-const modelForm = reactive<SetupModelForm>({
-  providerId: '',
-  displayName: '',
-  modelName: '',
-  baseUrl: '',
-  apiVersion: '',
-  apiKey: '',
-  capability: 'chat',
-});
-
-function optionalModel(capability: SetupOptionalModelForm['capability']): SetupOptionalModelForm {
-  return {
-    capability,
-    enabled: false,
-    model: {
-      providerId: '', displayName: '', modelName: '', baseUrl: '', apiVersion: '', apiKey: '', capability,
-    },
-  };
-}
-
-const optionalModelForms = ref<SetupOptionalModelForm[]>([
-  optionalModel('embedding'), optionalModel('rerank'), optionalModel('vision'), optionalModel('image'),
-]);
-
-const searchForm = reactive<SetupSearchForm>({
-  enabled: false,
-  provider: 'deepseek',
-  apiKey: '',
-  endpoint: 'https://api.deepseek.com/v1/tools/search',
-  baseUrl: '',
-  model: '',
-  query: 'MOVO enterprise AI',
-});
-
-function updateSearchForm(value: SetupSearchForm) {
-  Object.assign(searchForm, value);
-}
-
-const heroDescription = computed(() => setupCompleted.value
-  ? t('legacy.setup_is_complete_save_the_enterprise_access_addresses_below')
-  : t('legacy.employees_can_sign_in_after_deployment_accounts_and_models'));
+const heroDescription = computed(() => setupStore.completed
+  ? (setupStore.platformAdminMissing
+    ? t('平台已就绪，但尚未检测到可用的平台超级管理员。请配置环境变量后重启服务。')
+    : t('平台已准备就绪。请登录平台控制台创建第一个租户。'))
+  : t('引导流程只会创建平台超级管理员，不会创建任何租户。'));
 
 function parseError(error: unknown, fallback: string) {
-  if (axios.isAxiosError(error)) return localizedServerText(error.response?.data?.detail || error.message, fallback);
+  if (axios.isAxiosError(error)) return String(error.response?.data?.detail || error.message || fallback);
   return fallback;
 }
 
-function validateAccountForm() {
-  if (!accountForm.orgName.trim()) return t('legacy.please_enter_organization_name');
-  if (!accountForm.adminUsername.trim() || !accountForm.employeeUsername.trim()) return t('legacy.enter_both_admin_and_employee_usernames');
-  if (accountForm.adminUsername.trim() === accountForm.employeeUsername.trim()) return t('legacy.admin_and_employee_usernames_must_be_different');
-  if (accountForm.adminPassword.trim().length < 10 || accountForm.employeePassword.trim().length < 10) return t('legacy.admin_and_employee_passwords_must_be_at_least_10');
-  if (!accountForm.employeeName.trim()) return t('legacy.please_enter_initial_employee_name');
-  if (!accountForm.orgTotalTokens || accountForm.orgTotalTokens <= 0) return t('legacy.enter_the_organization_token_quota');
-  if (!accountForm.defaultUserTokens || accountForm.defaultUserTokens <= 0) return t('legacy.enter_the_default_employee_token_quota');
-  if (accountForm.defaultUserTokens > accountForm.orgTotalTokens) return t('legacy.default_employee_tokens_cannot_exceed_the_organization_total');
-  if (!accountForm.quotaTimezone.trim()) return t('legacy.enter_the_organization_time_zone');
+function validatePlatformAdmin() {
+  if (platformAdminForm.username.trim().length < 3) return t('平台管理员账号至少 3 位');
+  if (platformAdminForm.password.trim().length < 10) return t('平台管理员密码至少 10 位');
+  if (platformAdminForm.displayName.trim().length < 2) return t('请填写平台管理员显示名');
   return '';
 }
 
-function validateModelForm() {
-  if (!modelForm.providerId) return t('legacy.select_a_model_provider');
-  if (!modelForm.displayName.trim() || !modelForm.modelName.trim()) return t('legacy.enter_a_configuration_name_and_model_id');
-  if (!modelForm.baseUrl.trim()) return t('legacy.enter_the_model_service_url');
-  if (!modelForm.apiKey.trim()) return t('legacy.enter_an_api_key');
-  const provider = providers.value.find((item) => item.id === modelForm.providerId);
-  if (provider?.providerType === 'azure_openai' && !modelForm.apiVersion.trim()) return t('legacy.enter_an_api_version');
-  return '';
-}
-
-function goToModelStep() {
-  const error = validateAccountForm();
+async function submitPlatformAdmin() {
+  const error = validatePlatformAdmin();
   if (error) return void message.warning(error);
-  currentStep.value = 3;
-}
-
-async function loadProviders() {
-  providersLoading.value = true;
-  try {
-    const [modelProviders, externalSearchProviders] = await Promise.all([
-      fetchSetupModelProviders(),
-      fetchSetupSearchProviders(),
-    ]);
-    providers.value = modelProviders;
-    searchProviders.value = externalSearchProviders;
-    if (!modelForm.providerId && providers.value.length) modelForm.providerId = providers.value[0].id;
-    const firstSearchProvider = searchProviders.value[0];
-    if (firstSearchProvider) {
-      searchForm.provider = firstSearchProvider.id;
-      searchForm.endpoint = firstSearchProvider.defaultEndpoint;
-      searchForm.baseUrl = firstSearchProvider.defaultBaseUrl;
-    }
-  } catch (error) {
-    message.error(parseError(error, t('legacy.failed_to_load_model_providers')));
-  } finally {
-    providersLoading.value = false;
-  }
-}
-
-function validateSearchForm() {
-  if (!searchForm.enabled) return '';
-  if (!searchForm.provider || !searchForm.apiKey.trim()) return t('legacy.choose_a_search_provider_and_enter_its_api_key');
-  if (searchForm.provider === 'baidu_qianfan' && !searchForm.endpoint.trim()) return t('legacy.enter_the_endpoint');
-  if (searchForm.provider === 'volc_ark' && (!searchForm.baseUrl.trim() || !searchForm.model.trim())) {
-    return t('legacy.enter_the_base_url_and_bot_model');
-  }
-  return '';
-}
-
-function optionalModelsError() {
-  return optionalModelForms.value
-    .filter((item) => item.enabled)
-    .map((item) => validateSpecificModel(item.model))
-    .find(Boolean) || '';
-}
-
-function goToSearchStep() {
-  const error = optionalModelsError();
-  if (error) return void message.warning(error);
-  currentStep.value = 5;
-}
-
-async function runSearchTest() {
-  const error = validateSearchForm();
-  if (error) return void message.warning(error);
-  searchTestState.value = 'testing';
-  searchTestMessage.value = t('legacy.testing_search_connection');
-  try {
-    const result = await testSetupSearch({ ...searchForm });
-    searchTestState.value = 'success';
-    searchTestMessage.value = localizedServerText(result.message, t('legacy.search_connection_test_succeeded'));
-  } catch (error) {
-    searchTestState.value = 'failed';
-    searchTestMessage.value = parseError(error, t('legacy.search_connection_test_failed'));
-  }
-}
-
-async function runModelTest() {
-  const error = validateModelForm();
-  if (error) return void message.warning(error);
-  modelTestState.value = 'testing';
-  modelTestMessage.value = t('legacy.connecting_to_the_model_please_wait');
-  try {
-    const result = await testSetupModel({ ...modelForm });
-    modelTestState.value = result.success ? 'success' : 'failed';
-    modelTestMessage.value = result.success ? t('legacy.model_connection_tested_successfully') : localizedServerText(result.message, t('legacy.model_connection_test_failed'));
-  } catch (error) {
-    modelTestState.value = 'failed';
-    modelTestMessage.value = parseError(error, t('legacy.model_connection_test_failed'));
-  }
-}
-
-async function submitSetup() {
-  const error = validateAccountForm() || validateModelForm() || optionalModelsError() || validateSearchForm();
-  if (error || modelTestState.value !== 'success') return void message.warning(error || t('legacy.complete_the_model_connection_test_first'));
-  if (searchForm.enabled && searchTestState.value !== 'success') return void message.warning(t('legacy.complete_the_search_connection_test_first'));
   submitting.value = true;
   try {
-    const result = await initializeSetup({
-      ...accountForm,
-      orgName: accountForm.orgName.trim(), adminUsername: accountForm.adminUsername.trim(),
-      adminDisplayName: accountForm.adminDisplayName.trim(), employeeUsername: accountForm.employeeUsername.trim(),
-      employeeName: accountForm.employeeName.trim(), model: { ...modelForm },
-      orgTotalTokens: accountForm.orgTotalTokens || 0,
-      defaultUserTokens: accountForm.defaultUserTokens || 0,
-      quotaPeriod: accountForm.quotaPeriod,
-      quotaTimezone: accountForm.quotaTimezone.trim(),
-      additionalModels: optionalModelForms.value.filter((item) => item.enabled).map((item) => ({ ...item.model })),
-      externalSearch: searchForm.enabled ? {
-        provider: searchForm.provider,
-        apiKey: searchForm.apiKey,
-        endpoint: searchForm.endpoint,
-        baseUrl: searchForm.baseUrl,
-        model: searchForm.model,
-        query: searchForm.query,
-      } : null,
+    await createPlatformAdmin({
+      username: platformAdminForm.username.trim(),
+      password: platformAdminForm.password,
+      displayName: platformAdminForm.displayName.trim(),
     });
+    createdUsername.value = platformAdminForm.username.trim();
     await setupStore.ensureStatus(true);
-    setupCompleted.value = true;
-    currentStep.value = 6;
-    message.success(t('legacy.initialization_complete_tenant_id', { id: result.mainId }));
+    currentStep.value = 3;
+    message.success(t('平台超级管理员已创建'));
   } catch (error) {
-    message.error(parseError(error, t('legacy.initialization_failed')));
+    message.error(parseError(error, t('创建平台超级管理员失败')));
   } finally {
     submitting.value = false;
   }
 }
 
-async function copyText(value: string) {
-  try { await navigator.clipboard.writeText(value); message.success(t('legacy.copied')); }
-  catch { message.error(t('legacy.copy_failed_please_copy_manually')); }
-}
-
 async function refreshStatus() {
   try { await setupStore.ensureStatus(true); }
-  catch { message.error(t('legacy.failed_to_refresh_deployment_status')); }
+  catch { message.error(t('部署状态刷新失败')); }
 }
-
-function validateSpecificModel(form: SetupModelForm) {
-  if (!form.providerId || !form.displayName.trim() || !form.modelName.trim() || !form.baseUrl.trim() || !form.apiKey.trim()) {
-    return t('legacy.complete_every_enabled_optional_model_configuration');
-  }
-  const provider = providers.value.find((item) => item.id === form.providerId);
-  if (provider?.providerType === 'azure_openai' && !form.apiVersion.trim()) return t('legacy.enter_an_api_version');
-  return '';
-}
-
-watch(modelForm, () => {
-  if (modelTestState.value !== 'testing') { modelTestState.value = 'idle'; modelTestMessage.value = ''; }
-}, { deep: true });
-
-watch(searchForm, () => {
-  if (searchTestState.value !== 'testing') { searchTestState.value = 'idle'; searchTestMessage.value = ''; }
-}, { deep: true });
 
 onMounted(async () => {
   try {
     await setupStore.ensureStatus();
-    if (setupStore.completed) { message.info(t('legacy.the_system_has_been_initialized_please_sign_in_directly')); router.replace('/login'); return; }
-    await loadProviders();
+    if (setupStore.completed) {
+      // Decision 12: /setup degrades to a shortcut entry once the platform admin
+      // exists; fall back to step 2 so a missing admin can still be created.
+      currentStep.value = setupStore.platformAdminMissing ? 2 : 3;
+    }
   } catch (error) {
     console.error(error);
-    message.error(t('legacy.unable_to_fetch_initialization_status_please_check_if_the'));
+    message.error(t('无法获取初始化状态，请检查 admin-api 是否已启动'));
   }
 });
 </script>
 
 <style scoped>
+/* design-token-ignore: 首装引导页的品牌渐变是刻意保留的视觉，不随主题变化 */
 .setup-page {
   min-height: 100vh;
   padding: 36px 20px 56px;

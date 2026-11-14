@@ -7,12 +7,6 @@ export interface AdminProductMenuGroup {
   icon?: Component
 }
 
-export interface AdminProductSettingsLink {
-  path: string
-  label: { zh: string; en: string }
-  icon?: Component
-}
-
 export interface ModelAccessUiExtension {
   component: Component
   createValue: (grouped?: boolean) => unknown
@@ -48,7 +42,6 @@ export interface AdminProductUiExtension {
   knowledgeDirectoryPermissions?: Component
   knowledgeDocumentPermissions?: Component
   shortcutSettingsExtension?: Component
-  runtimeSettingsExtension?: Component
   topicRuleAudience?: TopicRuleAudienceUiExtension
   topicRuleAudienceBadge?: Component
   modelAccess?: ModelAccessUiExtension
@@ -58,5 +51,4 @@ export interface AdminProductUiExtension {
   pluginAccess?: ResourceAccessUiExtension
   menuGroups?: AdminProductMenuGroup[]
   routes?: RouteRecordRaw[]
-  settingsLinks?: AdminProductSettingsLink[]
 }

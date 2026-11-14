@@ -1,0 +1,57 @@
+# 连接器模板种子（041-connector-market）。凭证一律占位符 <...>，加载时校验。
+id: mysql-query-api
+version: 1
+category: data
+name:
+  zh: "MySQL 查询 API"
+  en: "MySQL Query API"
+description:
+  zh: "通过内部查询网关执行只读 SQL。"
+  en: "Run read-only SQL through an internal query gateway."
+auth_type: api_key
+credential_key: token
+config_template:
+  method: POST
+  url: "https://${host}/api/sql/query"
+params:
+  - key: host
+    label:
+      zh: "服务地址"
+      en: "服务地址"
+    type: string
+    required: true
+    secret: false
+    in: path
+    description:
+      zh: "查询网关域名（不含协议）"
+      en: "Query gateway host without scheme"
+    example: "<your-query-gateway-host>"
+  - key: sql
+    label:
+      zh: "SQL 语句"
+      en: "SQL 语句"
+    type: string
+    required: true
+    secret: false
+    in: body
+    description:
+      zh: "只读 SELECT 语句"
+      en: "Read-only SELECT statement"
+    example: "SELECT 1"
+  - key: token
+    label:
+      zh: "接口凭证"
+      en: "接口凭证"
+    type: string
+    required: true
+    secret: true
+    in: headers
+    description:
+      zh: "查询网关 token"
+      en: "Query gateway token"
+    example: "<your-query-token>"
+test_hint:
+  probe:
+    zh: "执行 SELECT 1"
+    en: "执行 SELECT 1"
+  expected_status: 200

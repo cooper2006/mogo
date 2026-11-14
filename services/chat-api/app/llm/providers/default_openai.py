@@ -6,6 +6,8 @@ from pydantic import BaseModel
 
 from app.llm.types import Message, Role, LLMResponse
 from app.llm.base import BaseLLMClient
+from app.llm.providers.pools import PROVIDER_DEFAULT_OPENAI, provider_http_client
+from app.infrastructure.observability.config import log_print
 from app.llm.structured_fallback import (
     build_structured_fallback_messages,
     sanitize_structured_fallback_kwargs,
@@ -16,6 +18,9 @@ LOGGER = logging.getLogger(__name__)
 
 
 class DefaultOpenAIClient(BaseLLMClient):
+    #: FR-24 / T082：本通道独占的连接池 key（子类可覆盖，如 QwenClient）。
+    POOL_PROVIDER = PROVIDER_DEFAULT_OPENAI
+
     def __init__(
         self,
         api_key: str,
@@ -29,6 +34,8 @@ class DefaultOpenAIClient(BaseLLMClient):
         self.streaming = streaming
         self.structured_output_mode = str(structured_output_mode or "native").strip().lower()
         self._last_invocation_meta: Dict[str, Any] | None = None
+        provider = self.POOL_PROVIDER
+        kwargs.setdefault("http_client", provider_http_client(provider))
         self.client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url,
@@ -62,7 +69,8 @@ class DefaultOpenAIClient(BaseLLMClient):
             return {}
         try:
             return json.loads(text)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[llm.providers.default_openai] JSON parse failed: {exc}", flush=True)
             return {"_raw": text}
 
     def _convert_tool_calls(self, tool_calls: Any) -> List[Dict[str, Any]]:
@@ -95,6 +103,11 @@ class DefaultOpenAIClient(BaseLLMClient):
 
     def _convert_messages(self, messages: List[Message]) -> List[Dict[str, Any]]:
         result = []
+        # OpenAI-compatible providers reject a tool-role message that has no
+        # tool_call_id. Callers normally supply the id; when one is missing,
+        # correlate it with the pending tool call from the preceding assistant
+        # message instead of emitting a request the provider will refuse.
+        pending_tool_call_ids: List[str] = []
         for msg in messages:
             if isinstance(msg, dict):
                 role = msg.get("role")
@@ -116,8 +129,14 @@ class DefaultOpenAIClient(BaseLLMClient):
                 normalized_calls = self._convert_tool_calls(tool_calls)
                 if normalized_calls:
                     msg_dict["tool_calls"] = normalized_calls
-            if tool_call_id:
-                msg_dict["tool_call_id"] = tool_call_id
+                    pending_tool_call_ids = [
+                        str(call.get("id") or "") for call in normalized_calls if str(call.get("id") or "")
+                    ]
+            resolved_tool_call_id = str(tool_call_id or "").strip()
+            if not resolved_tool_call_id and role_value == Role.TOOL.value:
+                resolved_tool_call_id = pending_tool_call_ids.pop(0) if pending_tool_call_ids else ""
+            if resolved_tool_call_id:
+                msg_dict["tool_call_id"] = resolved_tool_call_id
             result.append(msg_dict)
         return result
 
@@ -242,7 +261,8 @@ class DefaultOpenAIClient(BaseLLMClient):
             raw_content = str(response.message.content or "")
             try:
                 return validate_structured_text(raw_content, schema)
-            except Exception:
+            except Exception as exc:
+                log_print(f"[llm.providers.default_openai.ainvoke_structured] suppressed {type(exc).__name__}: {exc}", flush=True)
                 repair_messages = build_structured_fallback_messages(
                     [
                         Message(

@@ -30,7 +30,7 @@ def test_review_check_is_accepted_and_compiled_as_agent_guidance():
     assert "Review each item and provide a conclusion" in body
     assert "evidenceRequirement" not in body
     assert "failurePolicy" not in body
-    assert "Output of this step: 审核结果" in body
+    assert "本步骤输出：审核结果" in body
 
 
 def test_ai_wording_rewrite_keeps_selected_knowledge_document():

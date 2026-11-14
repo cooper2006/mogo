@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import { recoverWindowsStaleModuleLock } from '../src/official-host/windows-stale-module-lock.mjs'
 
 test('Windows removes only an orphaned DSH module fallback lock', async () => {
-  const home = await mkdtemp(join(tmpdir(), 'movo-stale-lock-'))
+  const home = await mkdtemp(join(tmpdir(), 'mogo-stale-lock-'))
   const lock = join(home, 'profiles', 'node_modules.lock')
   try {
     await mkdir(join(home, 'profiles'))
@@ -23,7 +23,7 @@ test('Windows removes only an orphaned DSH module fallback lock', async () => {
 })
 
 test('Windows retains a lock without a verified numeric owner', async () => {
-  const home = await mkdtemp(join(tmpdir(), 'movo-stale-lock-'))
+  const home = await mkdtemp(join(tmpdir(), 'mogo-stale-lock-'))
   const lock = join(home, 'profiles', 'node_modules.lock')
   try {
     await mkdir(join(home, 'profiles'))

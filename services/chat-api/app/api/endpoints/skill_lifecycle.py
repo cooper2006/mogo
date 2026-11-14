@@ -31,7 +31,7 @@ async def publish_skill(
 ) -> dict[str, object]:
     try:
         row, release = await service.publish(
-            main_id=principal.main_id,
+            tenant_id=principal.tenant_id,
             user_id=principal.user_id,
             skill_id=skill_id,
             version=payload.version,
@@ -39,9 +39,19 @@ async def publish_skill(
         )
     except SkillLifecycleError as exc:
         _raise(exc)
-    serialized = await user_skill_service.get_skill(principal.user_id, skill_id, main_id=principal.main_id)
+    # 004 FR-8: a publish is an auditable lifecycle event on the 001 audit stream.
+    from app.services.skill_lifecycle.audit import record_skill_event
+
+    await record_skill_event(
+        tenant_id=principal.tenant_id,
+        user_id=principal.user_id,
+        action="skill.published",
+        target=skill_id,
+        details={"release_id": str(release["_id"]), "version": str(release["version"])},
+    )
+    serialized = await user_skill_service.get_skill(principal.user_id, skill_id, tenant_id=principal.tenant_id)
     await SkillDistributionService().publish_from_skill(
-        main_id=principal.main_id,
+        tenant_id=principal.tenant_id,
         owner_user_id=principal.user_id,
         source_skill_id=skill_id,
         release_id=str(release["_id"]),
@@ -63,7 +73,7 @@ async def list_skill_releases(
 ) -> dict[str, object]:
     try:
         items = await service.list_releases(
-            main_id=principal.main_id, user_id=principal.user_id, skill_id=skill_id, limit=limit,
+            tenant_id=principal.tenant_id, user_id=principal.user_id, skill_id=skill_id, limit=limit,
         )
     except SkillLifecycleError as exc:
         _raise(exc)

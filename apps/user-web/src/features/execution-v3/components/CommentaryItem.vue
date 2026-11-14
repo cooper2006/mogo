@@ -1,19 +1,13 @@
 <script setup lang="ts">
 import type { ExecutionItemV3 } from '../domain/model'
-import AssistantMarkdown from '../../../components/chat/AssistantMarkdown.vue'
 
 defineProps<{ item: ExecutionItemV3 }>()
 </script>
 
 <template>
-  <AssistantMarkdown
-    v-if="String(item.payload?.text || '').trim()"
-    class="commentary-copy"
-    :content="String(item.payload?.text || '')"
-    compact
-  />
+  <p v-if="String(item.payload?.text || '').trim()" class="commentary-copy">{{ item.payload.text }}</p>
 </template>
 
 <style scoped>
-.commentary-copy { margin:3px 0 2px; color:#27364a; font-size:14px; line-height:1.72; overflow-wrap:anywhere; }
+.commentary-copy { margin:5px 0 8px; color: var(--mg-text-1); font-size:14px; line-height:1.72; white-space:pre-wrap; overflow-wrap:anywhere; }
 </style>

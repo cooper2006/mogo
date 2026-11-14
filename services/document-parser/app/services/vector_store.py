@@ -55,11 +55,11 @@ class WeaviateVectorStore:
             return
         body = {
             "class": self.collection,
-            "description": "MOVO knowledge RAG chunks",
+            "description": "MOGO knowledge RAG chunks",
             "vectorizer": "none",
             "vectorIndexConfig": {"distance": _weaviate_distance(self.distance)},
             "properties": [
-                {"name": "mainId", "dataType": ["text"]},
+                {"name": "tenantId", "dataType": ["text"]},
                 {"name": "knowledgeBaseId", "dataType": ["text"]},
                 {"name": "documentId", "dataType": ["text"]},
                 {"name": "chunkId", "dataType": ["text"]},
@@ -71,12 +71,18 @@ class WeaviateVectorStore:
                 {"name": "contentType", "dataType": ["text"]},
                 {"name": "sourceChunkIds", "dataType": ["text[]"]},
                 {"name": "ordinal", "dataType": ["int"]},
+                # 003 anchor channel (audit 2026-10-03): the producer writes
+                # metadata.sourceAnchor (page bbox / table context) on Mongo
+                # chunks; Weaviate now carries it as a JSON string so the
+                # consumer (citation_resolver) can read it back instead of
+                # always getting an empty anchor.
+                {"name": "anchorJson", "dataType": ["text"]},
             ],
         }
         self._request_json("POST", "/v1/schema", body)
 
-    def delete_document_chunks(self, *, main_id: str, document_id: str) -> int:
-        if not main_id or not document_id:
+    def delete_document_chunks(self, *, tenant_id: str, document_id: str) -> int:
+        if not tenant_id or not document_id:
             return 0
         schema = self._request_json("GET", f"/v1/schema/{self.collection}", allow_404=True)
         if not schema:
@@ -84,7 +90,8 @@ class WeaviateVectorStore:
         where = {
             "operator": "And",
             "operands": [
-                {"path": ["mainId"], "operator": "Equal", "valueText": main_id},
+                {"path": ["tenantId"], "operator": "Equal", "valueText": tenant_id},
+                {"path": ["tenantId"], "operator": "Equal", "valueText": tenant_id},
                 {"path": ["documentId"], "operator": "Equal", "valueText": document_id},
             ],
         }
@@ -116,9 +123,10 @@ class WeaviateVectorStore:
             raise VectorStoreError("chunk 数量和向量数量不一致")
         objects = []
         for chunk, vector in zip(chunks, vectors):
-            object_id = _stable_uuid(str(chunk.get("main_id") or ""), str(chunk.get("document_id") or ""), str(chunk.get("chunk_id") or ""))
+            tenant_id = str(chunk.get("tenant_id") or "")
+            object_id = _stable_uuid(tenant_id, str(chunk.get("document_id") or ""), str(chunk.get("chunk_id") or ""))
             properties = {
-                "mainId": str(chunk.get("main_id") or ""),
+                "tenantId": tenant_id,
                 "knowledgeBaseId": str(chunk.get("knowledge_base_id") or ""),
                 "documentId": str(chunk.get("document_id") or ""),
                 "chunkId": str(chunk.get("chunk_id") or ""),
@@ -130,9 +138,14 @@ class WeaviateVectorStore:
                 "contentType": str(chunk.get("content_type") or "text"),
                 "sourceChunkIds": [str(item) for item in chunk.get("source_chunk_ids") or []],
                 "ordinal": int(chunk.get("ordinal") or 0),
+                # 003 anchor channel: serialize the producer's sourceAnchor
+                # (bbox / table context) so search results carry it back.
+                "anchorJson": _anchor_json(chunk),
             }
             if properties["pageNo"] is None:
                 properties.pop("pageNo", None)
+            if properties.get("anchorJson") in (None, ""):
+                properties.pop("anchorJson", None)
             objects.append(
                 {
                     "class": self.collection,
@@ -152,18 +165,24 @@ class WeaviateVectorStore:
         *,
         query_vector: list[float],
         query: str,
-        main_id: str,
+        tenant_id: str,
         knowledge_base_id: str,
         mode: str,
         limit: int,
         offset: int = 0,
         score_threshold: float,
     ) -> list[dict[str, Any]]:
-        where_operands = [{"path": ["mainId"], "operator": "Equal", "valueText": main_id}]
+        where_operands = [{
+            "operator": "Or",
+            "operands": [
+                {"path": ["tenantId"], "operator": "Equal", "valueText": tenant_id},
+                {"path": ["tenantId"], "operator": "Equal", "valueText": tenant_id},
+            ],
+        }]
         if knowledge_base_id:
             where_operands.append({"path": ["knowledgeBaseId"], "operator": "Equal", "valueText": knowledge_base_id})
         where = {"operator": "And", "operands": where_operands}
-        fields = "mainId knowledgeBaseId documentId chunkId chunkStage text contextualText titlePath pageNo contentType sourceChunkIds ordinal _additional { distance score }"
+        fields = "tenantId knowledgeBaseId documentId chunkId chunkStage text contextualText titlePath pageNo contentType sourceChunkIds ordinal anchorJson _additional { distance score }"
         if mode == "hybrid":
             hybrid = _graphql_value({"query": query, "vector": query_vector, "alpha": 0.7})
             selector = f'hybrid: {hybrid}'
@@ -186,6 +205,7 @@ class WeaviateVectorStore:
             normalized = _normalize_score(score, distance)
             if score_threshold and normalized < score_threshold:
                 continue
+            anchor = _parse_anchor_json(row.get("anchorJson"))
             results.append(
                 {
                     "documentId": str(row.get("documentId") or ""),
@@ -200,6 +220,10 @@ class WeaviateVectorStore:
                     "ordinal": int(row.get("ordinal") or 0),
                     "score": normalized,
                     "distance": distance,
+                    # 003 anchor channel: the search result now carries the
+                    # sourceAnchor back to the consumer (citation_resolver) via
+                    # a metadata block, mirroring the Mongo chunk shape.
+                    "metadata": {"sourceAnchor": anchor} if anchor else {},
                 }
             )
         return results
@@ -213,7 +237,11 @@ class WeaviateVectorStore:
             method=method,
         )
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
+            # Weaviate 是内网服务（docker 内网名 weaviate 或本机 127.0.0.1），
+            # 生产从不走 HTTP 代理。macOS 系统代理（如 Steam++ 127.0.0.1:26561）
+            # 可能把内网地址也路由到代理 → 连接失败/404。这里显式绕过系统代理。
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            with opener.open(request, timeout=30) as response:
                 raw = response.read().decode("utf-8")
                 return json.loads(raw) if raw else {}
         except urllib.error.HTTPError as exc:
@@ -236,8 +264,8 @@ class WeaviateVectorStore:
 
 
 def _integration_header_value() -> str:
-    version = os.getenv("MOVO_VERSION", "").strip() or "unknown"
-    return f"movo/{version}"
+    version = os.getenv("MOGO_VERSION", "").strip() or "unknown"
+    return f"mogo/{version}"
 
 
 def _sanitize_class_name(value: str) -> str:
@@ -266,6 +294,47 @@ def _is_local_default_endpoint(value: str) -> bool:
 
 def _stable_uuid(*parts: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, ":".join(parts)))
+
+
+def _anchor_json(chunk: dict[str, Any]) -> str:
+    """Serialize a chunk's producer-side ``metadata.sourceAnchor`` for Weaviate.
+
+    003 anchor channel (audit 2026-10-03): the producer
+    (``document_parsing_service``) writes ``metadata.sourceAnchor`` (page
+    bbox / table context) on Mongo chunks, but Weaviate had **no** field or
+    metadata channel for it, so the consumer (``citation_resolver``) always
+    read an empty anchor. The anchor is carried as a compact JSON string
+    (``text`` property) — Weaviate's legacy schema API has no nested object
+    property, so this is the honest, minimal channel. Empty anchors are
+    returned as ``""`` so the upsert omits the field rather than storing
+    noise.
+    """
+    metadata = chunk.get("metadata") or {}
+    if isinstance(metadata, dict):
+        anchor = metadata.get("sourceAnchor") or metadata.get("anchor")
+    else:
+        anchor = chunk.get("source_anchor") or chunk.get("anchor")
+    if not anchor:
+        return ""
+    try:
+        return json.dumps(anchor, ensure_ascii=False, separators=(",", ":"))
+    except (TypeError, ValueError):
+        return ""
+
+
+def _parse_anchor_json(value: Any) -> dict[str, Any]:
+    """Parse an ``anchorJson`` property back into the sourceAnchor dict.
+
+    Unknown / empty / non-JSON values yield ``{}`` so a missing anchor is
+    always an empty dict (never a fabricated value).
+    """
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def _normalize_score(score: Any, distance: Any) -> float:

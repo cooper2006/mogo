@@ -11,6 +11,7 @@ const ICON_PDF  = I('pdf-file-format.png')
 const ICON_DOCX = I('docx-file.png')
 const ICON_PPT  = I('ppt.png')
 const ICON_MD   = I('md.png')
+const ICON_TXT  = I('txt.png')
 const ICON_HTML = I('html.png')
 const ICON_XLSX = I('excel-48.png')
 const ICON_GENERIC = I('attachment.svg')
@@ -30,13 +31,7 @@ export function resolveArtifact(kind: string): ArtifactDescriptor {
 }
 
 export function resolveArtifactPresentation(artifact: ArtifactIdentity): ArtifactDescriptor {
-  const kind = resolveArtifactKind(artifact)
-  if (kind === 'ppt' || kind === 'pptx') {
-    const blueprint = artifact.bundle?.preview_metadata?.blueprint_artifact_path
-      || artifact.bundle?.deck_ir_artifact?.object_path
-    if (!blueprint) return { icon: ICON_PPT, labelKey: 'artifact.pptx', actions: ['download'] }
-  }
-  return resolveArtifact(kind)
+  return resolveArtifact(resolveArtifactKind(artifact))
 }
 
 export function resolveArtifactIcon(type: string): string {
@@ -45,19 +40,16 @@ export function resolveArtifactIcon(type: string): string {
 
 // ---- Built-in registrations ----
 registerArtifact('pdf',  { icon: ICON_PDF,  labelKey: 'artifact.pdf',  actions: ['preview', 'download'] })
-registerArtifact('docx', { icon: ICON_DOCX, labelKey: 'artifact.docx', actions: ['preview', 'download'] })
-registerArtifact('doc',  { icon: ICON_DOCX, labelKey: 'artifact.docx', actions: ['preview', 'download'] })
-registerArtifact('xlsx', { icon: ICON_XLSX, labelKey: 'artifact.xlsx', actions: ['preview', 'download'] })
-registerArtifact('xls',  { icon: ICON_XLSX, labelKey: 'artifact.xlsx', actions: ['preview', 'download'] })
-registerArtifact('xlsm', { icon: ICON_XLSX, labelKey: 'artifact.xlsx', actions: ['preview', 'download'] })
+registerArtifact('docx', { icon: ICON_DOCX, labelKey: 'artifact.docx', actions: ['edit', 'download'] })
+registerArtifact('doc',  { icon: ICON_DOCX, labelKey: 'artifact.docx', actions: ['edit', 'download'] })
+registerArtifact('xlsx', { icon: ICON_XLSX, labelKey: 'artifact.xlsx', actions: ['download'] })
+registerArtifact('xls',  { icon: ICON_XLSX, labelKey: 'artifact.xlsx', actions: ['download'] })
 registerArtifact('pptx', { icon: ICON_PPT,  labelKey: 'artifact.pptx', actions: ['edit', 'preview', 'export', 'download'] })
 registerArtifact('ppt',  { icon: ICON_PPT,  labelKey: 'artifact.pptx', actions: ['edit', 'preview', 'export', 'download'] })
 registerArtifact('presentation_preview_bundle',
                           { icon: ICON_PPT,  labelKey: 'artifact.pptx', actions: ['edit', 'preview', 'export'] })
-registerArtifact('md',   { icon: ICON_MD,   labelKey: 'artifact.md',   actions: ['preview', 'copy', 'download'] })
-registerArtifact('txt',  { icon: ICON_MD,   labelKey: 'artifact.generic', actions: ['preview', 'download'] })
-registerArtifact('csv',  { icon: ICON_XLSX, labelKey: 'artifact.generic', actions: ['preview', 'download'] })
-registerArtifact('tsv',  { icon: ICON_XLSX, labelKey: 'artifact.generic', actions: ['preview', 'download'] })
+registerArtifact('md',   { icon: ICON_MD,   labelKey: 'artifact.md',   actions: ['copy', 'download'] })
+registerArtifact('txt',  { icon: ICON_TXT,  labelKey: 'artifact.txt',  actions: ['download'] })
 registerArtifact('html', { icon: ICON_HTML, labelKey: 'artifact.html', actions: ['preview', 'download'] })
 registerArtifact('email_draft',
                           { icon: ICON_GENERIC, labelKey: 'artifact.email', actions: ['edit'] })

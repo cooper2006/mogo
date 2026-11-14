@@ -12,8 +12,8 @@ PREFERENCE_COLLECTION = "user_shortcut_preferences"
 
 
 class ShortcutService:
-    async def _scheme(self, main_id: str, user_id: str) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]], bool]:
-        scheme = await get_db()[SCHEME_COLLECTION].find_one({"main_id": main_id, "scheme_key": "default"})
+    async def _scheme(self, tenant_id: str, user_id: str) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]], bool]:
+        scheme = await get_db()[SCHEME_COLLECTION].find_one({"tenant_id": tenant_id, "scheme_key": "default"})
         entries = [dict(item) for item in (scheme or {}).get("entries") or [] if item.get("enabled", True)]
         groups = normalize_groups([dict(item) for item in (scheme or {}).get("groups") or []], entries)
         scheme_key = "default"
@@ -21,7 +21,7 @@ class ShortcutService:
         from app.product.extensions import get_product_extension
         resolver = get_product_extension().shortcut_scheme_resolver
         if resolver is not None:
-            resolved = await resolver.resolve(main_id=main_id, user_id=user_id, default_entries=entries)
+            resolved = await resolver.resolve(tenant_id=tenant_id, user_id=user_id, default_entries=entries)
             if isinstance(resolved, dict):
                 if resolved.get("matched"):
                     entries = [dict(item) for item in resolved.get("entries") or [] if item.get("enabled", True)]
@@ -36,14 +36,14 @@ class ShortcutService:
                 configured = configured or bool(entries)
         return scheme_key, entries, groups, configured
 
-    async def effective(self, main_id: str, user_id: str) -> dict[str, Any]:
-        scheme_key, entries, groups, configured = await self._scheme(main_id, user_id)
+    async def effective(self, tenant_id: str, user_id: str) -> dict[str, Any]:
+        scheme_key, entries, groups, configured = await self._scheme(tenant_id, user_id)
         preference = await get_db()[PREFERENCE_COLLECTION].find_one(
-            {"main_id": main_id, "user_id": user_id, "scheme_key": scheme_key}
+            {"tenant_id": tenant_id, "user_id": user_id, "scheme_key": scheme_key}
         ) or {}
         if not preference and scheme_key == "default":
             legacy = await get_db()[PREFERENCE_COLLECTION].find_one(
-                {"main_id": main_id, "user_id": user_id, "scheme_key": {"$exists": False}}
+                {"tenant_id": tenant_id, "user_id": user_id, "scheme_key": {"$exists": False}}
             ) or {}
             if legacy:
                 preference = {"personal_entries": legacy.get("personal_entries") or []}
@@ -62,8 +62,8 @@ class ShortcutService:
             "configured": configured, "preferences": preferences,
         }
 
-    async def save_preferences(self, main_id: str, user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        scheme_key, entries, groups, _ = await self._scheme(main_id, user_id)
+    async def save_preferences(self, tenant_id: str, user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        scheme_key, entries, groups, _ = await self._scheme(tenant_id, user_id)
         unlocked = {str(group.get("key")) for group in groups if not group.get("locked")}
         valid_ids = {key: {str(item.get("id")) for item in entries if item.get("categoryKey") == key} for key in unlocked}
         requested = payload.get("groupOrders") or {}
@@ -78,13 +78,13 @@ class ShortcutService:
             group_orders["personal"] = list(dict.fromkeys(item for item in requested["personal"] if item in personal_ids))
         now = datetime.now(timezone.utc)
         values = {
-            "main_id": main_id, "user_id": user_id, "scheme_key": scheme_key,
+            "tenant_id": tenant_id, "user_id": user_id, "scheme_key": scheme_key,
             "group_orders": group_orders,
             "personal_group": dict(payload.get("personalGroup") or {}),
             "personal_entries": personal, "updated_at": now,
         }
         await get_db()[PREFERENCE_COLLECTION].update_one(
-            {"main_id": main_id, "user_id": user_id, "scheme_key": scheme_key},
+            {"tenant_id": tenant_id, "user_id": user_id, "scheme_key": scheme_key},
             {"$set": values, "$setOnInsert": {"created_at": now}}, upsert=True,
         )
-        return await self.effective(main_id, user_id)
+        return await self.effective(tenant_id, user_id)

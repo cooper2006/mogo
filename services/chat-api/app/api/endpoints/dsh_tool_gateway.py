@@ -9,7 +9,7 @@ from fastapi import APIRouter, Header, HTTPException, Query, Request
 
 from app.api.endpoints.auth import _resolve_session_user
 from app.core.config import get_settings
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 from app.dsh_runtime.application import dsh_runtime_application
 from app.dsh_runtime.tool_gateway import ToolGatewayTokenService
 from app.enterprise_capabilities.tools import ApprovalAskRequest, ApprovalDecisionRequest, ToolExecuteRequest
@@ -97,7 +97,9 @@ async def execute(payload: ToolExecuteRequest, request: Request, authorization: 
         )
         raise HTTPException(
             status_code=408 if receipt.status == "timed_out" else 502,
-            detail={"code": f"tool_{receipt.status}", "message": receipt.error, "receipt": receipt.model_dump(mode="json")},
+            # 025 T022：错误码必须是可静态识别的稳定字面量（原为 f"tool_{receipt.status}"
+            # 动态码，无法登记注册表）；具体执行状态保留在 receipt.status 里，信息不丢。
+            detail={"code": "tool_execution_failed", "message": receipt.error, "receipt": receipt.model_dump(mode="json")},
         )
     except ToolPolicyDenied as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
@@ -110,7 +112,7 @@ async def _wait_for_disconnect(request: Request) -> None:
 
 async def _identity(authorization: str | None) -> tuple[str, str]:
     resolved = await _resolve_session_user(authorization)
-    return resolve_main_id(resolved["main_id"]), str(resolved["user"].get("_id") or "")
+    return resolve_tenant_id(resolved["tenant_id"]), str(resolved["user"].get("_id") or "")
 
 
 @public_router.get("")

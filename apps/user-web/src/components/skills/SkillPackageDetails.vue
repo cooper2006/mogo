@@ -74,15 +74,15 @@ const sourceLabel = computed(() => skillSourceLabel(props.skill));
 
 <style scoped>
 .skill-details { display: flex; flex-direction: column; gap: 16px; }
-.summary-card { display: grid; gap: 14px; padding: 16px; border: 1px solid #e4eaf4; border-radius: 12px; background: #f8faff; }
-.summary-row { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 14px; color: #17233d; }
-.summary-row-block p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; color: #52627d; }
-.summary-label { color: #8491a7; }
+.summary-card { display: grid; gap: 14px; padding: 16px; border: 1px solid var(--mg-border); border-radius: 12px; background: var(--mg-bg-surface); }
+.summary-row { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 14px; color: var(--mg-text-1); }
+.summary-row-block p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; color: var(--mg-text-2); }
+.summary-label { color: var(--mg-text-3); }
 .digest { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
-.children-section h3 { margin: 0 0 10px; color: #17233d; font-size: 15px; }
+.children-section h3 { margin: 0 0 10px; color: var(--mg-text-1); font-size: 15px; }
 .children-list { display: grid; gap: 10px; }
-.child-card { padding: 12px 14px; border: 1px solid #e4eaf4; border-radius: 10px; }
+.child-card { padding: 12px 14px; border: 1px solid var(--mg-border); border-radius: 10px; }
 .child-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.child-card p { margin: 8px 0 4px; color: #52627d; line-height: 1.6; }
-.child-card > span { color: #9aa5b8; font-size: 12px; }
+.child-card p { margin: 8px 0 4px; color: var(--mg-text-2); line-height: 1.6; }
+.child-card > span { color: var(--mg-text-3); font-size: 12px; }
 </style>

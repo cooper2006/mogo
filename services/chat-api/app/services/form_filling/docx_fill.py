@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import io
 import re
@@ -231,7 +232,8 @@ async def fill_docx_form(
             parts = target.split(":")
             try:
                 paragraph = paragraphs[int(parts[1])]
-            except Exception:
+            except Exception as exc:
+                log_print(f"[services.form_filling.docx_fill.fill_docx_form] suppressed {type(exc).__name__}: {exc}", flush=True)
                 skipped += 1
                 continue
             placeholder = str(item.get("placeholder") or "")
@@ -247,7 +249,8 @@ async def fill_docx_form(
             try:
                 table = doc.tables[int(parts[1])]
                 cell = table.rows[int(parts[3])].cells[int(parts[4])]
-            except Exception:
+            except Exception as exc:
+                log_print(f"[services.form_filling.docx_fill.fill_docx_form] suppressed {type(exc).__name__}: {exc}", flush=True)
                 skipped += 1
                 continue
             if _cell_text(cell) and not overwrite:
@@ -273,7 +276,8 @@ async def fill_docx_form(
             table = doc.tables[int(group_meta.get("table_index") or 0)]
             data_rows = [int(x) for x in list(group_meta.get("data_rows") or [])]
             columns = [dict(x) for x in list(group_meta.get("columns") or []) if isinstance(x, dict)]
-        except Exception:
+        except Exception as exc:
+            log_print(f"[services.form_filling.docx_fill.fill_docx_form] suppressed {type(exc).__name__}: {exc}", flush=True)
             skipped += 1
             continue
         for row_values, row_idx in zip(rows_payload, data_rows):
@@ -288,7 +292,8 @@ async def fill_docx_form(
                     continue
                 try:
                     cell = table.rows[row_idx].cells[int(col.get("cell_col") or 0)]
-                except Exception:
+                except Exception as exc:
+                    log_print(f"[services.form_filling.docx_fill.fill_docx_form] suppressed {type(exc).__name__}: {exc}", flush=True)
                     skipped += 1
                     continue
                 if _cell_text(cell) and not overwrite:
@@ -314,7 +319,8 @@ async def fill_docx_form(
                 if isinstance(x, dict) and str(x.get("header") or "").strip()
             ]
             row = _append_docx_row(table, min(header_row + 1, len(table.rows) - 1))
-        except Exception:
+        except Exception as exc:
+            log_print(f"[services.form_filling.docx_fill.fill_docx_form] suppressed {type(exc).__name__}: {exc}", flush=True)
             skipped += 1
             continue
         if header_cells:

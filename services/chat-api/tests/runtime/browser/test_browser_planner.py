@@ -68,9 +68,9 @@ def test_search_actions_compile_to_revision_bound_plan() -> None:
     observation = _observation()
     output = BrowserPlannerOutput(
         kind="actions",
-        summary="搜索 MOVO",
+        summary="搜索 MOGO",
         actions=[
-            PlannedAction(tool="browser_fill", args={"ref": "ax-0-42", "value": "MOVO"}),
+            PlannedAction(tool="browser_fill", args={"ref": "ax-0-42", "value": "MOGO"}),
             PlannedAction(tool="browser_press", args={"ref": "ax-0-42", "key": "Enter"}),
         ],
     )
@@ -116,12 +116,12 @@ def test_guidance_assigns_semantic_history_classification_to_existing_turn() -> 
 def test_singular_action_provider_shape_is_normalized() -> None:
     output = BrowserPlannerOutput.model_validate({
         "kind": "action",
-        "action": {"tool": "browser_navigate", "args": {"url": "https://www.himovo.com"}},
+        "action": {"tool": "browser_navigate", "args": {"url": "https://www.mogo.example"}},
         "summary": "打开首页",
     })
     decision = decision_from_output(output, _observation())
     assert decision.tool == "browser_navigate"
-    assert decision.args == {"url": "https://www.himovo.com"}
+    assert decision.args == {"url": "https://www.mogo.example"}
 
 
 def test_model_cannot_enable_internal_form_commit_recovery() -> None:
@@ -150,7 +150,7 @@ def test_done_preserves_capability_result_data() -> None:
     output = BrowserPlannerOutput(
         kind="done",
         summary="已读取首页",
-        data={"result": {"title": "MOVO", "positioning": "企业智能体平台"}},
+        data={"result": {"title": "MOGO", "positioning": "企业智能体平台"}},
     )
     decision = decision_from_output(output, _observation())
     assert decision.tool == "browser_done"
@@ -158,7 +158,7 @@ def test_done_preserves_capability_result_data() -> None:
         "summary": "已读取首页",
         "data": {
             "result": {
-                "title": "MOVO",
+                "title": "MOGO",
                 "positioning": "企业智能体平台",
             },
         },
@@ -170,13 +170,13 @@ def test_commit_control_cannot_be_hidden_in_plan() -> None:
     output = BrowserPlannerOutput(
         kind="actions",
         actions=[
-            PlannedAction(tool="browser_fill", args={"ref": "ax-0-42", "value": "MOVO"}),
+            PlannedAction(tool="browser_fill", args={"ref": "ax-0-42", "value": "MOGO"}),
             PlannedAction(tool="browser_click", args={"ref": "send"}),
         ],
     )
     decision = decision_from_output(output, observation)
     assert decision.tool == "browser_fill"
-    assert decision.args == {"ref": "ax-0-42", "value": "MOVO"}
+    assert decision.args == {"ref": "ax-0-42", "value": "MOGO"}
     assert "decomposed" in decision.rationale
 
 
@@ -200,7 +200,7 @@ def test_unclassified_editable_search_candidate_is_filled_then_reobserved() -> N
     output = BrowserPlannerOutput(
         kind="actions",
         actions=[
-            PlannedAction(tool="browser_fill", args={"ref": "ax-0-11", "value": "MOVO 官网"}),
+            PlannedAction(tool="browser_fill", args={"ref": "ax-0-11", "value": "MOGO 官网"}),
             PlannedAction(tool="browser_click", args={"ref": "ax-0-46"}),
         ],
     )
@@ -208,7 +208,7 @@ def test_unclassified_editable_search_candidate_is_filled_then_reobserved() -> N
     decision = decision_from_output(output, observation)
 
     assert decision.tool == "browser_fill"
-    assert decision.args == {"ref": "ax-0-11", "value": "MOVO 官网"}
+    assert decision.args == {"ref": "ax-0-11", "value": "MOGO 官网"}
     assert "re-observation" in decision.rationale
 
 
@@ -271,7 +271,7 @@ def test_guidance_and_observation_are_capability_scoped_and_bounded() -> None:
     observation.page_text = "x" * 20_000
     guidance = build_guidance(observation.elements, lang="zh")
     payload = build_turn_payload(
-        "搜索 MOVO", [], observation,
+        "搜索 MOGO", [], observation,
         {"notes": ["ignored" * 10_000], "action_constraints": ["x" * 20_000]},
     )
     assert "SEARCH:" in guidance
@@ -297,14 +297,14 @@ def test_planner_module_emits_one_serial_search_segment(monkeypatch) -> None:
             return schema(
                 kind="actions", summary="执行搜索",
                 actions=[
-                    {"tool": "browser_fill", "args": {"ref": "ax-0-42", "value": "MOVO"}},
+                    {"tool": "browser_fill", "args": {"ref": "ax-0-42", "value": "MOGO"}},
                     {"tool": "browser_press", "args": {"ref": "ax-0-42", "key": "Enter"}},
                 ],
             )
 
     monkeypatch.setattr(planner_module, "get_request_scoped_llm_client", lambda **_kwargs: _Client())
     planner = planner_module.Planner(lang="zh")
-    decision = asyncio.run(planner.next_step("搜索 MOVO", [], _observation()))
+    decision = asyncio.run(planner.next_step("搜索 MOGO", [], _observation()))
     assert decision.tool == "browser_execute_plan"
     assert [item["tool"] for item in decision.args["actions"]] == ["browser_fill", "browser_press"]
     assert "SEARCH:" in str(captured["messages"][0].content)
@@ -330,7 +330,7 @@ def test_planner_module_repairs_invalid_provider_action_shape_once(monkeypatch) 
 
     monkeypatch.setattr(planner_module, "get_request_scoped_llm_client", lambda **_kwargs: _Client())
     planner = planner_module.Planner(lang="zh")
-    decision = asyncio.run(planner.next_step("搜索 MOVO", [], _observation()))
+    decision = asyncio.run(planner.next_step("搜索 MOGO", [], _observation()))
     assert decision.tool == "browser_observe"
     assert len(calls) == 2
     assert "browser_keypress" in str(calls[1][-1].content)
@@ -341,12 +341,12 @@ def test_planner_module_contract_failure_is_not_human_recovery(monkeypatch) -> N
         async def ainvoke_structured(self, _messages, schema, **_kwargs):
             return schema.model_validate({
                 "kind": "actions",
-                "actions": [{"kind": "browser_type", "text": "MOVO"}],
+                "actions": [{"kind": "browser_type", "text": "MOGO"}],
             })
 
     monkeypatch.setattr(planner_module, "get_request_scoped_llm_client", lambda **_kwargs: _Client())
     planner = planner_module.Planner(lang="zh")
-    decision = asyncio.run(planner.next_step("搜索 MOVO", [], _observation()))
+    decision = asyncio.run(planner.next_step("搜索 MOGO", [], _observation()))
     assert decision.tool == "browser_fail"
     assert decision.args["error_code"] == "planner_contract_invalid"
 
@@ -363,7 +363,7 @@ def test_browser_prompt_remains_bounded_on_a_large_page() -> None:
         }
         for index in range(500)
     ])
-    goal = "搜索 MOVO 并打开最相关的结果"
+    goal = "搜索 MOGO 并打开最相关的结果"
     payload = build_turn_payload(goal, [], observation, None)
     planner_chars = len(build_guidance(observation.elements, lang="zh")) + len(
         json.dumps(payload, ensure_ascii=False, separators=(",", ":"))

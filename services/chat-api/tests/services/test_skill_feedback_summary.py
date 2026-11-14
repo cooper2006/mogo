@@ -40,26 +40,26 @@ class Db:
     def __init__(self):
         now = datetime.datetime.now(datetime.timezone.utc)
         self.skill_distributions = Collection([
-            {"_id": "upstream", "main_id": "tenant", "owner_user_id": "A", "status": "active"},
-            {"_id": "downstream", "main_id": "tenant", "owner_user_id": "B", "status": "active"},
+            {"_id": "upstream", "tenant_id": "tenant", "owner_user_id": "A", "status": "active"},
+            {"_id": "downstream", "tenant_id": "tenant", "owner_user_id": "B", "status": "active"},
         ])
         self.skill_distribution_members = Collection([
-            {"distribution_id": "upstream", "main_id": "tenant", "recipient_user_id": "B", "status": "active"},
+            {"distribution_id": "upstream", "tenant_id": "tenant", "recipient_user_id": "B", "status": "active"},
         ])
         self.resource_comments = Collection([
-            {"resource_id": "upstream", "main_id": "tenant", "resource_type": "skill_distribution", "status": "active", "created_at": now},
-            {"resource_id": "downstream", "main_id": "tenant", "resource_type": "skill_distribution", "status": "active", "created_at": now},
-            {"resource_id": "downstream", "main_id": "tenant", "resource_type": "skill_distribution", "status": "active", "created_at": now},
+            {"resource_id": "upstream", "tenant_id": "tenant", "resource_type": "skill_distribution", "status": "active", "created_at": now},
+            {"resource_id": "downstream", "tenant_id": "tenant", "resource_type": "skill_distribution", "status": "active", "created_at": now},
+            {"resource_id": "downstream", "tenant_id": "tenant", "resource_type": "skill_distribution", "status": "active", "created_at": now},
         ])
         self.resource_feedback_notifications = Collection([
-            {"resource_id": "downstream", "main_id": "tenant", "resource_type": "skill_distribution", "recipient_user_id": "B", "status": "unread"},
+            {"resource_id": "downstream", "tenant_id": "tenant", "resource_type": "skill_distribution", "recipient_user_id": "B", "status": "unread"},
         ])
 
 
 def test_summary_keeps_received_and_reshared_feedback_channels_separate(monkeypatch):
     db = Db(); monkeypatch.setattr(summary_module, "get_db", lambda: db)
     skills = [{"id": "skill", "package_source": {"distributionId": "upstream"}, "distribution_id": "downstream"}]
-    asyncio.run(SkillFeedbackSummaryService().attach(main_id="tenant", user_id="B", skills=skills))
+    asyncio.run(SkillFeedbackSummaryService().attach(tenant_id="tenant", user_id="B", skills=skills))
     feedback = skills[0]["feedback"]
     assert feedback["commentCount"] == 3 and feedback["unreadCount"] == 1
     assert [(item["id"], item["role"]) for item in feedback["channels"]] == [

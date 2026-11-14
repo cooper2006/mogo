@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from bson import ObjectId
+from app.core.ids import is_valid_backend_id, to_backend_id, to_backend_id_strict
 
 from app.core.db import get_db
-from app.core.tenant import add_main_scope
+from app.core.tenant import add_tenant_scope
+from app.infrastructure.observability.config import log_print
 from app.utils import storage_utils
 
 
@@ -79,7 +80,7 @@ class LocalKnowledgeRAGService:
         *,
         query: str,
         user_id: str,
-        main_id: str = "default",
+        tenant_id: str = "default",
         session_id: str = "",
         top_k: int = 8,
         fetch_artifacts: bool = True,
@@ -91,7 +92,7 @@ class LocalKnowledgeRAGService:
 
         query_tokens = _tokenize(query)
         candidates: List[KnowledgeChunk] = []
-        now = datetime.utcnow()
+        now = datetime.now(tz=timezone.utc)
         artifact_cache: Dict[str, str] = {}
 
         async def _load_artifact_text_cached(object_path: str) -> str:
@@ -103,7 +104,8 @@ class LocalKnowledgeRAGService:
                 return cached
             try:
                 text = await storage_utils.download_text(key, timeout_s=12.0)
-            except Exception:
+            except Exception as exc:
+                log_print(f"[services.rag_service.local_knowledge_rag_service._load_artifact_text_cached] suppressed {type(exc).__name__}: {exc}", flush=True)
                 text = ""
             artifact_cache[key] = str(text or "")
             return artifact_cache[key]
@@ -115,11 +117,11 @@ class LocalKnowledgeRAGService:
         sid = str(session_id or "").strip()
         if sid:
             try:
-                msg_filter["session_id"] = ObjectId(sid)
-            except Exception:
-                pass
+                msg_filter["session_id"] = to_backend_id_strict(sid)
+            except Exception as exc:
+                log_print(f"[rag_service] invalid 32-hex id for session_id={sid}: {exc}", flush=True)
         rows = (
-            await db.chat_messages.find(add_main_scope(msg_filter, main_id))
+            await db.chat_messages.find(add_tenant_scope(msg_filter, tenant_id))
             .sort("created_at", -1)
             .limit(240)
             .to_list(length=240)
@@ -186,11 +188,11 @@ class LocalKnowledgeRAGService:
         sess_filter: Dict[str, Any] = {"user_id": uid, "latest_artifact_ref": {"$exists": True}}
         if sid:
             try:
-                sess_filter["_id"] = ObjectId(sid)
-            except Exception:
-                pass
+                sess_filter["_id"] = to_backend_id_strict(sid)
+            except Exception as exc:
+                log_print(f"[rag_service] invalid 32-hex id for session_id={sid}: {exc}", flush=True)
         sessions = (
-            await db.chat_sessions.find(add_main_scope(sess_filter, main_id))
+            await db.chat_sessions.find(add_tenant_scope(sess_filter, tenant_id))
             .sort("updated_at", -1)
             .limit(30)
             .to_list(length=30)

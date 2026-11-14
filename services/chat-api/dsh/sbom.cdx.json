@@ -4,17 +4,17 @@
   "serialNumber": "urn:uuid:5c8c8f40-2f59-5d35-a6bb-a5ca1d5a0001",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-11-12T03:52:59+00:00",
+    "timestamp": "2026-11-12T14:56:44+00:00",
     "component": {
       "type": "application",
-      "name": "@movo/dsh-runtime-host",
+      "name": "@mogo/dsh-runtime-host",
       "version": "0.1.0"
     },
     "tools": {
       "components": [
         {
           "type": "application",
-          "name": "MOVO DSH SBOM generator",
+          "name": "MOGO DSH SBOM generator",
           "version": "1"
         }
       ]
@@ -4833,40 +4833,27 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/earendil-works/pi-ai@1.5.2",
+      "bom-ref": "pkg:npm/earendil-works/pi-ai@1.3.0",
       "name": "@earendil-works/pi-ai",
-      "version": "1.5.2",
-      "purl": "pkg:npm/earendil-works/pi-ai@1.5.2",
+      "version": "1.3.0",
+      "purl": "pkg:npm/earendil-works/pi-ai@1.3.0",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "DAD58F4A7577AB37E20C863769696E05A837BC2FBE56CF95B17B7F52AB92539A273CCA213E287BD855212216AA98374C62E6CE801DC1CA5F6E178564E3424BBD"
+          "content": "29A048F31EEAEEC3E81545C808D183F5E7C7CC31BEA1137056F900F63748B124161F546316CB0E9441AC6CBB5EC143CF802AEF9B3D25D8A4E048B5D3CA3DDA73"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/earendil-works/pi-schema@1.5.2",
-      "name": "@earendil-works/pi-schema",
-      "version": "1.5.2",
-      "purl": "pkg:npm/earendil-works/pi-schema@1.5.2",
-      "hashes": [
-        {
-          "alg": "SHA-512",
-          "content": "849A3209759486C4AB5D8E70268D90E241D752C479D693619091C0324591C1530B0D1B4C0CF90A35A6BE26555156A4F0D618DD4B171555A14B4836CA95A4D711"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "pkg:npm/earendil-works/pi-telemetry@1.5.2",
+      "bom-ref": "pkg:npm/earendil-works/pi-telemetry@1.3.0",
       "name": "@earendil-works/pi-telemetry",
-      "version": "1.5.2",
-      "purl": "pkg:npm/earendil-works/pi-telemetry@1.5.2",
+      "version": "1.3.0",
+      "purl": "pkg:npm/earendil-works/pi-telemetry@1.3.0",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "9BE72E9A322A361D5A3084A2FFDB6D706DD93B021DAE23DBCFF78CC969913090866BF59C818D515F896B6FB1EFB078527C8FC951E044480E27382AFC0B7CB9A3"
+          "content": "111199AFE6978CD273A146C1ED9CC7547DE0E68B733078C72ECD85CA2CE6D76072E57FA004486877D7095C53A4D774BB33C6B6F409BE32ADB5CE6EF79912452E"
         }
       ]
     },
@@ -4911,14 +4898,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/hono/node-server@2.1.3",
+      "bom-ref": "pkg:npm/hono/node-server@2.1.1",
       "name": "@hono/node-server",
-      "version": "2.1.3",
-      "purl": "pkg:npm/hono/node-server@2.1.3",
+      "version": "2.1.1",
+      "purl": "pkg:npm/hono/node-server@2.1.1",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "4C0FFF9D632A3E16DF75F9DE00293AB796BD7AA6D2F6500110FC8A9F4FF16536A1DC7DD4D9769583CE6B245974FC5CA2B74239E766031E05C65527F71B0A9B53"
+          "content": "10BB9E8648F954205D804C3DCECFA2BE42B0CB3CD409242E13DE989A23EF9F51020686427336C55C92DE106313623A613FA832761E291CCA8460F54C61456042"
         }
       ]
     },
@@ -4937,339 +4924,339 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/img/sharp-darwin-arm64@0.35.5",
+      "bom-ref": "pkg:npm/img/sharp-darwin-arm64@0.35.4",
       "name": "@img/sharp-darwin-arm64",
-      "version": "0.35.5",
-      "purl": "pkg:npm/img/sharp-darwin-arm64@0.35.5",
+      "version": "0.35.4",
+      "purl": "pkg:npm/img/sharp-darwin-arm64@0.35.4",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "411525150D16C6F756CAAA86FD6B48DE2BA97C3E6B0739821D749D3EC63DD6C02D56D4E8ED0E1C6FACCE71C67782A12A92BD1FD40B357A12EA984A43B117FE96"
+          "content": "5217E5E15E2584FDA76D4545F7E8721F5FA5BA3F3A7F581415EA3C00B63116850BA14F86F3B0F8DC17DE30FF171EC93D6E8C409C263F6DFD841F0840ECCB86B0"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/img/sharp-darwin-x64@0.35.5",
+      "bom-ref": "pkg:npm/img/sharp-darwin-x64@0.35.4",
       "name": "@img/sharp-darwin-x64",
-      "version": "0.35.5",
-      "purl": "pkg:npm/img/sharp-darwin-x64@0.35.5",
+      "version": "0.35.4",
+      "purl": "pkg:npm/img/sharp-darwin-x64@0.35.4",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "F81476E794610E5A72814A4E73F25DB759D3E834375C6FC4468E706DC74E7F9437DB474AB4F08A3CB4752C9B3D5465D168C6BC975B946B4B6408D397880C5953"
+          "content": "8569E25D8DDB1B9A8AA642AB0303DEE32F954CF99FD3CE984009E4C5687BB80D58AE5468B9619AD0CD0CC63DD98E75C592FEFF4C3D5B4F2F651942B6EAF46F5B"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/img/sharp-freebsd-wasm32@0.35.5",
+      "bom-ref": "pkg:npm/img/sharp-freebsd-wasm32@0.35.4",
       "name": "@img/sharp-freebsd-wasm32",
-      "version": "0.35.5",
-      "purl": "pkg:npm/img/sharp-freebsd-wasm32@0.35.5",
+      "version": "0.35.4",
+      "purl": "pkg:npm/img/sharp-freebsd-wasm32@0.35.4",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "63FCFDD67119E2E2015F95F79DF4E8BE353D94734A1586CBDA5A4708B54D99740AD3754866F5C106DD0AC5B3C6A7649D19217EDA6414E1EFA141A58EB7CEA203"
+          "content": "948B0AC3F054FA48C1E1E663C6B62B666C0E2588B7023AEFEBA8809419943F229CDC7A679687AF075837C31183F4FFF905B4356EB04697AE55451AC2BD00C4A8"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/img/sharp-libvips-darwin-arm64@1.3.4",
+      "bom-ref": "pkg:npm/img/sharp-libvips-darwin-arm64@1.3.3",
       "name": "@img/sharp-libvips-darwin-arm64",
-      "version": "1.3.4",
-      "purl": "pkg:npm/img/sharp-libvips-darwin-arm64@1.3.4",
+      "version": "1.3.3",
+      "purl": "pkg:npm/img/sharp-libvips-darwin-arm64@1.3.3",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "E51F3D9C162245D5254962713E13BE195B5A5F35D2C4A9D1BBFC6A327DCA4C0DCBF4407D3B2FCFF8D9F67F6BE584FB94772FD9BAC6F60DAADBC93A4609F103BB"
+          "content": "B2E4C13D30C6AC8F56A1D71C683770648B5349A0580129419353527C49521EB51FCEEDECCC6EA5BC8179F3E5A216F9DFCEE2BC641152E73134D0FC6AC674623E"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/img/sharp-libvips-darwin-x64@1.3.4",
+      "bom-ref": "pkg:npm/img/sharp-libvips-darwin-x64@1.3.3",
       "name": "@img/sharp-libvips-darwin-x64",
-      "version": "1.3.4",
-      "purl": "pkg:npm/img/sharp-libvips-darwin-x64@1.3.4",
+      "version": "1.3.3",
+      "purl": "pkg:npm/img/sharp-libvips-darwin-x64@1.3.3",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "891D8E287F34CA2D14F9D529972877FF176916FA6CE98902C2C5DE9C8271AB1475BFDA3EC6D29319B4BD1FB729B3ED95C6373C0758FDEA9EF93664C68C886DA5"
+          "content": "155259E662133286E65C8CFF84F0D3C341229ED4D6E47DD67EBC702EA12A8E2222865BBE8554721AB150EB4C65D0BC67EC1B77CDDA5EBCF6908B41C4CEACFD7F"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/img/sharp-libvips-linux-arm64@1.3.4",
+      "bom-ref": "pkg:npm/img/sharp-libvips-linux-arm64@1.3.3",
       "name": "@img/sharp-libvips-linux-arm64",
-      "version": "1.3.4",
-      "purl": "pkg:npm/img/sharp-libvips-linux-arm64@1.3.4",
+      "version": "1.3.3",
+      "purl": "pkg:npm/img/sharp-libvips-linux-arm64@1.3.3",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "6377605FFEA513642141BF86C72D166717E0F4C126FC90636A66694B622494FEF1210A0A378873026ECA70C546B5A543B779DE13D38A042EEF01FA2703F2EBD4"
+          "content": "D0368BD00E97BBAB104901707B88950AB2965367024C8B6746C62C09DC40326F4D17AB70000F412A7A2ACB886ACF8F9ACD0D091EE036EAA8942AC7F55C9FEFE4"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/img/sharp-libvips-linux-arm@1.3.4",
+      "bom-ref": "pkg:npm/img/sharp-libvips-linux-arm@1.3.3",
       "name": "@img/sharp-libvips-linux-arm",
-      "version": "1.3.4",
-      "purl": "pkg:npm/img/sharp-libvips-linux-arm@1.3.4",
+      "version": "1.3.3",
+      "purl": "pkg:npm/img/sharp-libvips-linux-arm@1.3.3",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "2E646D4EC387BAF336FB094ED836F7EDDC7932266107416F4AE9DC8B0E3C62374E919CFD2808916E6F2E8DE30E03520DAA67A2E4D6A91716042B50F565289D9B"
+          "content": "DEB6D4E2FA975DCDE163F3A25DD979DB166F4F4175C849E059FBEAB9DB4F260FCA93289A430D8346C16B373A662EF7DABDBC0EAB7A979F7E863FCA1B1D150B40"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/img/sharp-libvips-linux-ppc64@1.3.4",
+      "bom-ref": "pkg:npm/img/sharp-libvips-linux-ppc64@1.3.3",
       "name": "@img/sharp-libvips-linux-ppc64",
-      "version": "1.3.4",
-      "purl": "pkg:npm/img/sharp-libvips-linux-ppc64@1.3.4",
+      "version": "1.3.3",
+      "purl": "pkg:npm/img/sharp-libvips-linux-ppc64@1.3.3",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "2DEE9BA01F136A2D0D8ACFA02312292B1EBC50355522A751F138A7E587F5CF62C92502C326F08346A46EFA30B6A82A03F9E2289A89E63B0078B26051C5F56961"
+          "content": "71D9F53AF501C2C5E16C2D334B32673737F9319FE64EBA1B6B00EF357053C5EF15B6A2809B4B11B8463612FCE8BDBFF0F49324E13BD1C6AB7599E912B89CFAE3"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/img/sharp-libvips-linux-riscv64@1.3.4",
+      "bom-ref": "pkg:npm/img/sharp-libvips-linux-riscv64@1.3.3",
       "name": "@img/sharp-libvips-linux-riscv64",
-      "version": "1.3.4",
-      "purl": "pkg:npm/img/sharp-libvips-linux-riscv64@1.3.4",
+      "version": "1.3.3",
+      "purl": "pkg:npm/img/sharp-libvips-linux-riscv64@1.3.3",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "6879242041CF45D4047A024DDB430B986B71603F51DB042BDC2C2975D9EEE7E60A32DE94CDAC7B4BD879829653A3CC32AC6B994A57D0EB739EBCBE664F2382ED"
+          "content": "1E33D5C7BC8ACFED25A9D843953C35B6DF74C1A981A318625E9BE5D5766924B8871F8442279C834EA1FE56560FBF67F016CF3D245C3873521EC5839C4148B821"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/img/sharp-libvips-linux-s390x@1.3.4",
+      "bom-ref": "pkg:npm/img/sharp-libvips-linux-s390x@1.3.3",
       "name": "@img/sharp-libvips-linux-s390x",
-      "version": "1.3.4",
-      "purl": "pkg:npm/img/sharp-libvips-linux-s390x@1.3.4",
+      "version": "1.3.3",
+      "purl": "pkg:npm/img/sharp-libvips-linux-s390x@1.3.3",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "ADAFE607A32290448350EED883E322F796C505BF46B0E6D446E8673AFDCEAA49E319EF6C66B1BCB427BDAB4C52206AED2E0BE0C3480A9C559C2B86E54A040EB9"
+          "content": "9DE58B87EDF208D4E1C677F2DDCE016D505E1A0B7D69FB67A3E5DB4F9EA22B6F1181E0ECDD43855AF88B5A552ED1B02B6156096850CAF9146885B89C50D0A6F1"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/img/sharp-libvips-linux-x64@1.3.4",
+      "bom-ref": "pkg:npm/img/sharp-libvips-linux-x64@1.3.3",
       "name": "@img/sharp-libvips-linux-x64",
-      "version": "1.3.4",
-      "purl": "pkg:npm/img/sharp-libvips-linux-x64@1.3.4",
+      "version": "1.3.3",
+      "purl": "pkg:npm/img/sharp-libvips-linux-x64@1.3.3",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "189FFF4925DB9F04837ACD36BA60779C324B15C433C3C6B5F15F1FCA1AABEAD579D79B4E10C7489A38F18F502869F311CF9E85DCF1E07ED9E3D5010A494D7393"
+          "content": "E2F2A6BC0B2DF67AE8C1CAAAB8A140C992540E8954688A7CB9188DD2658582E275229942F7FA62B57B659E7954E1A6BF789C3727B8BAED5FA9C142FEC1919DB0"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/img/sharp-libvips-linuxmusl-arm64@1.3.4",
+      "bom-ref": "pkg:npm/img/sharp-libvips-linuxmusl-arm64@1.3.3",
       "name": "@img/sharp-libvips-linuxmusl-arm64",
-      "version": "1.3.4",
-      "purl": "pkg:npm/img/sharp-libvips-linuxmusl-arm64@1.3.4",
+      "version": "1.3.3",
+      "purl": "pkg:npm/img/sharp-libvips-linuxmusl-arm64@1.3.3",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "86FBA5170B6351C6A0B22B3A041C47C061705A83598E062650B195AD97327CD6E303C84A20B6D1C46835E7FEF0E470F25C75D4A2CFE3E9B6805AA9C2C90D8358"
+          "content": "63D91068B32E3680746CF60E39D71931AB1E36B1693E874859632BC7E099CB275FDB19FAF23F5661CEAC59646B0F0364CC24232987DCEBC2FB8CA8C69473226F"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/img/sharp-libvips-linuxmusl-x64@1.3.4",
+      "bom-ref": "pkg:npm/img/sharp-libvips-linuxmusl-x64@1.3.3",
       "name": "@img/sharp-libvips-linuxmusl-x64",
-      "version": "1.3.4",
-      "purl": "pkg:npm/img/sharp-libvips-linuxmusl-x64@1.3.4",
+      "version": "1.3.3",
+      "purl": "pkg:npm/img/sharp-libvips-linuxmusl-x64@1.3.3",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "EB35CA784FE9DFD2350260377091B7E5EC8118DA8D75D2E75178E1C019EC1A314F5AA7F954A903044A9A1243C3A1312D931C22DAFBFC4DCAF6983C8FE12A3B16"
+          "content": "7E3F0CBF41C77C3D51AFEE08EBCFB76A02729F10D6B4116089C4DB48E6FD0647BAA48C3319C27E457FF21E39A210614C09ABD8FDDC6F7A6ECCC8D68917EC038B"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/img/sharp-linux-arm64@0.35.5",
+      "bom-ref": "pkg:npm/img/sharp-linux-arm64@0.35.4",
       "name": "@img/sharp-linux-arm64",
-      "version": "0.35.5",
-      "purl": "pkg:npm/img/sharp-linux-arm64@0.35.5",
+      "version": "0.35.4",
+      "purl": "pkg:npm/img/sharp-linux-arm64@0.35.4",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "2D8571E494EC38CD820739B1ADE87E9E5EB8FF71FA5DBD3D8922E49EA1F8EF3D93D83145C437852CFE72E1D2707BA1FBB864251CFC8412D22ACA8DC362C47075"
+          "content": "0DEE23A449C053C1DDE684F48F51B7B8BE19BD3BA2A55327ED80BABCF689872EBFEC4C0469ED12540A01AD431841B90B1839BCE6D6955B0B8F7356B8E0B4F309"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/img/sharp-linux-arm@0.35.5",
+      "bom-ref": "pkg:npm/img/sharp-linux-arm@0.35.4",
       "name": "@img/sharp-linux-arm",
-      "version": "0.35.5",
-      "purl": "pkg:npm/img/sharp-linux-arm@0.35.5",
+      "version": "0.35.4",
+      "purl": "pkg:npm/img/sharp-linux-arm@0.35.4",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "2C46972B659D5D52B9CA4730D1BB96C8F32C98B2CBDAFA472C3EB2ACD496F891842F70593C0E2DA4A37A89A31CE00C534C0A1A5FFB14D6B38BE7595C233E3C65"
+          "content": "ECE012F2023411178A1953761ECB0794CEAE989831179548DF1374A7D140F75A7F60EFA8BB986236084B759E41107CEDC1A68AE7E6CB2917FCC7FA362F69E4F4"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/img/sharp-linux-ppc64@0.35.5",
+      "bom-ref": "pkg:npm/img/sharp-linux-ppc64@0.35.4",
       "name": "@img/sharp-linux-ppc64",
-      "version": "0.35.5",
-      "purl": "pkg:npm/img/sharp-linux-ppc64@0.35.5",
+      "version": "0.35.4",
+      "purl": "pkg:npm/img/sharp-linux-ppc64@0.35.4",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "415C4002AF1EBD5448F626B6BEA830AE65AE727E437EFF89756CE3EF9A43F289872CF48FEDFF29DB43BC8F1CE309CB8211010EB583995265F5864899D2475EBC"
+          "content": "DA861925E225E2409C306938A2E6558E7902B45AE940594D12D27A19BC7384741C8701F4347FEA11BF729263A5DBD76AC0CABE26115D667FB56A4D852A123D7D"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/img/sharp-linux-riscv64@0.35.5",
+      "bom-ref": "pkg:npm/img/sharp-linux-riscv64@0.35.4",
       "name": "@img/sharp-linux-riscv64",
-      "version": "0.35.5",
-      "purl": "pkg:npm/img/sharp-linux-riscv64@0.35.5",
+      "version": "0.35.4",
+      "purl": "pkg:npm/img/sharp-linux-riscv64@0.35.4",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "2ED76B79782E69ABCA3833C87F327891F7F1ED436DD689B0B4AD2B721E0405B6D24D73E7C5699849AC9774B270D1F27343DEE41EDD602FFCA1E2DBD4FA70B245"
+          "content": "70F6CD0A1A1151101675E6C320749E9F1469804772EC990FC9D4A7531466F55BCA0FB9B4FF155A47FF05CE5BBCD699399C712F1C7F3B519500EDC4EDC276C948"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/img/sharp-linux-s390x@0.35.5",
+      "bom-ref": "pkg:npm/img/sharp-linux-s390x@0.35.4",
       "name": "@img/sharp-linux-s390x",
-      "version": "0.35.5",
-      "purl": "pkg:npm/img/sharp-linux-s390x@0.35.5",
+      "version": "0.35.4",
+      "purl": "pkg:npm/img/sharp-linux-s390x@0.35.4",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "5196AC4CE162633A2D4EC18E0AEE3605F5333FA4EEE83A3FF78EE2466D51B0B2AF965971C06727E11376ECB89B19671E8B1E18F8F9B0DE3B274DC0902205A3A8"
+          "content": "458D09158F0577A4689C206D1F3F83BDA75A3E45C3488D40527EB258BF538A9AA4675BD8F30F1EBEA760C83167926E3F2B5BDED53BD989A78F3F9A12778F9655"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/img/sharp-linux-x64@0.35.5",
+      "bom-ref": "pkg:npm/img/sharp-linux-x64@0.35.4",
       "name": "@img/sharp-linux-x64",
-      "version": "0.35.5",
-      "purl": "pkg:npm/img/sharp-linux-x64@0.35.5",
+      "version": "0.35.4",
+      "purl": "pkg:npm/img/sharp-linux-x64@0.35.4",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "4B116D2D378922784003D43CDFA92EC76BD935E381404C7AE7CAAF6DBA1949CAF4C08011CA6DC8706996ECAA550F9B1B560D0E8F2FAE74541D6B2608672A0DA2"
+          "content": "F6ABEF100BA4F24F3D4DF594A17DA1B568DB00C5FCA7E3710A9A63A5C83993AC4CB2384140F4ECA08877EA1F5075EE1646E1A925E6273A3768B039FF727BFE38"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/img/sharp-linuxmusl-arm64@0.35.5",
+      "bom-ref": "pkg:npm/img/sharp-linuxmusl-arm64@0.35.4",
       "name": "@img/sharp-linuxmusl-arm64",
-      "version": "0.35.5",
-      "purl": "pkg:npm/img/sharp-linuxmusl-arm64@0.35.5",
+      "version": "0.35.4",
+      "purl": "pkg:npm/img/sharp-linuxmusl-arm64@0.35.4",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "F476CC725988D7394D90546CDF3F7F781B438DF0F4B0696B5F5CFA6F5AB09A2158E449432E1E010B42CF05D569EF3D435C588A9487339DFF9996CB99CCBC50AA"
+          "content": "281E63C697D6413AF49DCDF1747B560A175B89F1EB046B1DD9233AD84CB1AE5F1A7E2926F9FE6A18153BE522486414FF4B5302F17C9A71D95704C496ABA39444"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/img/sharp-linuxmusl-x64@0.35.5",
+      "bom-ref": "pkg:npm/img/sharp-linuxmusl-x64@0.35.4",
       "name": "@img/sharp-linuxmusl-x64",
-      "version": "0.35.5",
-      "purl": "pkg:npm/img/sharp-linuxmusl-x64@0.35.5",
+      "version": "0.35.4",
+      "purl": "pkg:npm/img/sharp-linuxmusl-x64@0.35.4",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "E0A3A986A074DF91EB55DA8B65F0A0333CC446B4249333B04619783809113B560295D6DA163C925CC68AE77E0CA3457E2E776794993EB1B5322DE53450BC83D4"
+          "content": "7FE79925921034411DDBA44F496FBBE9C87039FD57B40D98FCEFB9A1C5722E588791E8A1DDEFA384B54174D4DDDAB4B721B3572BCFAE83DDD57F9657B45E4BC6"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/img/sharp-wasm32@0.35.5",
+      "bom-ref": "pkg:npm/img/sharp-wasm32@0.35.4",
       "name": "@img/sharp-wasm32",
-      "version": "0.35.5",
-      "purl": "pkg:npm/img/sharp-wasm32@0.35.5",
+      "version": "0.35.4",
+      "purl": "pkg:npm/img/sharp-wasm32@0.35.4",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "3EDB206B5B2EE2D431F8B2C5D44092F54EA7CF9926AD72A8E9755BB51E3C29EDD9471C6069606EEC80ED11ED6ABA8F218AEA709BA585AB15655DA49FEC820D19"
+          "content": "CD09E5E0AC29ED0E8D1EC10DB54D93FF4D198BEC37010370CF7F94693C95072D85A57AF35F31A39DDA4AEB5A278598D1B51A505F10937AAC35F5B5725CE87B8C"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/img/sharp-webcontainers-wasm32@0.35.5",
+      "bom-ref": "pkg:npm/img/sharp-webcontainers-wasm32@0.35.4",
       "name": "@img/sharp-webcontainers-wasm32",
-      "version": "0.35.5",
-      "purl": "pkg:npm/img/sharp-webcontainers-wasm32@0.35.5",
+      "version": "0.35.4",
+      "purl": "pkg:npm/img/sharp-webcontainers-wasm32@0.35.4",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "85F845FC59A84324D4900D1B20A14EB70E77E8141278131EE8117A4325A5ACFC53EF9E3E4C52DA67BB0A2937EFBCCD322602A06984F09C508867F1AE0F0E5250"
+          "content": "1127CD932C2609F3CDC9A663C68A1D74942243E97F9D3A4610E1AD87188B9C81D70BF0A67018B19DFC1495E5FD982CFDA2FAD452F28C6A9FE99BC4586F37F068"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/img/sharp-win32-arm64@0.35.5",
+      "bom-ref": "pkg:npm/img/sharp-win32-arm64@0.35.4",
       "name": "@img/sharp-win32-arm64",
-      "version": "0.35.5",
-      "purl": "pkg:npm/img/sharp-win32-arm64@0.35.5",
+      "version": "0.35.4",
+      "purl": "pkg:npm/img/sharp-win32-arm64@0.35.4",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "5F8B7B83EED90390CA6E50811171A352AA9E9A3E2F73320D1BFE6F885C002FC878377A987B28F0742BD12C78B811D39423ED99ED4165A7554CFA9FC0B84B66E9"
+          "content": "88D765057F602D5BEA7B6237B8825220A4EAEB07243FF0D8C59B5CAB19B4F71E468B6E039C50663C05999ABEB467260C1B4C65CE8EA0A06DFAEF46ABF915EF47"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/img/sharp-win32-ia32@0.35.5",
+      "bom-ref": "pkg:npm/img/sharp-win32-ia32@0.35.4",
       "name": "@img/sharp-win32-ia32",
-      "version": "0.35.5",
-      "purl": "pkg:npm/img/sharp-win32-ia32@0.35.5",
+      "version": "0.35.4",
+      "purl": "pkg:npm/img/sharp-win32-ia32@0.35.4",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "E599BCD8BA01738DE78703726D9946ED8D4A3BFFD986C9F7D3A7D0976F593AE4AD1CB193A370562FCDEADDCCE75F4A68C5200CB982F53A7FC11C1C6405E2ABE8"
+          "content": "92A46C6DA6B9092E8A1E5A719CDED6844EAF000BA05F2641BADA5176F0D67AD96FE90BF837D59372B5B317BB577C1F53ECCB2869DA9D23C866C0BABA5252EFB7"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/img/sharp-win32-x64@0.35.5",
+      "bom-ref": "pkg:npm/img/sharp-win32-x64@0.35.4",
       "name": "@img/sharp-win32-x64",
-      "version": "0.35.5",
-      "purl": "pkg:npm/img/sharp-win32-x64@0.35.5",
+      "version": "0.35.4",
+      "purl": "pkg:npm/img/sharp-win32-x64@0.35.4",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "C7BE9E1F4BC488795C310BBC63C21E9E7B5A002B5D7694FA5B4C265ED5AB9CA727288ECC1390DD82A8400FA48458E125D6FDB30EF9190E1140F4A9D4470A5FAA"
+          "content": "5ED9A762105CACE46C2785C99E0CB3AFF1163F485164B019445680A5D2AEBE2CAA17BF3ECA5C61DB2D3A666B542C030E9CE6C9DEE72937401CC125A7328C1346"
         }
       ]
     },
@@ -5548,14 +5535,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/modelcontextprotocol/sdk@1.31.0",
+      "bom-ref": "pkg:npm/modelcontextprotocol/sdk@1.30.0",
       "name": "@modelcontextprotocol/sdk",
-      "version": "1.31.0",
-      "purl": "pkg:npm/modelcontextprotocol/sdk@1.31.0",
+      "version": "1.30.0",
+      "purl": "pkg:npm/modelcontextprotocol/sdk@1.30.0",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "52F4CC8273659C804EFF6DA86F645C5460E572F3AC950B3C4F9F7E15319D0342F6EDADFD7DD185FC40C44CDB4354AE03646A70A2696C62945D03C5177152FFA7"
+          "content": "C4A77C388CE5A8DCDCA9C36E98601AEA0F8F5B69230F9BEBA5C28E9DF95D0143CFDE3EE59EA30FC254D7426F2017E5301FBDB3D25A9A45B8EBF61A86CF47884C"
         }
       ]
     },
@@ -5686,6 +5673,188 @@
         {
           "alg": "SHA-512",
           "content": "7926164E6EB6D2D4E4E3910A49E75A50BF0C15823C856D7AE21217B20207CB1BB75686D40777C50AEE6DD2141BCBA3A85913EC1B52A42941B633951A7622E256"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/pnpm/exe.android-arm64@12.14.0",
+      "name": "@pnpm/exe.android-arm64",
+      "version": "12.14.0",
+      "purl": "pkg:npm/pnpm/exe.android-arm64@12.14.0",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "FA24A1EF1DB50B703686A73E6746666CA4DC9FA60D973AD7335E363EC9D01FF74B8F40D8C45CE806F73A5C09CBFF27D0E679C7D9E6C18918FFCD5C6BEB57D96D"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/pnpm/exe.android-x64@12.14.0",
+      "name": "@pnpm/exe.android-x64",
+      "version": "12.14.0",
+      "purl": "pkg:npm/pnpm/exe.android-x64@12.14.0",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "A93FB42EA12BDB00556B1706D93F1C5FF47C492473D91BE9A7C9D14787E1F2D9C651945C87CEE0166B07500A12421EF0EA3D61D2A4E3AC0DFCE23E318BC7EBBF"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/pnpm/exe.darwin-arm64@12.14.0",
+      "name": "@pnpm/exe.darwin-arm64",
+      "version": "12.14.0",
+      "purl": "pkg:npm/pnpm/exe.darwin-arm64@12.14.0",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "B67ADD501F1E709A1E86E28AAA2D581C205597AD71B49F57546731E44BE20BA7D63B80DE188F06B57AE3BC9C4304CDE7B958C97968ACB60B14A7F375E36C78B3"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/pnpm/exe.darwin-x64@12.14.0",
+      "name": "@pnpm/exe.darwin-x64",
+      "version": "12.14.0",
+      "purl": "pkg:npm/pnpm/exe.darwin-x64@12.14.0",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "BE505F1A4AEEA9046C1074D6E3770FC2961DED095B209FFF72FA4075BDDB557908F128133E85E10A7734E66F993623EBAC4901B17FEDECA1F0F5A5E99333E6DD"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/pnpm/exe.freebsd-x64@12.14.0",
+      "name": "@pnpm/exe.freebsd-x64",
+      "version": "12.14.0",
+      "purl": "pkg:npm/pnpm/exe.freebsd-x64@12.14.0",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "420E6BC41AC6625E937ECA3E132CA03DFF387D8D45CF2E7913FD28AFE8AE60AB677F4BDCD0C94725F548953EE906E90C467B501D18A4EE1522D19E2CEC0949B3"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/pnpm/exe.linux-arm64-musl@12.14.0",
+      "name": "@pnpm/exe.linux-arm64-musl",
+      "version": "12.14.0",
+      "purl": "pkg:npm/pnpm/exe.linux-arm64-musl@12.14.0",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "0D121EE324245C1180FCF85525DCE56E7965C41740B6730CBD354B2DC1A9B0AE45BC9CFD9310F61F2C6D9FAF28BE6364557D3A7FAA78E5C4307E6DF0C768E7D4"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/pnpm/exe.linux-arm64@12.14.0",
+      "name": "@pnpm/exe.linux-arm64",
+      "version": "12.14.0",
+      "purl": "pkg:npm/pnpm/exe.linux-arm64@12.14.0",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "EE3A064A1678E0D9375A9354FBAD09A0E3E3097960C61240AB5D52D94895B700940E04DEAF5C933CF7F1196F29C5A0FAD38E9A72D60B2180DB64D96E6C75ACD0"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/pnpm/exe.linux-ppc64@12.14.0",
+      "name": "@pnpm/exe.linux-ppc64",
+      "version": "12.14.0",
+      "purl": "pkg:npm/pnpm/exe.linux-ppc64@12.14.0",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "812A2BCA7EF249D5DDFFF82381FDCCBEF03C65EAC96B26926EE31932D016AB8BDBDBFC255448299742AFAADE78CB9F13463E77DD08EADADC4A827C5DE09CA801"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/pnpm/exe.linux-riscv64@12.14.0",
+      "name": "@pnpm/exe.linux-riscv64",
+      "version": "12.14.0",
+      "purl": "pkg:npm/pnpm/exe.linux-riscv64@12.14.0",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "10C8DEC351FD5AA43BA4BFAD62A08FC22B81FB43DE0A225157B7F259EB85C34C306146A31418DC68F3B7206015BBDB1D9890D4F9EF8762FFD97B2E9A29A7B457"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/pnpm/exe.linux-s390x@12.14.0",
+      "name": "@pnpm/exe.linux-s390x",
+      "version": "12.14.0",
+      "purl": "pkg:npm/pnpm/exe.linux-s390x@12.14.0",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "B2160E8FF485A170F7E5F1DED295ABD89A1FC125EE942D019C42172E3D90A240E2D0417FFC07CAB2E8B7E72288913125FACD952726DCDCF3B88893612888F943"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/pnpm/exe.linux-x64-musl@12.14.0",
+      "name": "@pnpm/exe.linux-x64-musl",
+      "version": "12.14.0",
+      "purl": "pkg:npm/pnpm/exe.linux-x64-musl@12.14.0",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "6ED6626763ADD2594A2B59DD49F0398B72115FBFD2D15AE6CEC78D1FF049E1CF8269DCBE4BCD47EAFBD4D730728201CCCAA4210BC3A0C4EE4F88863B0FD6C7D1"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/pnpm/exe.linux-x64@12.14.0",
+      "name": "@pnpm/exe.linux-x64",
+      "version": "12.14.0",
+      "purl": "pkg:npm/pnpm/exe.linux-x64@12.14.0",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "17A2BC7BF8D6C62B84609690B514541BDCA70524C41DAFADECB7FCE8C2AE38EE5403B59554C6E2FA807C9D8EA2296FBE9DC592DB21BA4FD7DA5D91B1A8DB1FA1"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/pnpm/exe.win32-arm64@12.14.0",
+      "name": "@pnpm/exe.win32-arm64",
+      "version": "12.14.0",
+      "purl": "pkg:npm/pnpm/exe.win32-arm64@12.14.0",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "0CE8E591507A4ED4CA78001ED213595E7E52ED8A844A6A3567A4866D1E0164D4388AC460DF55D51E35F64454DB63C82766AEBC230CF22E63EA9448CC998C687E"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/pnpm/exe.win32-x64@12.14.0",
+      "name": "@pnpm/exe.win32-x64",
+      "version": "12.14.0",
+      "purl": "pkg:npm/pnpm/exe.win32-x64@12.14.0",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "FCB497EA67B0FEC2DFD3C5EA7237A6BA494D29FD4AFC5B69823E3FFE12BF1CACC8D9D29B9B10C1DBB6BFD8E690E5AD0EDFFDCE17396CB170F3899B22FB2541C1"
         }
       ]
     },
@@ -5847,14 +6016,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/smithy/core@3.35.1",
+      "bom-ref": "pkg:npm/smithy/core@3.35.0",
       "name": "@smithy/core",
-      "version": "3.35.1",
-      "purl": "pkg:npm/smithy/core@3.35.1",
+      "version": "3.35.0",
+      "purl": "pkg:npm/smithy/core@3.35.0",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "8B860F4B807AB6CEDB8E7ED4C0B9C68E265DA6B3AF1EF806A1B159B182B7188637139848AAD8F4AD1794EBD05C4E91A9F9FBEDADA48D5DE1B597E8ED26F179E7"
+          "content": "CD13217E4072853DAC9CD76BD6C8B6E2F262B54E82AFD8B1D8C8A451F5A6900829E23ACD3F419C2923F962FC10F93948F00657111E50386267DC9B15B520FDFC"
         }
       ]
     },
@@ -6536,14 +6705,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/compression@1.8.2",
+      "bom-ref": "pkg:npm/compression@1.8.1",
       "name": "compression",
-      "version": "1.8.2",
-      "purl": "pkg:npm/compression@1.8.2",
+      "version": "1.8.1",
+      "purl": "pkg:npm/compression@1.8.1",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "A3CBC8E5113903A11554E77DA38D632A9E35689A26F904C43BF071F0C60D8DEC4CA3F06FD963A351F66BF9A2F45A7612832994CBACDE82EA8B4EC22157480CBD"
+          "content": "F6602A18F1CB6A48422DE372C4F90AE31568EF8EB343F7332C7D4ACBEBE48AD32759F599A6CF2BD2A5EEC21C22CDA80246DB6C2F895F1B8A483AF6962E900FD3"
         }
       ]
     },
@@ -6744,19 +6913,6 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/destroy@1.2.0",
-      "name": "destroy",
-      "version": "1.2.0",
-      "purl": "pkg:npm/destroy@1.2.0",
-      "hashes": [
-        {
-          "alg": "SHA-512",
-          "content": "DAC246253697208691D70E22252368374867318EC6A5CFE7F03E2A482270F10A855977FB72E0209C41F1069C1E69570F7AF0B69772A98D80B1DCDCA941081A26"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "bom-ref": "pkg:npm/detect-libc@2.1.2",
       "name": "detect-libc",
       "version": "2.1.2",
@@ -6952,14 +7108,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/express-rate-limit@8.7.1",
+      "bom-ref": "pkg:npm/express-rate-limit@8.6.2",
       "name": "express-rate-limit",
-      "version": "8.7.1",
-      "purl": "pkg:npm/express-rate-limit@8.7.1",
+      "version": "8.6.2",
+      "purl": "pkg:npm/express-rate-limit@8.6.2",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "D855DBAA4CA08A5DE66625F312D33422313F501981368B7427518456B253E096EBBF0392A04B6AB4EFB01DB88C4042D67B578DBC7A18460D9D9233A277EE8990"
+          "content": "607E2BBBE78E27140006C70A15F442CBD47BC7D40519D7B372554CC308051677734B65E79B4BA8E81D00059B0B85CA5EA6D1AFDAABEE2555A542BF60419A02DC"
         }
       ]
     },
@@ -7017,14 +7173,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/fast-uri@3.1.7",
+      "bom-ref": "pkg:npm/fast-uri@3.1.6",
       "name": "fast-uri",
-      "version": "3.1.7",
-      "purl": "pkg:npm/fast-uri@3.1.7",
+      "version": "3.1.6",
+      "purl": "pkg:npm/fast-uri@3.1.6",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "74EBD95738DD65DCFBA6177DBFA8C26F0C6B056DDF2BA9FC45CD02B5D98CE1BBA6CCC9F1CB005886EA61E89F35F51470FE4BBEACB6DE9707CCBA792DBB35551E"
+          "content": "EC871A975BC510CAF4A276D5CC40C8ADE336D88E24856F9FCF240FC2F005581A758B076C852651B0BE238D1BCF1BD24FD6E8AA30746DA3E614E91DBF0B30F3E5"
         }
       ]
     },
@@ -7316,14 +7472,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/hono@4.13.13",
+      "bom-ref": "pkg:npm/hono@4.13.2",
       "name": "hono",
-      "version": "4.13.13",
-      "purl": "pkg:npm/hono@4.13.13",
+      "version": "4.13.2",
+      "purl": "pkg:npm/hono@4.13.2",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "090E3A53466400699B4FFE14C5DCF3189A5A70FD8878A818E1AE7FB4E23D00005BA4E31F2BBDFDC1F0D79AFD6EB0293EDD190A8F5850CB8FDF8E18B06B6C65AC"
+          "content": "2727518A50D191805032DF6A47D53DDA65F199B1AAB2A4A7FC828EAE1E1EEFF8046E7FB4CD2AFC8A04EED286F0268346378B1ECF6F0322A97B1411D6C9DA09A4"
         }
       ]
     },
@@ -7342,14 +7498,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/http-cache-semantics@4.3.0",
+      "bom-ref": "pkg:npm/http-cache-semantics@4.2.0",
       "name": "http-cache-semantics",
-      "version": "4.3.0",
-      "purl": "pkg:npm/http-cache-semantics@4.3.0",
+      "version": "4.2.0",
+      "purl": "pkg:npm/http-cache-semantics@4.2.0",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "339B792E52694B5507323BF045055D147BCF21219E2C0C4D72B5AE2647868742B1B2A0876753B7357654FFCC7B703D010DC196F246A9C4C293BF096AACD90790"
+          "content": "753C5CBCF5EA3EF5C1429AB9754AFA9843095F8A08105BFA6F0A26DC50F02910ECB888E324600DAA106EA009FD73545024874029ABF7DC40FAE44DB2B3EF3B41"
         }
       ]
     },
@@ -7459,14 +7615,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/ip-address@10.7.3",
+      "bom-ref": "pkg:npm/ip-address@10.5.0",
       "name": "ip-address",
-      "version": "10.7.3",
-      "purl": "pkg:npm/ip-address@10.7.3",
+      "version": "10.5.0",
+      "purl": "pkg:npm/ip-address@10.5.0",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "03591DABFB526F9423BCABC032022812F0C12202FBA9AA953FF8E4BD2C1861167D884CEF3E9A29C69DB041FBB74AE6511EDA47371327F05B346D2FA07F95E6C2"
+          "content": "4794A754B26681862F7F6176660C120677A5CF91B8AB9031202DBBEC60DF51A35BAD928D00D7010BB447A9861E3E5B337F8901A2556425AB86D198C71C5879E6"
         }
       ]
     },
@@ -7940,19 +8096,6 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/negotiator@1.0.0",
-      "name": "negotiator",
-      "version": "1.0.0",
-      "purl": "pkg:npm/negotiator@1.0.0",
-      "hashes": [
-        {
-          "alg": "SHA-512",
-          "content": "F0E7ECFC051087C31A11CAE5AB9C4E5F4090F72A53179765EFC9A394C35F38AD3C7F3A604C741140F07170F944B48C34C91A70B3E668FF7AFEE5645BCBBBB71A"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "bom-ref": "pkg:npm/negotiator@1.1.0",
       "name": "negotiator",
       "version": "1.1.0",
@@ -8317,14 +8460,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/pako@0.2.5",
+      "bom-ref": "pkg:npm/pako@0.2.9",
       "name": "pako",
-      "version": "0.2.5",
-      "purl": "pkg:npm/pako@0.2.5",
+      "version": "0.2.9",
+      "purl": "pkg:npm/pako@0.2.9",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "3C22D5A18086E4CD5AFF8097BA10E3AAB510226B07DA950E30834DCFB896DCE70886FADC84B89911724621E1F750FF24E9814938ABE91480641A1343E79BAEBF"
+          "content": "35473068AC54C56AD92E90C6FB3FF165A0A04084E403F0EFE15FD3E9BC3B54E37A9755F3FD59EB06AAD88D9435D936A6287CC84D37CE1086148F8F32D8A5C898"
         }
       ]
     },
@@ -8447,14 +8590,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/pnpm@11.28.5",
+      "bom-ref": "pkg:npm/pnpm@12.14.0",
       "name": "pnpm",
-      "version": "11.28.5",
-      "purl": "pkg:npm/pnpm@11.28.5",
+      "version": "12.14.0",
+      "purl": "pkg:npm/pnpm@12.14.0",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "484563D30B4C2AD27CB48AA94FF2B302DBCEBC8FF6BF28816C2589886E146CE7F76F354F3BC1A438E6F5E9768C302AA0A6F7ADD8232903CD4CF81426CBC14D9E"
+          "content": "C18BA6D87993D3D164CB5E8948F32B2C06EE854487E06CD8D86781342FB3E5BB4634367034711E86802BAA9C37BEA906CE1929AD08D70884C97D801DF13389A6"
         }
       ]
     },
@@ -8512,14 +8655,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/proxy-addr@2.0.8",
+      "bom-ref": "pkg:npm/proxy-addr@2.0.7",
       "name": "proxy-addr",
-      "version": "2.0.8",
-      "purl": "pkg:npm/proxy-addr@2.0.8",
+      "version": "2.0.7",
+      "purl": "pkg:npm/proxy-addr@2.0.7",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "E679F1D321B2554718EADF519D6700456B704FD1750FC3BDAEDD3C86D3EF9DDE3D5B522066D98B921BBD59F333423D5C1718C720EE9CA279D43555B993B015C9"
+          "content": "96542C30B4940D43D3E388DDAD4FCEDFBAA59E27E2B433FE670AE699972848AC8B2AFB59C69C95D27DBF6C3FCDE2D040019FE024475953B28CADAA0AD7E5D802"
         }
       ]
     },
@@ -8538,14 +8681,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/qs@6.16.0",
+      "bom-ref": "pkg:npm/qs@6.15.3",
       "name": "qs",
-      "version": "6.16.0",
-      "purl": "pkg:npm/qs@6.16.0",
+      "version": "6.15.3",
+      "purl": "pkg:npm/qs@6.15.3",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "87A7E1388691AC80F609B118D9FAACFBBB7E517668F8C2C09D4E60448ABCE6E16D76250F09DB00A4C947857A202953381CCD8355B22318D4D3607D8E7263F5BC"
+          "content": "3BD825DF30A5E61E5B970D4A194CD02A1039A145D297CAF0508339A344B79C25CC9624AFCB90F3C7BFC325C23E4B08080AFF889DE499C21061D684B210703BD4"
         }
       ]
     },
@@ -8811,14 +8954,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/sharp@0.35.5",
+      "bom-ref": "pkg:npm/sharp@0.35.4",
       "name": "sharp",
-      "version": "0.35.5",
-      "purl": "pkg:npm/sharp@0.35.5",
+      "version": "0.35.4",
+      "purl": "pkg:npm/sharp@0.35.4",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "6309F83A7CC6BA4A7B08332BA74F11439D182A6BB01B8EDBAD980854F4EF05A6807D095197282B46A4ABC5D0A22FD33E2E5CCB06227AF0847542ABF31F28C2EE"
+          "content": "9FEFBC5D6723FA308EAF620E97B87C2DB2A71810D8E1A3DB9A9ACC38D04D15D9F42265EAA4656FE739620ECD15F476E66C240BA5BBA8D9E8FDAC0A0E413BCC0C"
         }
       ]
     },
@@ -9123,14 +9266,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/type-fest@4.26.1",
+      "bom-ref": "pkg:npm/type-fest@4.41.0",
       "name": "type-fest",
-      "version": "4.26.1",
-      "purl": "pkg:npm/type-fest@4.26.1",
+      "version": "4.41.0",
+      "purl": "pkg:npm/type-fest@4.41.0",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "C8E1A998E00BEC290A7BFF752393B780F20298934B2751B8CC561502C44783B33AE1B8929CFB518F458D42DFBE6D192360EAA3597AE19D4C35BADCE6544AC076"
+          "content": "4DE4D243A1F9607BE9A95C0145C9CB0C20670CE1D662EEC8BC66C74FA37C00ECA672BF4F2468DCD464ED896653620D0D0A0630BE761612454285002BF5B8DFC0"
         }
       ]
     },
@@ -9149,6 +9292,19 @@
     },
     {
       "type": "library",
+      "bom-ref": "pkg:npm/typebox@1.3.27",
+      "name": "typebox",
+      "version": "1.3.27",
+      "purl": "pkg:npm/typebox@1.3.27",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "CEEFA3735A5CCB85223538718A452BDFA7F44726E4F4F11E0A0FCD13A69D796AFF48AB1D34EE04CD91D844396FD9809501F8F739DAB7744492A3F8CDCA8057CC"
+        }
+      ]
+    },
+    {
+      "type": "library",
       "bom-ref": "pkg:npm/undici-types@8.3.0",
       "name": "undici-types",
       "version": "8.3.0",
@@ -9162,14 +9318,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/undici@8.10.2",
+      "bom-ref": "pkg:npm/undici@8.11.2",
       "name": "undici",
-      "version": "8.10.2",
-      "purl": "pkg:npm/undici@8.10.2",
+      "version": "8.11.2",
+      "purl": "pkg:npm/undici@8.11.2",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "FF2E3F6C7F58354E618BD348AE93AEBC65C5731AE3DC232B57EFC0629A300184E91E7F205FF5CF163372EFAE853E8618D2689085D5BDEFB24558A18D841770C9"
+          "content": "BB8501DBF22B29D53A945C6E9879A6A356B77C240EE6DCD0965468ADFA114BADEDC61AC1EF14E94A7D4F7EDC02E2A10790E6AA3FDE5F0965B8949CF012BC3385"
         }
       ]
     },
@@ -9378,6 +9534,19 @@
         {
           "alg": "SHA-512",
           "content": "3BF3E07E7A53D712920DE4184827D12391B2DE13DFF7598A543B982D41D924C883169B6F3F8D4C4A75A87E6F1D9C29B4DB9E9935F64833B0D2CEE48C0059E31C"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/zod@4.4.3",
+      "name": "zod",
+      "version": "4.4.3",
+      "purl": "pkg:npm/zod@4.4.3",
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "CAD10D163209165D94C1882575EDA37215B61F09B818914B0E249759D4EB25004837D15CCA9EE7E0387124489634024C575FC1A967D6FE4920EF55037072724D"
         }
       ]
     },

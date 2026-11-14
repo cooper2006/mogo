@@ -10,7 +10,7 @@ import hashlib
 import json
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, Field
@@ -283,7 +283,7 @@ def _receipt_expired(receipt: ActionReceipt, policy: ReplayPolicy) -> bool:
     ttl = policy.expires_after_seconds
     if ttl is None:
         return False
-    return receipt.updated_at + timedelta(seconds=ttl) < datetime.utcnow()
+    return receipt.updated_at + timedelta(seconds=ttl) < datetime.now(tz=timezone.utc)
 
 
 __all__ = [

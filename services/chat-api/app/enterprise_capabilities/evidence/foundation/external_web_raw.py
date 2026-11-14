@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 import re
@@ -29,7 +30,7 @@ def tool_name_from_record(record: Dict[str, Any]) -> str:
     nested = record.get("result") if isinstance(record.get("result"), dict) else {}
     candidates.extend([nested.get("tool"), nested.get("tool_name")])
     for item in candidates:
-        token = _normalize_tool_name(item)
+        token = _normalize_tool_name(item)  # pragma: allowlist secret
         if token:
             return token
     return ""
@@ -61,8 +62,8 @@ def _parse_jsonish(value: str) -> Any:
         return None
     try:
         return json.loads(text)
-    except Exception:
-        return None
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.evidence.foundation.external_web_raw] silent exception caught: {exc}", flush=True)
 
 
 def _is_empty(value: Any) -> bool:

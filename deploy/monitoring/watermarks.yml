@@ -1,0 +1,112 @@
+# 024 T102 (FR-049)：容量与资源水位阈值。
+# watermark-check.sh（T103 / `./mogo monitor`）逐项读取并判定，
+# 任一 CRIT 即升级告警；水位数据来自本机实时采样（内存 / CPU / 磁盘 / 日志体积）。
+#
+# units 说明：
+#   percent  百分比（0-100）
+#   bytes    bytes（可带 K/M/G/T 后缀，如 "10G"、"512M"）
+#   count    纯计数
+
+version: 1
+
+watermarks:
+  # --- 主机内存 ---
+  - key: host.memory.percent
+    label: 主机内存占用率
+    metric: memory_used_percent
+    source: "free -m"
+    warn: 80
+    crit: 92
+    unit: percent
+    remediation: "释放未用容器 / 扩内存；见 docs/capacity-model.md §1"
+
+  # --- 主机 CPU ---
+  - key: host.cpu.percent
+    label: 主机 CPU 使用率
+    metric: cpu_used_percent
+    source: "1 分钟 load average 换算（uptime / sysctl）"
+    warn: 75
+    crit: 90
+    unit: percent
+    remediation: "定位高负载容器（docker stats）；必要时扩容"
+
+  # --- 数据磁盘（mongo-data 卷所在盘）---
+  - key: disk.data.used_percent
+    label: 数据盘使用率
+    metric: disk_used_percent
+    source: "df -h ${MOGO_DATA_MOUNT:-/}"
+    warn: 75
+    crit: 90
+    unit: percent
+    remediation: "清理旧备份 / 扩容；监控 mongo 卷增长"
+
+  # --- 备份目录可写空间 ---
+  - key: disk.backup.used_percent
+    label: 备份盘使用率
+    metric: disk_used_percent
+    source: "df -h ${MOGO_BACKUP_MOUNT:-./backups}"
+    warn: 80
+    crit: 95
+    unit: percent
+    remediation: "调整保留策略（retain_count / retain_days）；异地备份必须可写"
+
+  # --- 备份保留份数 ---
+  - key: backup.retain_count
+    label: 本地备份保留份数
+    metric: count_of
+    source: "ls backups/ 统计日期目录"
+    warn: 3          # 少于 3 份告警（至少保证一份可用）
+    crit: 1
+    unit: count
+    direction: min   # 阈值语义：低于 warn / crit 即告警
+    remediation: "检查 backup-schedule 是否正常；立即手动补做一次备份"
+
+  # --- 单份备份大小（防止静默失败导致备份异常小/大）---
+  - key: backup.size.bytes
+    label: 最近一份备份大小
+    metric: backup_size_bytes
+    source: "du -sb backups/<latest>"
+    warn: 1048576          # < 1MiB 视为异常
+    crit: 0
+    unit: bytes
+    direction: min
+    remediation: "备份内容疑似缺失，检查 mongo-backup 容器日志"
+
+  # --- 日志目录体积 ---
+  - key: logs.total.bytes
+    label: 日志目录总体积
+    metric: total_bytes
+    source: "du -sb ${MOGO_LOG_DIR:-logs}"
+    warn: 10737418240       # 10GiB
+    crit: 21474836480       # 20GiB
+    unit: bytes
+    direction: max
+    remediation: "按天归档 / 轮转；见 deploy/cli/logrotate.sh"
+
+  # --- MongoDB 连接数 ---
+  - key: mongo.connections.count
+    label: MongoDB 当前连接数
+    metric: mongo_connections_count
+    source: "mongosh --quiet --eval 'db.adminCommand({serverStatus:1}).connections.current'"
+    value: "mongodb://mongo:27017/?replicaSet=rs0"
+    warn: 80
+    crit: 95
+    unit: percent
+    direction: max          # 语义：占 max_connections 的百分比
+    max_connections: 65536  # 单机 mongod 默认上限
+    remediation: "检查慢查询与连接池泄漏；必要时提升 maxIncomingConnections"
+
+  # --- 异步任务队列深度 ---
+  - key: queue.depth.count
+    label: 异步任务队列深度
+    metric: queue_depth_count
+    source: "应用侧暴露 /metrics 的 queue_depth（document-parser / chat-api）"
+    value: ""
+    warn: 1000
+    crit: 5000
+    unit: count
+    direction: max
+    remediation: "扩容消费端；检查消费端是否掉线（见 ./mogo status）"
+
+# 采集方式：内存 / CPU / 磁盘 / 备份统计由 watermark-check.sh 本地采样。
+# 若接入 Prometheus，可把 metric 换成对应 PromQL 表达式的执行结果。

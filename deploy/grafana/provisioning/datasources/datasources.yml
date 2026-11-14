@@ -1,0 +1,46 @@
+# 023 observability-resilience (T012)
+# Grafana 数据源 provisioning：Prometheus（主）、Loki（日志）、
+# Tempo（分布式追踪）。挂载到 /etc/grafana/provisioning，compose 里
+# grafana 服务的 GF 环境变量已指向它（files 布局：grafana 自动扫
+# /etc/grafana/provisioning/datasources/*.y*ml）。
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: mogo-prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      prometheusType: Prometheus
+      prometheusVersion: "2.53"
+      interval: "15s"
+
+  - name: Loki
+    uid: mogo-loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false
+    jsonData:
+      maxQueryLength: 10000
+      httpMethod: POST
+
+  # OQ-2（2026-10-24）：追踪后端 = Tempo。
+  - name: Tempo
+    uid: mogo-tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    editable: false
+    jsonData:
+      httpMethod: GET
+      tracesToLogs: false
+      tracesToMetrics: false
+      serviceMap:
+        minNodeRequestDurationMs: "0"
+      nodeGraph:
+        enabled: true

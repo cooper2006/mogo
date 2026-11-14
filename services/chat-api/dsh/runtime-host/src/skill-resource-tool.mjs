@@ -28,7 +28,7 @@ export function registerSkillResourceTool(ctx, { provider, invocations }) {
   if (!provider?.hasResourceBundles()) return undefined
   return ctx.tools.register({
     name: SKILL_RESOURCE_READ_TOOL,
-    description: 'Read a UTF-8 text resource from the active MOVO Skill package. Use relative paths named in SKILL.md, such as assets/*.json or references/*.md.',
+    description: 'Read a UTF-8 text resource from the active MOGO Skill package. Use relative paths named in SKILL.md, such as assets/*.json or references/*.md.',
     parameters: PARAMETERS,
     output: {
       schema: { type: 'object' },

@@ -7,7 +7,7 @@ import test from 'node:test'
 import { readSkillTextResource } from '../src/skill-resource-reader.mjs'
 
 test('reads and paginates UTF-8 files inside a Skill package', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'movo-skill-resource-'))
+  const root = await mkdtemp(join(tmpdir(), 'mogo-skill-resource-'))
   try {
     await mkdir(join(root, 'assets'))
     await writeFile(join(root, 'assets', 'contacts.json'), '{\n  "phone": "0757-123456"\n}\n')
@@ -23,7 +23,7 @@ test('reads and paginates UTF-8 files inside a Skill package', async () => {
 })
 
 test('rejects traversal, symlink escapes, and binary package resources', async () => {
-  const parent = await mkdtemp(join(tmpdir(), 'movo-skill-resource-boundary-'))
+  const parent = await mkdtemp(join(tmpdir(), 'mogo-skill-resource-boundary-'))
   const root = join(parent, 'skill')
   try {
     await mkdir(root)

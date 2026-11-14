@@ -19,6 +19,7 @@ execution engine is introduced — the composite skill is "just" a curated
 way to fill ``content_task_spec.subtasks``.
 """
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 import logging
@@ -49,7 +50,8 @@ def _extract_frontmatter(markdown: str) -> Dict[str, Any]:
         return {}
     try:
         data = yaml.safe_load(match.group(1)) or {}
-    except Exception:
+    except Exception as exc:
+        log_print(f"[services.skill_assets.composite_task] silent exception caught: {exc}", flush=True)
         return {}
     return data if isinstance(data, dict) else {}
 
@@ -99,7 +101,8 @@ def _coerce_locator(raw: Any) -> Dict[str, Any]:
         if key == "nth":
             try:
                 out[key] = int(val)
-            except Exception:
+            except Exception as exc:
+                log_print(f"[services.skill_assets.composite_task._coerce_locator] suppressed {type(exc).__name__}: {exc}", flush=True)
                 continue
             continue
         s = str(val or "").strip()

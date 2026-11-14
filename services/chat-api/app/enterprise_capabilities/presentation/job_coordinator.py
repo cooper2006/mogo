@@ -18,7 +18,7 @@ class PresentationJobOpenResult:
 
 
 class PresentationJobCoordinator:
-    """Connect DSH business calls to durable MOVO presentation jobs."""
+    """Connect DSH business calls to durable MOGO presentation jobs."""
 
     def __init__(self, repository: PresentationJobRepository | None = None) -> None:
         self.repository = repository or PresentationJobRepository()
@@ -60,7 +60,7 @@ class PresentationJobCoordinator:
             return PresentationJobOpenResult(
                 None,
                 self._terminal_rejection(
-                    "The same PPT job is already running; MOVO will not create a duplicate",
+                    "The same PPT job is already running; MOGO will not create a duplicate",
                     requested=int(arguments.get("page_count") or 0),
                     continuation_token=snapshot.continuation_token,
                 ),

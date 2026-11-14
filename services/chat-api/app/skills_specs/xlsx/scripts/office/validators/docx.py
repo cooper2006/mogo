@@ -3,6 +3,23 @@ Validator for Word document XML files against XSD schemas.
 """
 
 import random
+import pathlib
+
+
+def _safe_extract(zf, dest):
+    """Zip-slip-safe extraction (QF-420).
+
+    Extract every member only when its resolved path stays inside *dest*.
+    Guards against absolute paths and ``../`` traversal entries. Works on
+    Python 3.10+ without relying on the 3.12+ ``filter=`` argument.
+    """
+    dest = pathlib.Path(dest).resolve()
+    for member in zf.infolist():
+        target = (dest / member.filename).resolve()
+        if target != dest and dest not in target.parents:
+            raise ValueError(f"Refusing zip-slip entry: {member.filename!r}")
+        zf.extract(member, str(dest))
+from app.infrastructure.observability.config import log_print
 import re
 import tempfile
 import zipfile
@@ -186,7 +203,7 @@ class DOCXSchemaValidator(BaseSchemaValidator):
         try:
             with tempfile.TemporaryDirectory() as temp_dir:
                 with zipfile.ZipFile(original, "r") as zip_ref:
-                    zip_ref.extractall(temp_dir)
+                    _safe_extract(zip_ref, temp_dir)
 
                 doc_xml_path = temp_dir + "/word/document.xml"
                 root = lxml.etree.parse(doc_xml_path).getroot()
@@ -284,8 +301,8 @@ class DOCXSchemaValidator(BaseSchemaValidator):
                                     f"  {xml_file.name}:{elem.sourceline}: "
                                     f"durableId={val} >= 0x7FFFFFFF"
                                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                log_print(f"[validators/docx/xlsx] XML validation failed: {exc}", flush=True)
 
         if errors:
             print(f"FAILED - {len(errors)} ID constraint violations:")
@@ -436,8 +453,8 @@ class DOCXSchemaValidator(BaseSchemaValidator):
                 if modified:
                     xml_file.write_bytes(dom.toxml(encoding="UTF-8"))
 
-            except Exception:
-                pass
+            except Exception as exc:
+                log_print(f"[validators/docx/xlsx] XML repair failed: {exc}", flush=True)
 
         return repairs
 

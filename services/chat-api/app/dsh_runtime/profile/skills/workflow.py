@@ -79,21 +79,21 @@ def compile_workflow_body(
         line = f"{index}. {instruction}\n   - capability_ref: `{binding.capability_ref}`"
         alias = str(node.get("outputAlias") or node.get("output_alias") or "").strip()
         if alias:
-            line += f"\n   - Output of this step: {alias}"
+            line += f"\n   - 本步骤输出：{alias}"
         if tool_name:
-            line += f"\n   - Call tool: `{tool_name}`"
+            line += f"\n   - 调用工具：`{tool_name}`"
         config = node.get("businessConfig") if isinstance(node.get("businessConfig"), dict) else {}
         if binding.capability_ref == "knowledge.read_document@v1":
             line += (
-                "\n   - Call arguments: "
-                f"`scope={config['knowledgeScope']}`, `source_id={config['knowledgeSourceId']}`. "
-                "Continue reading with `next_cursor` until `has_more=false`; never treat a retrieved excerpt as the complete document."
+                "\n   - 调用参数："
+                f"`scope={config['knowledgeScope']}`, `source_id={config['knowledgeSourceId']}`。"
+                "使用 `next_cursor` 继续读取直到 `has_more=false`；不要把检索到的片段当作完整文档。"
             )
         if node_type == "script_plugin":
             line += (
-                "\n   - Execute the configured `pluginCode` as the tool's `code` without rewriting it. "
-                "The sandbox provides the current user message as `inputs['user_text']`; "
-                "do not prepend the Skill path or reconstruct that text from tool data."
+                "\n   - 将配置的 `pluginCode` 原样作为工具的 `code` 执行，不重写。"
+                "沙箱提供当前用户消息为 `inputs['user_text']`；"
+                "不要拼接 Skill 路径或从工具数据重建该文本。"
             )
         if node_type == "review_check":
             config = resolved_review_config(nodes, index - 1)
@@ -106,7 +106,7 @@ def compile_workflow_body(
             for guidance in review_check_guidance(config):
                 line += f"\n   - {guidance}"
         if index - 1 in intermediate_nodes:
-            line += "\n   - This artifact is only for later steps; pass `delivery_scope=intermediate` when calling tools and do not deliver it as a standalone attachment."
+            line += "\n   - 此产物仅供后续步骤使用；调用工具时传入 `delivery_scope=intermediate`，不要作为独立附件交付给用户"
         bound_style_id = str(node.get("boundWritingSkillId") or "").strip()
         if bound_style_id:
             if node_type != "generate_content":
@@ -114,7 +114,7 @@ def compile_workflow_body(
             style_ref = style_refs.get(bound_style_id)
             if not style_ref:
                 raise PermissionError(f"workflow writing standard is unavailable: {bound_style_id}")
-            line += f"\n   - Pass `writing_style_ref={style_ref}` when generating content."
+            line += f"\n   - 调用内容生产时传入 `writing_style_ref={style_ref}`"
         public_config = (
             {key: value for key, value in config.items() if key != "sourceRole"}
             if node_type == "read_material" else config
@@ -125,32 +125,31 @@ def compile_workflow_body(
                 if key not in {"evidenceRequirement", "failurePolicy"}
             }
         if public_config:
-            line += f"\n   - Business constraints: {json.dumps(public_config, ensure_ascii=False, sort_keys=True)}"
+            line += f"\n   - 业务约束：{json.dumps(public_config, ensure_ascii=False, sort_keys=True)}"
         rendered.append(line)
     name = str(row.get("name") or "Workflow").strip()
     description = str(row.get("description") or row.get("summary") or "").strip()
     scenario = str(row.get("notes") or row.get("applicable_scenarios") or "").strip()
-    scenario_text = scenario or "Use when the user's goal matches this workflow description."
     body = f"""# {name}
 
-## Objective
+## 目标
 {description or name}
 
-## Applicable Scenarios
-{scenario_text}
+## 适用场景
+{scenario or '当用户目标与本工作流描述一致时使用。'}
 
-## Suggested Steps
+## 建议执行步骤
 {chr(10).join(rendered)}
 
-## Execution Principles
-- This is an adaptive Skill for the DSH Agent Loop, not a fixed graph execution plan.
-- Based on the current context, decide whether to skip, repeat, or parallelize independent steps, without crossing authorization boundaries.
-- Pass search evidence, parsed attachments, and structured artifacts from earlier steps into later steps; never fabricate them again.
-- Adjust to actual tool failures; never claim that an action succeeded when it did not.
+## 执行原则
+- 这是供 DSH Agent Loop 使用的自适应 Skill，不是固定图执行计划。
+- 根据当前上下文决定是否跳过、重复或并行无依赖步骤，但不得越过权限边界。
+- 上一步产生的搜索证据、附件解析结果和结构化产物应作为后续步骤输入，不得重新伪造。
+- 工具返回失败时依据真实错误调整；不得声称未实际完成的动作已经完成。
 
-## Acceptance
-- Deliver all user-requested outputs and provide traceable evidence for key conclusions.
-- All external write operations follow MOVO approval policy.
-- Writing standards constrain content generation nodes only, not retrieval, calculation, browser, or ordinary tool calls.
+## 验收
+- 用户要求的交付物完整，关键结论有可追溯证据。
+- 所有外部写操作遵循 MOGO 审批策略。
+- 写作规范只约束内容生成节点，不约束检索、计算、浏览器或普通工具调用。
 """
     return body.strip(), tuple(dict.fromkeys(capability_refs))

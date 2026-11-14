@@ -3,10 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.db import get_db
+from app.core.tenant_identity import PLATFORM_TENANT_ID
 
 
-def employee_tenant_fields(main_id: str, org_name: str) -> dict[str, str]:
-    normalized_name = str(org_name or "").strip() or str(main_id)
+def employee_tenant_fields(tenant_id: str, org_name: str) -> dict[str, str]:
+    normalized_name = str(org_name or "").strip() or str(tenant_id)
     return {
         "org_name": normalized_name,
         "space_type": "personal" if normalized_name == "个人空间" else "enterprise",
@@ -19,12 +20,12 @@ def authoritative_tenant_names(
 ) -> dict[str, str]:
     """Prefer configured admin identity when billing metadata is stale."""
     names = {
-        str(row.get("main_id")): str(row.get("org_name") or "").strip()
+        str(row.get("tenant_id")): str(row.get("org_name") or "").strip()
         for row in organizations
         if str(row.get("org_name") or "").strip()
     }
     names.update({
-        str(row.get("main_id")): str(row.get("org_name") or "").strip()
+        str(row.get("tenant_id")): str(row.get("org_name") or "").strip()
         for row in admin_rows
         if str(row.get("org_name") or "").strip()
     })
@@ -33,25 +34,42 @@ def authoritative_tenant_names(
 
 async def repair_employee_tenant_identities(db: Any | None = None) -> int:
     database = db if db is not None else get_db()
-    organizations = await database.organizations.find(
-        {"main_id": {"$nin": [None, "", "default"]}}, {"main_id": 1, "org_name": 1}
-    ).to_list(length=10000)
-    admin_rows = await database.admin_accounts.find(
-        {"main_id": {"$nin": [None, "", "default"]}}, {"main_id": 1, "org_name": 1}
-    ).to_list(length=10000)
+    excluded = {"$nin": [None, "", "default", PLATFORM_TENANT_ID]}
+    # T042: only active tenants are authoritative for identity repair; archived
+    # or purged tenants must not resurrect stale organization names.
+    active_tenant_ids = {
+        row["tenant_id"]
+        async for row in database["tenants"].find(
+            {"status": "active", "tenant_id": excluded}, {"tenant_id": 1}
+        )
+    }
+    organizations = [
+        row
+        async for row in database.organizations.find(
+            {"tenant_id": excluded}, {"tenant_id": 1, "org_name": 1}
+        )
+        if str(row.get("tenant_id")) in active_tenant_ids
+    ]
+    admin_rows = [
+        row
+        async for row in database.admin_accounts.find(
+            {"tenant_id": excluded}, {"tenant_id": 1, "org_name": 1}
+        )
+        if str(row.get("tenant_id")) in active_tenant_ids
+    ]
     names = authoritative_tenant_names(organizations, admin_rows)
     admin_names = authoritative_tenant_names([], admin_rows)
     repaired = 0
-    for main_id, org_name in names.items():
-        fields = employee_tenant_fields(main_id, org_name)
+    for tenant_id, org_name in names.items():
+        fields = employee_tenant_fields(tenant_id, org_name)
         identity_result = await database.end_users.update_many(
-            {"main_id": main_id},
+            {"tenant_id": tenant_id},
             {"$set": fields},
         )
         repaired += int(identity_result.modified_count)
-        if main_id in admin_names:
+        if tenant_id in admin_names:
             org_result = await database.organizations.update_many(
-                {"main_id": main_id, "org_name": {"$ne": fields["org_name"]}},
+                {"tenant_id": tenant_id, "org_name": {"$ne": fields["org_name"]}},
                 {"$set": {"org_name": fields["org_name"]}},
             )
             repaired += int(org_result.modified_count)

@@ -1,5 +1,4 @@
-ARG PYTHON_BASE_IMAGE=python:3.10-slim-bookworm
-FROM ${PYTHON_BASE_IMAGE}
+FROM python:3.10-slim-bookworm
 WORKDIR /app
 COPY proxy.py .
 USER 65534:65534

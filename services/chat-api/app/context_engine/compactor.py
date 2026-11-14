@@ -1,10 +1,11 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
-from app.llm.factory import get_llm_client
+from app.llm.factory import aget_llm_client
 from app.llm.types import Message, Role
 
 
@@ -26,20 +27,26 @@ class ContextCompactor:
         if not rows:
             return CompactionResult(summary=heuristic, memories=[], source="heuristic")
         try:
-            llm = get_llm_client(streaming=False, stage="context_compaction", intent="chat", output_spec=output_spec or {})
-            resp = await llm.ainvoke(
-                [
-                    Message(role=Role.SYSTEM, content=self._system_prompt()),
-                    Message(role=Role.USER, content=self._user_payload(rows, heuristic)),
-                ]
+            messages = [
+                Message(role=Role.SYSTEM, content=self._system_prompt()),
+                Message(role=Role.USER, content=self._user_payload(rows, heuristic)),
+            ]
+            # 040 R-15: prompt_chars = 系统提示 + 最近一轮 user 消息的字符数。
+            llm = await aget_llm_client(
+                streaming=False,
+                stage="context_compaction",
+                intent="chat",
+                output_spec=output_spec or {},
+                prompt_chars=sum(len(str(item.content or "")) for item in messages),
             )
+            resp = await llm.ainvoke(messages)
             data = self._parse_json(str(getattr(resp, "content", "") or ""))
             summary = str(data.get("summary") or "").strip()
             memories = [m for m in list(data.get("memories") or []) if isinstance(m, dict)]
             if summary:
                 return CompactionResult(summary=summary[:6000], memories=memories[:12], source="llm")
-        except Exception:
-            pass
+        except Exception as exc:
+            log_print(f"[context_engine/compactor] compaction failed: {exc}", flush=True)
         return CompactionResult(summary=heuristic, memories=self.heuristic_memories(rows), source="heuristic")
 
     def heuristic_summary(self, rows: List[Dict[str, Any]]) -> str:

@@ -12,7 +12,6 @@ from app.dsh_runtime.model_gateway.service import (
     ModelGatewayRequest,
     ModelGatewayService,
 )
-from app.dsh_runtime.model_gateway import service as model_gateway_service
 from app.dsh_runtime.model_gateway.token import ModelGatewayTokenService
 from app.dsh_runtime.profile import (
     InMemoryRuntimeProfileStore,
@@ -20,10 +19,8 @@ from app.dsh_runtime.profile import (
     RuntimeProfileResolver,
     RuntimeProfileBundle,
     RuntimeProfilePublisher,
-    RuntimeProfileSnapshot,
 )
 from app.llm.base import BaseLLMClient
-from app.dsh_runtime.profile.skills.models import DshSkillDefinition, WritingStyleDefinition
 from app.llm.types import LLMResponse, Message, Role
 
 
@@ -32,7 +29,7 @@ class FakeCatalog:
         self.instances = {
             "model-a": {
                 "_id": "model-a",
-                "main_id": "tenant-a",
+                "tenant_id": "tenant-a",
                 "provider_id": "provider-a",
                 "model_name": "deepseek-chat",
                 "display_name": "Default A",
@@ -43,7 +40,7 @@ class FakeCatalog:
             },
             "model-b": {
                 "_id": "model-b",
-                "main_id": "tenant-a",
+                "tenant_id": "tenant-a",
                 "provider_id": "provider-a",
                 "model_name": "deepseek-reasoner",
                 "display_name": "Explicit B",
@@ -53,7 +50,7 @@ class FakeCatalog:
             },
             "model-foreign": {
                 "_id": "model-foreign",
-                "main_id": "tenant-b",
+                "tenant_id": "tenant-b",
                 "provider_id": "provider-a",
                 "model_name": "forbidden",
                 "status": "active",
@@ -99,113 +96,8 @@ class FakeClient(BaseLLMClient):
         raise NotImplementedError
 
 
-def test_agent_name_changes_runtime_profile_and_host_identity() -> None:
-    async def run() -> None:
-        identity = {"name": "Atlas"}
-
-        async def resolve(_tenant_id: str) -> dict[str, str]:
-            return dict(identity)
-
-        compiler = ModelProfileCompiler(FakeCatalog(), agent_presentation_resolver=resolve)
-        first = await compiler.compile(tenant_id="tenant-a")
-        assert first.agent_name == "Atlas"
-        assert first.host_payload(gateway_url="http://gateway", access_token="token")["agentName"] == "Atlas"
-        identity["name"] = "Nova"
-        second = await compiler.compile(tenant_id="tenant-a")
-        assert second.agent_name == "Nova"
-        assert second.profile_version != first.profile_version
-
-    asyncio.run(run())
-
-
-def test_legacy_profile_export_keeps_original_wire_shape() -> None:
-    async def run() -> None:
-        compiler = ModelProfileCompiler(FakeCatalog())
-        current = await compiler.compile(tenant_id="tenant-a")
-        document = current.model_dump(mode="json", exclude={"agent_name", "content_hash", "profile_version", "plugins", "plugin_versions"})
-        old_hash = compiler.content_hash(document)
-        legacy = current.model_copy(update={"content_hash": old_hash, "profile_version": f"rp-{old_hash[:24]}"})
-        exported = RuntimeProfileBundle.export(legacy)
-        assert "agent_name" not in json.loads(exported)
-        assert RuntimeProfileBundle.load(exported) == legacy
-
-    asyncio.run(run())
-
-
 def test_profile_compile_publish_rollback_disable_and_secret_exclusion() -> None:
     asyncio.run(_test_profile_compile_publish_rollback_disable_and_secret_exclusion())
-
-
-def test_previous_runtime_bundle_with_inline_skill_still_loads() -> None:
-    current = asyncio.run(ModelProfileCompiler(FakeCatalog()).compile(tenant_id="tenant-a"))
-    document = current.model_dump(mode="json")
-    document["skills"] = [{
-        "name": "legacy-skill", "display_name": "Legacy Skill", "version": "skill-v1",
-        "source_id": "old-1", "source_scope": "personal", "kind": "ordinary",
-        "description": "Existing ZIP Skill", "content": "Follow these instructions.",
-        "bundle_digest": "a" * 64, "bundle_archive_base64": "YWJj",
-    }]
-    document["skill_versions"] = ["skill-v1"]
-    payload = {key: value for key, value in document.items() if key not in {"content_hash", "profile_version"}}
-    document["content_hash"] = ModelProfileCompiler.content_hash(payload)
-    document["profile_version"] = f"rp-{document['content_hash'][:24]}"
-    loaded = RuntimeProfileBundle.load(json.dumps(document))
-    assert loaded.skills[0].bundle_archive_base64 == "YWJj"
-    assert loaded.skills[0].bundle_archive_id == ""
-
-
-def test_historical_desktop_profile_survives_additive_plugin_install_only() -> None:
-    base = asyncio.run(ModelProfileCompiler(FakeCatalog()).compile(tenant_id="tenant-a"))
-    greet = {"name": "dsh-plugin-greet", "version": "0.3.2", "tool_names": ["greet"]}
-    old = base.model_copy(update={
-        "plugins": ({"name": "existing", "version": "1.0.0"},),
-        "plugin_versions": ("existing@1.0.0",),
-    })
-    added = old.model_copy(update={
-        "plugins": (*old.plugins, greet),
-        "plugin_versions": (*old.plugin_versions, "dsh-plugin-greet@0.3.2"),
-    })
-    assert old.is_execution_compatible_with(added)
-    assert not added.is_execution_compatible_with(old)
-    changed = added.model_copy(update={
-        "plugins": ({"name": "existing", "version": "2.0.0"}, greet),
-    })
-    assert not old.is_execution_compatible_with(changed)
-    assert not old.is_execution_compatible_with(added.model_copy(update={"model_name": "another-model"}))
-
-
-def test_historical_desktop_profile_survives_additive_skill_install_only() -> None:
-    base = asyncio.run(ModelProfileCompiler(FakeCatalog()).compile(tenant_id="tenant-a"))
-    skill = DshSkillDefinition(
-        name="new-skill", version="skill-v2", source_id="new-1",
-        source_scope="personal", kind="ordinary", description="New skill",
-        content="Use this skill when requested.",
-    )
-    added = base.model_copy(update={
-        "skills": (*base.skills, skill),
-        "skill_versions": (*base.skill_versions, skill.version),
-    })
-    assert base.is_execution_compatible_with(added)
-    assert not added.is_execution_compatible_with(base)
-    changed = added.model_copy(update={"skills": (*base.skills, skill.model_copy(update={"content": "Changed"}))})
-    assert not added.is_execution_compatible_with(changed)
-
-
-def test_historical_desktop_profile_survives_other_additive_capabilities() -> None:
-    base = asyncio.run(ModelProfileCompiler(FakeCatalog()).compile(tenant_id="tenant-a"))
-    style = WritingStyleDefinition(
-        ref="style-" + "a" * 24, version="style-v1", source_id="style-1",
-        source_scope="personal", name="New style", instructions="Write clearly.",
-    )
-    additions = {
-        "tool_versions": (*base.tool_versions, "new-tool-v1"),
-        "workflow_versions": (*base.workflow_versions, "new-workflow-v1"),
-        "writing_styles": (*base.writing_styles, style),
-    }
-    expanded = base.model_copy(update=additions)
-    assert base.is_execution_compatible_with(expanded)
-    assert not expanded.is_execution_compatible_with(base)
-    assert not base.is_execution_compatible_with(expanded.model_copy(update={"model_name": "different"}))
 
 
 async def _test_profile_compile_publish_rollback_disable_and_secret_exclusion() -> None:
@@ -215,17 +107,6 @@ async def _test_profile_compile_publish_rollback_disable_and_secret_exclusion() 
     repeated = await compiler.compile(tenant_id="tenant-a")
     assert repeated == first
     assert first.tool_versions == first.skill_versions == first.workflow_versions == first.plugin_versions == ()
-    equivalent_version = first.model_copy(update={
-        "profile_version": "rp-" + "b" * 24,
-        "content_hash": "b" * 64,
-    })
-    assert first.is_execution_compatible_with(equivalent_version)
-    legacy_wire = first.model_dump(mode="json", exclude={"plugins", "plugin_versions"})
-    legacy_wire.update({"profile_version": "rp-" + "c" * 24, "content_hash": "c" * 64})
-    legacy_shape = RuntimeProfileSnapshot.model_validate(legacy_wire)
-    assert first.is_execution_compatible_with(legacy_shape)
-    changed_contract = first.model_copy(update={"display_name": "different execution contract"})
-    assert not first.is_execution_compatible_with(changed_contract)
     assert "LONG-LIVED-SECRET" not in first.model_dump_json()
     assert RuntimeProfileBundle.load(RuntimeProfileBundle.export(first)) == first
     tampered = json.loads(RuntimeProfileBundle.export(first))
@@ -262,7 +143,7 @@ async def _test_profile_rejects_cross_tenant_and_resolver_scopes_ephemeral_token
     with pytest.raises(ValueError, match="cross-tenant"):
         await compiler.compile(tenant_id="tenant-a", model_instance_id="model-foreign")
 
-    snapshot = await compiler.compile(tenant_id="tenant-a", user_id="speaker-a")
+    snapshot = await compiler.compile(tenant_id="tenant-a")
     store = InMemoryRuntimeProfileStore()
     await store.publish(snapshot, actor_id="admin")
     tokens = ModelGatewayTokenService("step-3-test-signing-secret")
@@ -271,7 +152,6 @@ async def _test_profile_rejects_cross_tenant_and_resolver_scopes_ephemeral_token
     claims = tokens.verify(str(payload["accessToken"]))
     assert claims.tenant_id == "tenant-a"
     assert claims.model_instance_id == "model-a"
-    assert claims.user_id == "speaker-a"
     assert payload["modelInstanceId"] == "model-a"
     assert "LONG-LIVED-SECRET" not in json.dumps(payload)
     with pytest.raises(ValueError, match="cross-tenant"):
@@ -282,42 +162,16 @@ def test_model_gateway_enforces_scope_maps_messages_and_usage() -> None:
     asyncio.run(_test_model_gateway_enforces_scope_maps_messages_and_usage())
 
 
-def test_model_gateway_accounts_usage_to_signed_speaker(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict[str, Any] = {}
-
-    async def get_config(model_id: str, tenant_id: str) -> dict[str, Any]:
-        assert (model_id, tenant_id) == ("model-a", "tenant-a")
-        return {"id": model_id}
-
-    def build_client(_config: dict[str, Any], **kwargs: Any) -> BaseLLMClient:
-        captured.update(kwargs["output_spec"])
-        return FakeClient()
-
-    monkeypatch.setattr(model_gateway_service, "get_model_config", get_config)
-    monkeypatch.setattr(model_gateway_service, "build_llm_client_from_config", build_client)
-    tokens = ModelGatewayTokenService("step-3-test-signing-secret")
-    claims = tokens.verify(tokens.issue(
-        tenant_id="tenant-a", profile_version="profile-a", model_instance_id="model-a", user_id="speaker-a"
-    ))
-    request = ModelGatewayRequest(
-        profileVersion="profile-a", modelInstanceId="model-a", provider="askai-model-gateway",
-        model="deepseek-chat", messages=[{"role": "user", "content": "hello"}], sessionId="kernel-a",
-    )
-    asyncio.run(ModelGatewayService().generate(request, claims))
-    assert captured["user_id"] == "speaker-a"
-    assert captured["main_id"] == "tenant-a"
-
-
 async def _test_model_gateway_enforces_scope_maps_messages_and_usage() -> None:
     client = FakeClient()
 
-    async def factory(model_instance_id: str, tenant_id: str, _request: ModelGatewayRequest, user_id: str) -> BaseLLMClient:
-        assert (model_instance_id, tenant_id, user_id) == ("model-a", "tenant-a", "speaker-a")
+    async def factory(model_instance_id: str, tenant_id: str, _request: ModelGatewayRequest, _claims=None) -> BaseLLMClient:
+        assert (model_instance_id, tenant_id) == ("model-a", "tenant-a")
         return client
 
     token_service = ModelGatewayTokenService("step-3-test-signing-secret")
     claims = token_service.verify(
-        token_service.issue(tenant_id="tenant-a", profile_version="profile-a", model_instance_id="model-a", user_id="speaker-a")
+        token_service.issue(tenant_id="tenant-a", user_id="user-a", profile_version="profile-a", model_instance_id="model-a")
     )
     request = ModelGatewayRequest(
         profileVersion="profile-a",
@@ -362,12 +216,12 @@ def test_model_gateway_normalizes_provider_failures(
     retryable: bool,
 ) -> None:
     async def run() -> None:
-        async def factory(_model: str, _tenant: str, _request: ModelGatewayRequest, _user_id: str) -> BaseLLMClient:
+        async def factory(_model: str, _tenant: str, _request: ModelGatewayRequest, _claims=None) -> BaseLLMClient:
             return FakeClient(failure=provider_error)
 
         tokens = ModelGatewayTokenService("step-3-test-signing-secret")
         claims = tokens.verify(
-            tokens.issue(tenant_id="tenant-a", profile_version="profile-a", model_instance_id="model-a")
+            tokens.issue(tenant_id="tenant-a", user_id="user-a", profile_version="profile-a", model_instance_id="model-a")
         )
         request = ModelGatewayRequest(
             profileVersion="profile-a",

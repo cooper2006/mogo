@@ -3,10 +3,9 @@
 
     <div ref="metricsRef" class="metrics-row">
       <n-card class="metric-card metric-card-orange" :bordered="false">
-        <div class="metric-label">{{ t('legacy.cost_statistics') }}</div>
-        <div class="metric-value" :title="t('tokenStats.currentRate')">{{ formatCurrencyCosts(summary.costsByCurrency, summary.pricedCallsByCurrency) }}</div>
-        <div v-if="hasPricedCalls" class="metric-note" :title="costDetails">{{ costDetails }}</div>
-        <div v-if="summary.unpricedCalls" class="metric-note">{{ t('tokenStats.unpricedShort', { count: summary.unpricedCalls }) }}</div>
+        <div class="metric-label">{{ t('成本统计') }}</div>
+        <div class="metric-value">¥ {{ formatCost(summary.totalCost) }}</div>
+        <div class="metric-note">{{ t('平均单次 {avg} | 近24h {last24h}', { avg: '¥' + formatCost(summary.avgCost), last24h: '¥' + formatCost(summary.last24hCost) }) }}</div>
         <div class="metric-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none">
             <path d="M12 2v20M17 5H9.5c-2 0-3.5 1.5-3.5 3.5s1.5 3.5 3.5 3.5h5c2 0 3.5 1.5 3.5 3.5s-1.5 3.5-3.5 3.5H6" />
@@ -14,9 +13,9 @@
         </div>
       </n-card>
       <n-card class="metric-card metric-card-blue" :bordered="false">
-        <div class="metric-label">{{ t('legacy.total_tokens') }}</div>
+        <div class="metric-label">{{ t('总 Token 消耗') }}</div>
         <div class="metric-value">{{ formatNumber(summary.totalTokens) }}</div>
-        <div class="metric-note">{{ t('legacy.avg_per_call', { count: formatNumber(summary.avgTokens) }) }}</div>
+        <div class="metric-note">{{ t('平均每次请求 {count}', { count: formatNumber(summary.avgTokens) }) }}</div>
         <div class="metric-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none">
             <path d="M4 5h16v12H4z" />
@@ -31,7 +30,7 @@
       <n-card class="metric-card metric-card-green" :bordered="false">
         <div class="metric-label">Prompt</div>
         <div class="metric-value">{{ formatNumber(summary.promptTokens) }}</div>
-        <div class="metric-note">{{ t('legacy.prompt_tokens') }}</div>
+        <div class="metric-note">{{ t('输入 Token') }}</div>
         <div class="metric-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none">
             <path d="M4 6h16" />
@@ -44,7 +43,7 @@
       <n-card class="metric-card metric-card-purple" :bordered="false">
         <div class="metric-label">Completion</div>
         <div class="metric-value">{{ formatNumber(summary.completionTokens) }}</div>
-        <div class="metric-note">{{ t('legacy.completion_tokens') }}</div>
+        <div class="metric-note">{{ t('输出 Token') }}</div>
         <div class="metric-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none">
             <path d="M4 6h16v12H4z" />
@@ -53,9 +52,9 @@
         </div>
       </n-card>
       <n-card class="metric-card metric-card-cyan" :bordered="false">
-        <div class="metric-label">{{ t('legacy.last_24_hours') }}</div>
+        <div class="metric-label">{{ t('近 24 小时') }}</div>
         <div class="metric-value">{{ formatNumber(summary.last24hTokens) }}</div>
-        <div class="metric-note">{{ t('legacy.called_llm_times', { count: formatNumber(summary.last24hCalls) }) }}</div>
+        <div class="metric-note">{{ t('调用 {count} 次 LLM', { count: formatNumber(summary.last24hCalls) }) }}</div>
         <div class="metric-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none">
             <path d="M12 8v5l3 2" />
@@ -70,10 +69,10 @@
       <div class="list-filter-row">
         <div class="filter-toolbar">
           <n-space align="center" :size="10" class="filter-left">
-            <n-input v-model:value="filters.q" class="filter-search" clearable :placeholder="t('legacy.search_requests_models_traces')" />
-            <DirectoryScopePicker v-model="scope" />
-            <n-select v-model:value="filters.modelName" class="filter-select" clearable :options="modelOptions" :placeholder="t('legacy.model')" />
-            <n-select v-model:value="filters.status" class="filter-select-sm" clearable :options="localizedStatusOptions" :placeholder="t('legacy.status')" />
+            <n-input v-model:value="filters.q" class="filter-search" clearable :placeholder="t('搜索请求 / 模型 / Trace')" />
+            <n-select v-model:value="filters.departmentId" class="filter-select" clearable :options="departmentOptions" :placeholder="t('部门')" />
+            <n-select v-model:value="filters.modelName" class="filter-select" clearable :options="modelOptions" :placeholder="t('模型')" />
+            <n-select v-model:value="filters.status" class="filter-select-sm" clearable :options="localizedStatusOptions" :placeholder="t('状态')" />
           </n-space>
           <n-space :size="10" class="filter-right">
             <n-button secondary @click="resetFilters">
@@ -83,7 +82,7 @@
                   <path d="M3 3v5h5" />
                 </svg>
               </template>
-              {{ t('legacy.reset') }}
+              {{ t('重置') }}
             </n-button>
             <n-button type="primary" :loading="loading" @click="runSearch">
               <template #icon>
@@ -92,7 +91,7 @@
                   <line x1="21" y1="21" x2="16.65" y2="16.65" />
                 </svg>
               </template>
-              {{ t('legacy.query') }}
+              {{ t('查询') }}
             </n-button>
           </n-space>
         </div>
@@ -113,7 +112,7 @@
         </div>
 
         <div ref="tablePaginationRef" class="table-pagination">
-          <div class="table-total">{{ t('legacy.total_records', { count: formatNumber(total) }) }}</div>
+          <div class="table-total">{{ t('共 {count} 条记录', { count: formatNumber(total) }) }}</div>
           <n-pagination
             :page="page"
             :page-size="pageSize"
@@ -128,7 +127,7 @@
     </n-card>
 
     <n-drawer v-model:show="drawerVisible" :width="960" placement="right">
-      <n-drawer-content :title="t('legacy.call_details', { title: selectedTraceTitle })" closable>
+      <n-drawer-content :title="t('{title} (调用明细)', { title: selectedTraceTitle })" closable>
         <div class="drawer-content-wrap">
           <n-data-table
             :loading="drawerLoading"
@@ -141,7 +140,7 @@
             style="flex: 1 1 auto; min-height: 0;"
           />
           <div class="drawer-pagination">
-            <div class="table-total">{{ t('legacy.total_records', { count: formatNumber(drawerTotal) }) }}</div>
+            <div class="table-total">{{ t('共 {count} 条记录', { count: formatNumber(drawerTotal) }) }}</div>
             <n-pagination
               :page="drawerPage"
               :page-size="drawerPageSize"
@@ -165,17 +164,17 @@
               :key="msg.id"
               :class="['message-card-wrapper', msg.role === 'user' ? 'msg-align-right' : 'msg-align-left']"
             >
-              <!-- Message bubble -->
+              <!-- 消息气泡 -->
               <div :class="['message-bubble', msg.role === 'user' ? 'bubble-user' : 'bubble-assistant']" style="width: 100%;">
-                <!-- Role header -->
+                <!-- 角色标头 -->
                 <div class="bubble-header">
-                  <span class="role-badge">{{ msg.role === 'user' ? t('legacy.user') : t('legacy.assistant') }}</span>
+                  <span class="role-badge">{{ msg.role === 'user' ? t('用户 (User)') : t('AI 助手 (Assistant)') }}</span>
                   <span class="msg-time">{{ formatTime(msg.createdAt) }}</span>
                 </div>
 
-                <!-- Progress timeline for assistant messages with progress -->
+                <!-- 进度步骤 Timeline (仅在 assistant 角色且有 progress 时显示) -->
                 <div v-if="msg.role === 'assistant' && msg.progress && msg.progress.length" class="assistant-timeline-box">
-                  <div class="timeline-title">{{ t('legacy.execution_steps_progress') }}</div>
+                  <div class="timeline-title">{{ t('执行步骤与进度：') }}</div>
                   <n-timeline size="medium" style="margin-top: 8px;">
                     <n-timeline-item
                       v-for="(step, sIdx) in msg.progress"
@@ -187,7 +186,7 @@
                   </n-timeline>
                 </div>
 
-                <!-- Markdown reply -->
+                <!-- 回复内容 (Markdown) -->
                 <div
                   v-if="msg.role === 'assistant'"
                   class="markdown-body"
@@ -197,7 +196,7 @@
                   {{ msg.content }}
                 </div>
 
-                <!-- Generated file download card -->
+                <!-- 生成的文件下载卡片 -->
                 <div v-if="msg.role === 'assistant' && msg.documents && msg.documents.length" class="assistant-documents-box">
                   <div
                     v-for="(doc, docIdx) in msg.documents"
@@ -205,7 +204,7 @@
                     class="doc-download-card"
                   >
                     <div class="doc-icon-box">
-                      <!-- Square SVG file icon -->
+                      <!-- 专属直角 SVG 文件图标 -->
                       <svg v-if="isDocWord(doc.type || doc.kind)" viewBox="0 0 24 24" class="svg-doc-icon word-color">
                         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                         <path d="M14 2v6h6" />
@@ -229,15 +228,15 @@
                     </div>
                     <div class="doc-info-box">
                       <div class="doc-title" :title="doc.title || doc.filename">
-                        {{ doc.title || doc.filename || t('legacy.unnamed_document') }}
+                        {{ doc.title || doc.filename || t('未命名文档') }}
                       </div>
                       <div class="doc-meta">
-                        {{ doc.filename || t('legacy.document', { type: (doc.type || doc.kind)?.toUpperCase() || 'DOC' }) }}
+                        {{ doc.filename || t('{type} 文档', { type: (doc.type || doc.kind)?.toUpperCase() || 'DOC' }) }}
                       </div>
                     </div>
                     <div class="doc-action-box">
                       <n-button size="small" type="info" secondary @click="downloadDocument(doc)">
-                        {{ t('legacy.download') }}
+                        {{ t('下载') }}
                       </n-button>
                     </div>
                   </div>
@@ -246,7 +245,7 @@
             </div>
           </div>
           <div v-else class="empty-chat-state">
-            {{ t('additional.no_displayable_conversation_messages_are_associated_with_this_call') }}
+            {{ t('暂无聊天记录') }}
           </div>
         </n-spin>
       </n-drawer-content>
@@ -260,8 +259,6 @@ import { NButton, NTag, NTimeline, NTimelineItem, useMessage } from 'naive-ui';
 import { computed, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { t } from '@/composables/i18n';
 import { formatAdminDateTime, formatAdminTime } from '@/composables/adminTimezone';
-import DirectoryScopePicker from '@/components/directory/DirectoryScopePicker.vue';
-import type { DirectoryScope } from '@/api/directoryScope';
 import { fetchTokenStats, fetchTokenStatsDetail, fetchSessionChatHistory, type TokenStatsItem, type TokenStatsOption, type TokenStatsSummary, type TokenStatsDetail, type ChatMessageItem, type SessionChatHistory } from '@/api/token-stats';
 
 const message = useMessage();
@@ -278,14 +275,10 @@ const summary = ref<TokenStatsSummary>({
   last24hTokens: 0,
   activeUsers: 0,
   activeDepartments: 0,
-  costsByCurrency: { CNY: 0, USD: 0 },
-  pricedCallsByCurrency: { CNY: 0, USD: 0 },
-  avgCostsByCurrency: { CNY: 0, USD: 0 },
-  last24hCostsByCurrency: { CNY: 0, USD: 0 },
-  unpricedCalls: 0,
+  totalCost: 0,
+  avgCost: 0,
+  last24hCost: 0,
 });
-const hasPricedCalls = computed(() => Object.values(summary.value.pricedCallsByCurrency).some((count) => count > 0));
-const costDetails = computed(() => `${t('tokenStats.avg')} ${formatCurrencyCosts(summary.value.avgCostsByCurrency, summary.value.pricedCallsByCurrency)} · ${t('tokenStats.last24h')} ${formatCurrencyCosts(summary.value.last24hCostsByCurrency, summary.value.pricedCallsByCurrency)}`);
 const items = ref<TokenStatsItem[]>([]);
 const total = ref(0);
 const page = ref(1);
@@ -297,18 +290,18 @@ const tableCardRef = ref<{ $el?: HTMLElement } | null>(null);
 const tablePaginationRef = ref<HTMLElement | null>(null);
 let tableResizeObserver: ResizeObserver | null = null;
 
-const scope = ref<DirectoryScope>({ level: 'organization', id: '', name: '' });
+const departmentOptions = ref<TokenStatsOption[]>([]);
 const modelOptions = ref<TokenStatsOption[]>([]);
 const statusOptions = ref<TokenStatsOption[]>([]);
 
 function statusLabel(value: string) {
   const key = String(value || '');
-  if (key === 'completed') return t('legacy.completed');
-  if (key === 'user_cancelled') return t('legacy.cancelled_by_user');
-  if (key === 'runtime_error') return t('legacy.runtime_error');
-  if (key === 'network_error') return t('legacy.network_error');
-  if (key === 'failed') return t('legacy.runtime_error');
-  return key || t('legacy.unrecorded');
+  if (key === 'completed') return t('Token状态.完成');
+  if (key === 'user_cancelled') return t('Token状态.用户终止');
+  if (key === 'runtime_error') return t('Token状态.运行错误');
+  if (key === 'network_error') return t('Token状态.网络故障');
+  if (key === 'failed') return t('Token状态.运行错误');
+  return key || t('未记录');
 }
 
 function statusTagType(value: string) {
@@ -330,6 +323,7 @@ const handleViewportResize = () => {
 
 const filters = reactive({
   q: '',
+  departmentId: null as string | null,
   modelName: null as string | null,
   status: null as string | null,
   groupBy: 'user_request',
@@ -347,28 +341,28 @@ const drawerPageSize = ref(20);
 const payloadVisible = ref(false);
 const payloadLoading = ref(false);
 const chatHistory = ref<SessionChatHistory | null>(null);
-const selectedChatTitle = ref(t('legacy.chat_details'));
+const selectedChatTitle = ref(t('对话详情'));
 
 async function showPayloadDetails(row: TokenStatsItem) {
   chatHistory.value = null;
-  selectedChatTitle.value = t('legacy.chat_details');
+  selectedChatTitle.value = t('对话详情');
   payloadLoading.value = true;
   payloadVisible.value = true;
   try {
-    const data = await fetchSessionChatHistory(row.requestId);
+    const data = await fetchSessionChatHistory(row.requestId, row.sessionId, row.userRequestId || row.requestId);
     chatHistory.value = data;
     if (data.title) {
       let titleText = data.title.trim();
       if (titleText.length > 20) {
         titleText = titleText.slice(0, 20) + '...';
       }
-      selectedChatTitle.value = t('legacy.chat_details_3cad716', { title: titleText });
+      selectedChatTitle.value = t('{title} (对话详情)', { title: titleText });
     } else {
-      selectedChatTitle.value = t('legacy.chat_details');
+      selectedChatTitle.value = t('对话详情');
     }
   } catch (err) {
     console.error(err);
-    message.error(t('legacy.failed_to_load_chat_details'));
+    message.error(t('加载对话详情失败'));
     payloadVisible.value = false;
   } finally {
     payloadLoading.value = false;
@@ -410,11 +404,11 @@ function downloadDocument(doc: any) {
   if (url) {
     window.open(url, '_blank');
   } else {
-    message.warning(t('legacy.no_download_link_available_for_this_document'));
+    message.warning(t('该文档暂无有效的下载链接'));
   }
 }
 
-// Lightweight Markdown parser for lists, emphasis, code blocks, and tables.
+// 简易 Markdown 解析器，支持列表、粗体、斜体、代码块及表格转换
 function renderMarkdown(text?: string): string {
   if (!text) return '';
   let html = text;
@@ -426,7 +420,7 @@ function renderMarkdown(text?: string): string {
     return key;
   };
 
-  // 1. Process fenced code blocks.
+  // 1. 处理代码块 (```)
   html = html.replace(/```([a-zA-Z0-9_-]*)\s*([\s\S]*?)```/g, (_m, lang, code) => {
     const content = String(code || '').trim();
     const escaped = content
@@ -449,16 +443,16 @@ function renderMarkdown(text?: string): string {
     return stashBlock(blockHtml);
   });
 
-  // 2. Process inline code.
+  // 2. 行内代码
   html = html.replace(/`([^`]+)`/g, '<code style="font-family: monospace; font-size: 12px; background-color: #f5f5f5; color: #c7254e; padding: 2px 4px; border: 1px solid #e1e1e8; border-radius: 0px;">$1</code>');
 
-  // 3. Process bold text.
+  // 3. 粗体
   html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
 
-  // 4. Process italic text.
+  // 4. 斜体
   html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
 
-  // 5. Process tables.
+  // 5. 表格处理
   html = html.replace(/\|(.+)\|/g, (match, content) => {
     const cells = content.split('|').map((c: string) => c.trim()).filter((c: string) => c);
     const cellTags = cells.map((c: string) => `<td style="border: 1px solid #ddd; padding: 6px 12px;">${c}</td>`).join('');
@@ -474,13 +468,13 @@ function renderMarkdown(text?: string): string {
     return `<table style="width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px;">${match}</table>`;
   });
 
-  // 6. Process H1-H4 headings.
+  // 6. 标题 (H1-H4)
   html = html.replace(/^\s*####\s+(.+)$/gim, '<h4 style="font-size: 14px; font-weight: bold; margin-top: 12px; margin-bottom: 6px;">$1</h4>');
   html = html.replace(/^\s*###\s+(.+)$/gim, '<h3 style="font-size: 16px; font-weight: bold; margin-top: 16px; margin-bottom: 8px;">$1</h3>');
   html = html.replace(/^\s*##\s+(.+)$/gim, '<h2 style="font-size: 18px; font-weight: bold; margin-top: 20px; margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 4px;">$1</h2>');
   html = html.replace(/^\s*#\s+(.+)$/gim, '<h1 style="font-size: 22px; font-weight: bold; margin-top: 24px; margin-bottom: 12px;">$1</h1>');
 
-  // 7. Process lists.
+  // 7. 列表处理
   html = html.replace(/^- (.*$)/gim, '<li style="margin-left: 20px; list-style-type: disc;">$1</li>');
   html = html.replace(/^\d+\. (.*$)/gim, '<li style="margin-left: 20px; list-style-type: decimal;">$1</li>');
 
@@ -491,11 +485,11 @@ function renderMarkdown(text?: string): string {
     return `<ol style="margin: 8px 0; padding-left: 0;">${match.replace(/\n/g, '')}</ol>`;
   });
 
-  // 8. Process line breaks.
+  // 8. 换行
   html = html.replace(/\n\n/g, '<br/><br/>');
   html = html.replace(/\n/g, '<br/>');
 
-  // Restore placeholder code blocks.
+  // 还原占位代码块
   blockPlaceholders.forEach((block, idx) => {
     html = html.replace(`__BLOCK_PLACEHOLDER_${idx}__`, block);
   });
@@ -505,26 +499,26 @@ function renderMarkdown(text?: string): string {
 
 const drawerColumns = computed<DataTableColumns<TokenStatsItem>>(() => [
   {
-    title: t('legacy.time'),
+    title: t('时间'),
     key: 'createdAt',
     width: 150,
     render: (row) => formatTime(row.createdAt),
   },
   {
-    title: t('legacy.model'),
+    title: t('模型'),
     key: 'modelName',
     width: 160,
     ellipsis: { tooltip: true },
-    render: (row) => row.modelName || t('legacy.unrecorded'),
+    render: (row) => row.modelName || t('未记录'),
   },
   {
-    title: t('legacy.stage'),
+    title: t('阶段'),
     key: 'stage',
     width: 100,
     render: (row) => row.stage || '—',
   },
   {
-    title: t('legacy.status'),
+    title: t('状态'),
     key: 'status',
     width: 90,
     render: (row) =>
@@ -550,18 +544,18 @@ const drawerColumns = computed<DataTableColumns<TokenStatsItem>>(() => [
       ]),
   },
   {
-    title: t('legacy.request_prompt'),
+    title: t('请求 / Prompt'),
     key: 'requestTitle',
     minWidth: 260,
     ellipsis: { tooltip: true },
     render: (row) =>
       h('div', { class: 'request-cell' }, [
-        h('div', { class: 'request-title' }, row.requestTitle || t('legacy.llm_call')),
-        h('div', { class: 'request-preview' }, row.promptPreview || t('legacy.no_prompt_preview')),
+        h('div', { class: 'request-title' }, row.requestTitle || t('LLM 调用')),
+        h('div', { class: 'request-preview' }, row.promptPreview || t('无 Prompt 预览')),
       ]),
   },
   {
-    title: t('legacy.actions'),
+    title: t('操作'),
     key: 'actions',
     width: 150,
     fixed: 'right',
@@ -575,7 +569,7 @@ const drawerColumns = computed<DataTableColumns<TokenStatsItem>>(() => [
           onClick: () => showPayloadDetails(row),
         },
         {
-          default: () => t('legacy.view_content'),
+          default: () => t('查看内容'),
           icon: () => h(
             'svg',
             {
@@ -612,7 +606,7 @@ async function loadDrawerData() {
     drawerTotal.value = data.total;
   } catch (err) {
     console.error(err);
-    message.error(t('legacy.failed_to_load_call_details'));
+    message.error(t('加载调用明细失败'));
   } finally {
     drawerLoading.value = false;
   }
@@ -620,7 +614,7 @@ async function loadDrawerData() {
 
 function showTraceDetails(row: TokenStatsItem) {
   selectedTraceId.value = row.userRequestId || row.requestId;
-  let shortTitle = row.requestTitle || t('legacy.request_call');
+  let shortTitle = row.requestTitle || t('请求调用');
   if (shortTitle.length > 20) {
     shortTitle = shortTitle.slice(0, 20) + '...';
   }
@@ -643,13 +637,13 @@ function handleDrawerPageSizeChange(nextSize: number) {
 
 const columns = computed<DataTableColumns<TokenStatsItem>>(() => [
   {
-    title: t('legacy.time'),
+    title: t('时间'),
     key: 'createdAt',
     width: 150,
     render: (row) => formatTime(row.createdAt),
   },
   {
-    title: t('legacy.user_9ba763e'),
+    title: t('用户'),
     key: 'userName',
     width: 180,
     ellipsis: {
@@ -657,12 +651,12 @@ const columns = computed<DataTableColumns<TokenStatsItem>>(() => [
     },
     render: (row) =>
       h('div', { class: 'user-cell' }, [
-        h('div', { class: 'user-name' }, row.userName || t('legacy.unknown_user')),
-        h('div', { class: 'user-dept' }, row.departmentName || t('legacy.no_dept')),
+        h('div', { class: 'user-name' }, row.userName || t('未知用户')),
+        h('div', { class: 'user-dept' }, row.departmentName || t('未分配部门')),
       ]),
   },
   {
-    title: t('legacy.status'),
+    title: t('状态'),
     key: 'status',
     width: 100,
     render: (row) =>
@@ -690,7 +684,7 @@ const columns = computed<DataTableColumns<TokenStatsItem>>(() => [
       ]),
   },
   {
-    title: t('legacy.request'),
+    title: t('请求'),
     key: 'requestTitle',
     minWidth: 350,
     ellipsis: { tooltip: true },
@@ -698,14 +692,14 @@ const columns = computed<DataTableColumns<TokenStatsItem>>(() => [
       h('div', { class: 'request-cell' }, [
         h('div', { class: 'request-title' }, [
           row.calls && row.calls > 1
-            ? h(NTag, { size: 'small', type: 'info', bordered: false, style: { marginRight: '8px' } }, { default: () => t('legacy.called_llm_times', { count: row.calls ?? 0 }) })
+            ? h(NTag, { size: 'small', type: 'info', bordered: false, style: { marginRight: '8px' } }, { default: () => t('调用 {count} 次 LLM', { count: row.calls ?? 0 }) })
             : null,
-          h('span', row.requestTitle || t('legacy.llm_call')),
+          h('span', row.requestTitle || t('LLM 调用')),
         ])
       ]),
   },
   {
-    title: t('legacy.actions'),
+    title: t('操作'),
     key: 'actions',
     width: 240,
     fixed: 'right',
@@ -722,7 +716,7 @@ const columns = computed<DataTableColumns<TokenStatsItem>>(() => [
               onClick: () => showTraceDetails(row),
             },
             {
-              default: () => t('legacy.call_details_73e4fae'),
+              default: () => t('调用详情'),
               icon: () => h(
                 'svg',
                 {
@@ -753,7 +747,7 @@ const columns = computed<DataTableColumns<TokenStatsItem>>(() => [
               onClick: () => showPayloadDetails(row),
             },
             {
-              default: () => t('legacy.view_content'),
+              default: () => t('查看内容'),
               icon: () => h(
                 'svg',
                 {
@@ -784,7 +778,7 @@ const columns = computed<DataTableColumns<TokenStatsItem>>(() => [
             onClick: () => showPayloadDetails(row),
           },
           {
-            default: () => t('legacy.view_content'),
+            default: () => t('查看内容'),
             icon: () => h(
               'svg',
               {
@@ -816,16 +810,8 @@ function formatNumber(value: number) {
 function formatCost(value: number) {
   const num = Number(value || 0);
   if (num === 0) return '0.00';
-  if (num < 0.0001) return num.toFixed(8);
   if (num < 0.01) return num.toFixed(4);
   return num.toFixed(2);
-}
-
-function formatCurrencyCosts(costs: Record<'CNY' | 'USD', number>, pricedCalls: Record<'CNY' | 'USD', number>) {
-  const parts = (['CNY', 'USD'] as const)
-    .filter((currency) => Number(costs?.[currency] || 0) > 0 || Number(pricedCalls?.[currency] || 0) > 0)
-    .map((currency) => `${currency === 'CNY' ? '¥' : '$'}${formatCost(costs[currency])}`);
-  return parts.length ? parts.join(' + ') : t('tokenStats.unpricedTotal');
 }
 
 function formatTime(value: string | null) {
@@ -837,8 +823,7 @@ async function loadData() {
   try {
     const data = await fetchTokenStats({
       q: filters.q || '',
-      departmentId: scope.value.level === 'department' ? scope.value.id : '',
-      userId: scope.value.level === 'user' ? scope.value.id : '',
+      departmentId: filters.departmentId || '',
       modelName: filters.modelName || '',
       status: filters.status || '',
       offset: (page.value - 1) * pageSize.value,
@@ -848,11 +833,12 @@ async function loadData() {
     summary.value = data.summary;
     items.value = data.items;
     total.value = data.total;
+    departmentOptions.value = data.filterOptions.departments || [];
     modelOptions.value = data.filterOptions.models || [];
     statusOptions.value = data.filterOptions.statuses || [];
   } catch (error) {
     console.error(error);
-    message.error(t('legacy.failed_to_load_token_stats_please_try_again_later'));
+    message.error(t('Token 统计加载失败，请稍后重试'));
   } finally {
     loading.value = false;
     await nextTick();
@@ -875,10 +861,10 @@ function recalcTableHeight() {
   const pageStyle = window.getComputedStyle(pageEl);
   const rowGap = Number.parseFloat(pageStyle.rowGap || pageStyle.gap || '0') || 0;
 
-  // Leave one vertical gap between metrics and tableCard.
+  // metrics 和 tableCard 之间有 1 个竖向 gap。
   const sectionGaps = rowGap;
 
-  // Measure the actual list-filter-row height.
+  // 获得 list-filter-row 的真实高度
   const filterRowEl = tableRootEl.querySelector('.list-filter-row') as HTMLElement | null;
   const filterHeight = filterRowEl ? filterRowEl.offsetHeight : 0;
 
@@ -899,7 +885,7 @@ function recalcTableHeight() {
     - contentPaddingTop
     - contentPaddingBottom
     - tablePaginationEl.offsetHeight
-    - 60; // Reserve space for the header and avoid scrollbar overflow.
+    - 60; // 减去表头及预留安全高度，适当缩小 n-scrollbar-container 高度防止极小像素溢出
 
   tableBodyHeight.value = Math.max(220, Math.floor(available));
 }
@@ -911,7 +897,7 @@ function runSearch() {
 
 function resetFilters() {
   filters.q = '';
-  scope.value = { level: 'organization', id: '', name: '' };
+  filters.departmentId = null;
   filters.modelName = null;
   filters.status = null;
   filters.groupBy = 'user_request';
@@ -974,12 +960,12 @@ watch(
 .token-stats-page {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 72px);
+  height: 100%;
   min-height: 0;
   min-width: 0;
   gap: 6px;
   overflow: hidden;
-  padding: 12px;
+  padding: var(--mg-page-padding-y) var(--mg-page-padding-x);
 }
 
 .metrics-row {
@@ -1067,8 +1053,8 @@ watch(
 
 .shell-card {
   border-radius: 14px;
-  border: 1px solid #e6ebf5;
-  background: #fff;
+  border: 1px solid var(--mg-border);
+  background: var(--mg-bg-surface);
   box-shadow: 0 6px 20px rgba(16, 38, 84, 0.05);
 }
 
@@ -1090,7 +1076,7 @@ watch(
 .list-filter-row {
   padding: 0 20px 14px;
   margin: 0 -20px 14px;
-  border-bottom: 1px solid #edf1f7;
+  border-bottom: 1px solid var(--mg-border);
 }
 
 .filter-toolbar {
@@ -1147,34 +1133,34 @@ watch(
 }
 
 .table-total {
-  color: #66757c;
+  color: var(--mg-text-2);
   font-size: 13px;
 }
 
 .user-name {
-  color: #1f2b4d;
+  color: var(--mg-text-1);
   font-weight: 600;
 }
 
 .user-dept {
   margin-top: 2px;
-  color: #6d7d86;
+  color: var(--mg-text-2);
   font-size: 12px;
 }
 
 .token-total {
-  color: #1f2b4d;
+  color: var(--mg-text-1);
   font-weight: 700;
 }
 
 .token-breakdown {
   margin-top: 2px;
-  color: #6d7d86;
+  color: var(--mg-text-2);
   font-size: 12px;
 }
 
 .request-title {
-  color: #1f2b4d;
+  color: var(--mg-text-1);
   font-weight: 600;
   white-space: normal;
   word-break: break-all;
@@ -1182,7 +1168,7 @@ watch(
 
 .request-preview {
   margin-top: 2px;
-  color: #6d7d86;
+  color: var(--mg-text-2);
   font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
@@ -1266,7 +1252,7 @@ watch(
   flex: 0 0 auto;
   margin-top: auto;
   padding-top: 10px;
-  border-top: 1px solid #eceff5;
+  border-top: 1px solid var(--mg-border);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1294,24 +1280,24 @@ watch(
 
 .message-bubble {
   max-width: 100%;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--mg-border);
   padding: 14px 16px;
-  background-color: #fff;
-  border-radius: 0 !important; /* Square corners. */
+  background-color: var(--mg-bg-surface);
+  border-radius: 0 !important; /* 直角要求 */
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
 
 .bubble-user {
-  background-color: #f0f7ff;
-  border-color: #bfdbfe;
-  color: #1e3a8a;
-  border-left: 4px solid #3b82f6; /* Distinguish the bubble edge. */
+  background-color: var(--mg-info-bg);
+  border-color: var(--mg-info-border);
+  color: var(--mg-text-1);
+  border-left: 4px solid #3b82f6; /* 加强边缘区分 */
 }
 
 .bubble-assistant {
-  background-color: #fff;
-  border-color: #e2e8f0;
-  color: #334155;
+  background-color: var(--mg-bg-surface);
+  border-color: var(--mg-border);
+  color: var(--mg-text-1);
   border-left: 4px solid #10b981;
 }
 
@@ -1321,7 +1307,7 @@ watch(
   align-items: center;
   margin-bottom: 10px;
   font-size: 12px;
-  border-bottom: 1px dashed #e2e8f0;
+  border-bottom: 1px dashed var(--mg-border);
   padding-bottom: 6px;
 }
 
@@ -1330,15 +1316,15 @@ watch(
 }
 
 .bubble-user .role-badge {
-  color: #2563eb;
+  color: var(--mg-brand);
 }
 
 .bubble-assistant .role-badge {
-  color: #059669;
+  color: var(--mg-success-text);
 }
 
 .msg-time {
-  color: #94a3b8;
+  color: var(--mg-text-3);
 }
 
 .user-text-content {
@@ -1350,16 +1336,16 @@ watch(
 
 .assistant-timeline-box {
   margin-bottom: 16px;
-  background: #f8fafc;
-  border: 1px solid #f1f5f9;
+  background: var(--mg-bg-subtle);
+  border: 1px solid var(--mg-border);
   padding: 12px;
   font-size: 13px;
-  border-radius: 0 !important; /* Square corners. */
+  border-radius: 0 !important; /* 直角要求 */
 }
 
 .timeline-title {
   font-weight: 600;
-  color: #475569;
+  color: var(--mg-text-2);
   margin-bottom: 8px;
 }
 
@@ -1376,12 +1362,12 @@ watch(
 }
 
 .markdown-body :deep(th), .markdown-body :deep(td) {
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--mg-brand-soft-border);
   padding: 8px 12px;
 }
 
 .markdown-body :deep(th) {
-  background-color: #f1f5f9;
+  background-color: var(--mg-bg-subtle);
 }
 
 .assistant-documents-box {
@@ -1395,10 +1381,10 @@ watch(
   display: flex;
   align-items: center;
   gap: 12px;
-  border: 1px solid #bfdbfe;
-  background-color: #f0f9ff;
+  border: 1px solid var(--mg-info-border);
+  background-color: var(--mg-info-bg);
   padding: 10px 14px;
-  border-radius: 0 !important; /* Square corners. */
+  border-radius: 0 !important; /* 直角要求 */
 }
 
 .doc-icon-box {
@@ -1407,8 +1393,8 @@ watch(
   justify-content: center;
   width: 40px;
   height: 40px;
-  background-color: #fff;
-  border: 1px solid #e2e8f0;
+  background-color: var(--mg-bg-surface);
+  border: 1px solid var(--mg-border);
 }
 
 .svg-doc-icon {
@@ -1422,19 +1408,19 @@ watch(
 }
 
 .word-color {
-  color: #2563eb;
+  color: var(--mg-brand);
 }
 
 .ppt-color {
-  color: #ea580c;
+  color: var(--mg-warning-text);
 }
 
 .pdf-color {
-  color: #dc2626;
+  color: var(--mg-danger-text);
 }
 
 .default-doc-color {
-  color: #64748b;
+  color: var(--mg-text-2);
 }
 
 .doc-info-box {
@@ -1445,7 +1431,7 @@ watch(
 .doc-title {
   font-size: 14px;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--mg-text-1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1453,7 +1439,7 @@ watch(
 
 .doc-meta {
   font-size: 11px;
-  color: #64748b;
+  color: var(--mg-text-2);
   margin-top: 2px;
 }
 
@@ -1466,7 +1452,7 @@ watch(
   align-items: center;
   justify-content: center;
   min-height: 200px;
-  color: #94a3b8;
+  color: var(--mg-text-3);
   font-size: 14px;
 }
 

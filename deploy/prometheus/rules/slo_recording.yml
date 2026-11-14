@@ -1,0 +1,33 @@
+groups:
+  - name: mogo_slo_recording_rules
+    interval: 60s
+    rules:
+      # 可用性 SLO：错误率 = errors / total
+      - record: mogo:slo:availability:error_rate
+        expr: sum(rate(mogo_http_errors_total[5m])) / sum(rate(mogo_http_requests_total[5m]))
+
+      # 可用性 SLO：目标 99.9% → 允许 0.1% 错误
+      - record: mogo:slo:availability:target
+        expr: 0.999
+
+      # LLM 错误率 SLO：目标 < 1%
+      - record: mogo:slo:llm:error_rate
+        expr: sum(rate(mogo_chat_llm_calls_total{status="error"}[5m])) / sum(rate(mogo_chat_llm_calls_total[5m]))
+
+      - record: mogo:slo:llm:target
+        expr: 0.99
+
+      # 延迟 SLO：P99 < 3s
+      - record: mogo:slo:latency:p99_seconds
+        expr: histogram_quantile(0.99, sum(rate(mogo_http_request_duration_seconds_bucket[5m])) by (le))
+
+      - record: mogo:slo:latency:target_seconds
+        expr: 3.0
+
+      # 错误预算消耗速率（按 5m 速率估算 30 天窗口）
+      - record: mogo:slo:availability:burn_rate
+        expr: mogo:slo:availability:error_rate / 0.001
+
+      # 错误预算剩余（按 30 天窗口估算）
+      - record: mogo:slo:availability:budget_remaining_ratio
+        expr: max(0, 1 - mogo:slo:availability:burn_rate / (30 * 24 * 60 / 5))

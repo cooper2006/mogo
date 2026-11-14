@@ -5,6 +5,13 @@ from typing import Any, Iterable
 from app.core.product_edition import product_edition_fields
 
 
+def _tenant_id_of(doc: dict[str, Any] | None) -> str:
+    """Read the tenant id from a stored document (Phase 3b: tenant_id only)."""
+    if not doc:
+        return ""
+    return str(doc.get("tenant_id") or "").strip()
+
+
 def resolve_space_type(user: dict[str, Any], organization: dict[str, Any] | None = None) -> str:
     explicit = str(user.get("space_type") or "").strip().lower()
     if explicit in {"personal", "enterprise"}:
@@ -26,7 +33,7 @@ def resolve_org_name(user: dict[str, Any], organization: dict[str, Any] | None =
         and stored_org_name == "个人空间"
     ):
         return user_org_name
-    return stored_org_name or user_org_name or str(user.get("main_id") or "").strip()
+    return stored_org_name or user_org_name or str(user.get("tenant_id") or "").strip()
 
 
 def project_tenant_candidate(
@@ -34,8 +41,9 @@ def project_tenant_candidate(
     organization: dict[str, Any] | None,
     admin_account: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    main_id = str(user.get("main_id") or "").strip()
-    org_name = resolve_org_name(user, organization) or main_id
+    # Phase 1: read tenant id preferring the new key, falling back to legacy.
+    tenant_id = _tenant_id_of(user) or str(user.get("tenant_id") or "").strip()
+    org_name = resolve_org_name(user, organization) or tenant_id
     space_type = resolve_space_type(user, organization)
     can_access_admin = bool(
         space_type == "enterprise"
@@ -45,7 +53,7 @@ def project_tenant_candidate(
         and str(admin_account.get("group_code") or "") != "member"
     )
     return {
-        "mainId": main_id,
+        "tenantId": tenant_id,
         "orgName": org_name,
         "spaceType": space_type,
         "userId": str(user.get("_id") or ""),
@@ -58,25 +66,63 @@ def project_tenant_candidate(
 
 async def load_tenant_candidates(db: Any, users: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     user_rows = list(users)
-    main_ids = sorted({str(row.get("main_id") or "").strip() for row in user_rows if row.get("main_id")})
-    organizations = await db.organizations.find({"main_id": {"$in": main_ids}}).to_list(length=max(1, len(main_ids))) if main_ids else []
+    tenant_ids = sorted({_tenant_id_of(row) for row in user_rows if _tenant_id_of(row)})
+    organizations = await db.organizations.find(
+        {"tenant_id": {"$in": tenant_ids}}
+    ).to_list(length=max(1, len(tenant_ids))) if tenant_ids else []
     admin_accounts = await db.admin_accounts.find({
-        "main_id": {"$in": main_ids}, "status": "active",
-    }).to_list(length=max(1, len(main_ids) * 100)) if main_ids else []
-    organization_by_tenant = {str(row.get("main_id") or ""): row for row in organizations}
+        "tenant_id": {"$in": tenant_ids},
+        "status": "active",
+    }).to_list(length=max(1, len(tenant_ids) * 100)) if tenant_ids else []
+    organization_by_tenant = {_tenant_id_of(row): row for row in organizations}
     for account in admin_accounts:
-        main_id = str(account.get("main_id") or "")
-        if main_id not in organization_by_tenant and str(account.get("org_name") or "").strip():
-            organization_by_tenant[main_id] = {
-                "main_id": main_id,
+        tenant_id = _tenant_id_of(account)
+        if tenant_id and tenant_id not in organization_by_tenant and str(account.get("org_name") or "").strip():
+            organization_by_tenant[tenant_id] = {
+                "tenant_id": tenant_id,
                 "org_name": str(account.get("org_name") or "").strip(),
             }
-    admin_by_identity = {(str(row.get("main_id") or ""), str(row.get("username") or "")): row for row in admin_accounts}
+    admin_by_identity = {(_tenant_id_of(row), str(row.get("username") or "")): row for row in admin_accounts}
+    # FR-024: a tenant that is no longer active must not be selectable. The
+    # ``tenants`` registry is owned by admin-api but lives in the same database,
+    # so read it directly rather than trusting the derived organization status.
+    active_tenant_ids = await _selectable_tenant_ids(db, tenant_ids)
     return [
         project_tenant_candidate(
             row,
-            organization_by_tenant.get(str(row.get("main_id") or "")),
-            admin_by_identity.get((str(row.get("main_id") or ""), str(row.get("login_name") or ""))),
+            organization_by_tenant.get(_tenant_id_of(row)),
+            admin_by_identity.get((_tenant_id_of(row), str(row.get("login_name") or ""))),
         )
         for row in user_rows
+        if _tenant_id_of(row) in active_tenant_ids
     ]
+
+
+async def is_tenant_selectable(db: Any, tenant_id: str) -> bool:
+    """Whether ``tenant_id`` may be entered right now (FR-024)."""
+    return str(tenant_id or "").strip() in await _selectable_tenant_ids(db, [str(tenant_id or "").strip()])
+
+
+async def _selectable_tenant_ids(db: Any, tenant_ids: list[str]) -> set[str]:
+    """Subset of ``tenant_ids`` whose registry row is ``active`` (FR-024).
+
+    Only ``active`` passes for a tenant that has a registry row. Tenants with
+    *no* registry row are grandfathered in: a deployment that has not run the
+    020 migration yet has an empty ``tenants`` collection, and failing closed
+    there would lock every employee out.
+    """
+    if not tenant_ids:
+        return set()
+    rows = await db["tenants"].find(
+        {"tenant_id": {"$in": tenant_ids}}, {"tenant_id": 1, "status": 1}
+    ).to_list(length=max(1, len(tenant_ids)))
+    active = {_tenant_id_of(row) for row in rows if str(row.get("status") or "") == "active"}
+    known = {_tenant_id_of(row) for row in rows}
+    return active | {tenant_id for tenant_id in tenant_ids if tenant_id not in known}
+
+
+async def selectable_tenant_ids(db: Any, tenant_ids: list[str]) -> set[str]:
+    """Public wrapper around ``_selectable_tenant_ids`` for callers that
+    need the active/grandfathered tenant subset without reaching into the
+    private helper (e.g. self-service registration tenant listing)."""
+    return await _selectable_tenant_ids(db, tenant_ids)

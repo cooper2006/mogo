@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 from typing import Any, Dict, Iterable, Mapping
@@ -69,7 +70,8 @@ def _compact(value: Any, limit: int) -> Any:
         return value if len(value) <= limit else value[:limit] + "...[truncated]"
     try:
         text = json.dumps(value, ensure_ascii=False, default=str)
-    except Exception:
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.browser.engine.result_context._compact] suppressed {type(exc).__name__}: {exc}", flush=True)
         text = str(value)
     return value if len(text) <= limit else text[:limit] + "...[truncated]"
 

@@ -1,0 +1,274 @@
+<script setup lang="ts">
+import { computed, onMounted, ref, watch } from 'vue'
+import {
+  listRegisterableDepartments,
+  listRegisterableTenants,
+  register,
+  type RegisterableDepartment,
+  type RegisterableTenant,
+  type UserProfile,
+} from '../../api/auth'
+import { t } from '../../composables/i18n'
+
+const emit = defineEmits<{
+  (event: 'register-success', payload: { token: string; username: string; profile?: UserProfile }): void
+  (event: 'switch-to-login'): void
+}>()
+
+const tenants = ref<RegisterableTenant[]>([])
+const tenantsLoaded = ref(false)
+const tenantsError = ref('')
+
+const selectedTenantId = ref('')
+const departments = ref<RegisterableDepartment[]>([])
+const departmentsLoaded = ref(false)
+const selectedDepartmentId = ref('')
+
+const nickname = ref('')
+const email = ref('')
+const password = ref('')
+const confirmPassword = ref('')
+const errorMessage = ref('')
+const isSubmitting = ref(false)
+
+// When only one enterprise tenant exists, hide the selector and auto-select it.
+const singleTenant = computed(() => tenants.value.length === 1)
+const showTenantSelector = computed(() => tenants.value.length > 1)
+const activeTenantId = computed(() => singleTenant.value ? tenants.value[0].tenantId : selectedTenantId.value)
+
+async function loadTenants() {
+  tenantsLoaded.value = false
+  tenantsError.value = ''
+  const result = await listRegisterableTenants()
+  if (!result.ok || !result.tenants) {
+    tenantsError.value = result.message || t('login.register_load_tenants_failed')
+    tenants.value = []
+  } else {
+    tenants.value = result.tenants
+  }
+  tenantsLoaded.value = true
+  if (singleTenant.value) {
+    selectedTenantId.value = tenants.value[0].tenantId
+  }
+}
+
+async function loadDepartments(tenantId: string) {
+  departmentsLoaded.value = false
+  selectedDepartmentId.value = ''
+  departments.value = []
+  if (!tenantId) return
+  const result = await listRegisterableDepartments(tenantId)
+  if (result.ok && result.departments) {
+    departments.value = result.departments
+  }
+  departmentsLoaded.value = true
+}
+
+onMounted(loadTenants)
+
+// Reload departments whenever the effective tenant changes.
+watch(activeTenantId, (tenantId) => {
+  if (tenantId) loadDepartments(tenantId)
+})
+
+function resetError() {
+  errorMessage.value = ''
+}
+
+// 与后端 FR-1 口令策略完全对齐（app.security.password_policy）：
+// 长度 ≥ 12，且大写/小写/数字/特殊字符四类中至少三类。
+// 数字仅计 ASCII 0-9（同后端 _is_digit），空白字符不计入任何类别。
+const PASSWORD_MIN_LENGTH = 12
+const PASSWORD_MIN_CLASSES = 3
+
+function passwordClass(ch: string): string | null {
+  if (ch >= 'A' && ch <= 'Z') return 'upper'
+  if (ch >= 'a' && ch <= 'z') return 'lower'
+  if (ch >= '0' && ch <= '9') return 'digit'
+  if (ch && !/\s/.test(ch)) return 'special'
+  return null
+}
+
+function isStrongPassword(pw: string): boolean {
+  if (pw.length < PASSWORD_MIN_LENGTH) return false
+  const classes = new Set<string>()
+  for (const ch of pw) {
+    const cls = passwordClass(ch)
+    if (cls) classes.add(cls)
+  }
+  return classes.size >= PASSWORD_MIN_CLASSES
+}
+
+function validate(): boolean {
+  if (!singleTenant.value && !selectedTenantId.value) {
+    errorMessage.value = t('login.register_no_tenant')
+    return false
+  }
+  const normalizedEmail = email.value.trim().toLowerCase()
+  if (!normalizedEmail) {
+    errorMessage.value = t('login.register_email_empty')
+    return false
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    errorMessage.value = t('login.register_email_invalid')
+    return false
+  }
+  const pw = password.value
+  if (!isStrongPassword(pw)) {
+    errorMessage.value = t('login.register_password_weak')
+    return false
+  }
+  if (pw !== confirmPassword.value) {
+    errorMessage.value = t('login.register_password_mismatch')
+    return false
+  }
+  return true
+}
+
+async function submit() {
+  resetError()
+  if (!validate()) return
+
+  isSubmitting.value = true
+  const tenantId = activeTenantId.value
+  const result = await register(
+    tenantId,
+    email.value.trim().toLowerCase(),
+    password.value,
+    nickname.value.trim(),
+    selectedDepartmentId.value,
+  )
+  isSubmitting.value = false
+
+  if (!result.ok || !result.token) {
+    errorMessage.value = result.message || t('api.auth.register_failed')
+    return
+  }
+  emit('register-success', {
+    token: result.token,
+    username: email.value.trim().toLowerCase(),
+    profile: result.profile,
+  })
+}
+</script>
+
+<template>
+  <form class="space-y-4" @submit.prevent="submit">
+    <div v-if="tenantsError" role="alert" class="rounded-2xl bg-rose-50 px-3 py-2 text-sm text-rose-600">
+      {{ tenantsError }}
+    </div>
+
+    <div v-if="showTenantSelector" class="space-y-2">
+      <label for="mogo-register-tenant" class="text-sm font-medium text-slate-700">{{ t('login.register_org_label') }}</label>
+      <select
+        id="mogo-register-tenant"
+        v-model="selectedTenantId"
+        class="min-h-[44px] w-full rounded-2xl border border-slate-200 px-4 text-slate-900 outline-none focus:border-slate-400 focus-visible:ring-2 focus-visible:ring-slate-200"
+        @change="resetError"
+      >
+        <option value="" disabled>{{ t('login.register_org_placeholder') }}</option>
+        <option v-for="tenant in tenants" :key="tenant.tenantId" :value="tenant.tenantId">
+          {{ tenant.orgName }}
+        </option>
+      </select>
+    </div>
+
+    <div v-if="singleTenant" class="rounded-2xl bg-slate-50 px-3 py-2 text-sm text-slate-600">
+      {{ t('login.register_org_joined') }}：{{ tenants[0].orgName }}
+    </div>
+
+    <div v-if="departments.length > 1" class="space-y-2">
+      <label for="mogo-register-department" class="text-sm font-medium text-slate-700">{{ t('login.register_department_label') }}</label>
+      <select
+        id="mogo-register-department"
+        v-model="selectedDepartmentId"
+        class="min-h-[44px] w-full rounded-2xl border border-slate-200 px-4 text-slate-900 outline-none focus:border-slate-400 focus-visible:ring-2 focus-visible:ring-slate-200"
+        @change="resetError"
+      >
+        <option value="">{{ t('login.register_department_root') }}</option>
+        <option v-for="dept in departments" :key="dept.id" :value="dept.id">
+          {{ '\u3000'.repeat(dept.depth) }}{{ dept.name }}
+        </option>
+      </select>
+    </div>
+
+    <div class="space-y-2">
+      <label for="mogo-register-nickname" class="text-sm font-medium text-slate-700">{{ t('login.register_nickname_label') }}</label>
+      <input
+        id="mogo-register-nickname"
+        v-model="nickname"
+        type="text"
+        autocomplete="nickname"
+        class="min-h-[44px] w-full rounded-2xl border border-slate-200 px-4 text-slate-900 outline-none transition-colors focus:border-slate-400 focus-visible:ring-2 focus-visible:ring-slate-200"
+        :placeholder="t('login.register_nickname_placeholder')"
+        :aria-describedby="errorMessage ? 'mogo-register-error' : undefined"
+        :aria-invalid="!!errorMessage"
+        @input="resetError"
+      />
+    </div>
+
+    <div class="space-y-2">
+      <label for="mogo-register-email" class="text-sm font-medium text-slate-700">{{ t('login.register_email_label') }}</label>
+      <input
+        id="mogo-register-email"
+        v-model="email"
+        type="email"
+        autocomplete="email"
+        class="min-h-[44px] w-full rounded-2xl border border-slate-200 px-4 text-slate-900 outline-none transition-colors focus:border-slate-400 focus-visible:ring-2 focus-visible:ring-slate-200"
+        :placeholder="t('login.register_email_placeholder')"
+        :aria-describedby="errorMessage ? 'mogo-register-error' : undefined"
+        :aria-invalid="!!errorMessage"
+        @input="resetError"
+      />
+    </div>
+
+    <div class="space-y-2">
+      <label for="mogo-register-password" class="text-sm font-medium text-slate-700">{{ t('login.register_password_label') }}</label>
+      <input
+        id="mogo-register-password"
+        v-model="password"
+        type="password"
+        autocomplete="new-password"
+        class="min-h-[44px] w-full rounded-2xl border border-slate-200 px-4 text-slate-900 outline-none transition-colors focus:border-slate-400 focus-visible:ring-2 focus-visible:ring-slate-200"
+        :placeholder="t('login.register_password_placeholder')"
+        :aria-describedby="errorMessage ? 'mogo-register-error' : undefined"
+        :aria-invalid="!!errorMessage"
+        @input="resetError"
+      />
+    </div>
+
+    <div class="space-y-2">
+      <label for="mogo-register-confirm" class="text-sm font-medium text-slate-700">{{ t('login.register_confirm_label') }}</label>
+      <input
+        id="mogo-register-confirm"
+        v-model="confirmPassword"
+        type="password"
+        autocomplete="new-password"
+        class="min-h-[44px] w-full rounded-2xl border border-slate-200 px-4 text-slate-900 outline-none transition-colors focus:border-slate-400 focus-visible:ring-2 focus-visible:ring-slate-200"
+        :placeholder="t('login.register_confirm_placeholder')"
+        :aria-describedby="errorMessage ? 'mogo-register-error' : undefined"
+        :aria-invalid="!!errorMessage"
+        @input="resetError"
+      />
+    </div>
+
+    <p v-if="errorMessage" id="mogo-register-error" role="alert" class="rounded-2xl bg-rose-50 px-3 py-2 text-sm text-rose-600">
+      {{ errorMessage }}
+    </p>
+
+    <button
+      type="submit"
+      class="min-h-[44px] w-full rounded-2xl bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70"
+      :disabled="isSubmitting || !tenantsLoaded"
+    >
+      {{ isSubmitting ? t('login.register_submitting') : t('login.register_submit') }}
+    </button>
+
+    <p class="text-center text-sm text-slate-500">
+      {{ t('login.register_have_account') }}
+      <button type="button" class="font-medium text-slate-900 underline-offset-2 hover:underline" @click="emit('switch-to-login')">
+        {{ t('login.register_to_login') }}
+      </button>
+    </p>
+  </form>
+</template>

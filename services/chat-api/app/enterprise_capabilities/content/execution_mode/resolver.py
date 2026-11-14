@@ -295,15 +295,12 @@ class ExecutionModeResolver:
         return dict(profile or {})
 
     def _log_decision(self, decision: ExecutionModeDecision) -> None:
-        try:
-            log_print(
-                "[execution_mode] mode=%s score=%s reasons=%s"
-                % (
-                    str(decision.mode or ""),
-                    int(decision.score or 0),
-                    ",".join([str(x) for x in list(decision.reasons or [])[:8]]),
-                ),
-                flush=True,
-            )
-        except Exception:
-            pass
+        log_print(
+            "[execution_mode] mode=%s score=%s reasons=%s"
+            % (
+                str(decision.mode or ""),
+                int(decision.score or 0),
+                ",".join([str(x) for x in list(decision.reasons or [])[:8]]),
+            ),
+            flush=True,
+        )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -8,16 +9,22 @@ import asyncio
 from datetime import datetime
 from typing import Any, Iterator
 
+try:
+    import certifi
+except Exception:  # pragma: no cover - optional dependency
+    certifi = None
+
 from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from pymongo.errors import DuplicateKeyError
 from starlette.responses import StreamingResponse
-from starlette.requests import Request
 
 from app.api.deps import get_current_admin_user
-from app.api.error_locale import localize_detail
 from app.api.time_utils import utc_iso
+from app.core.config import settings
+from app.product.extensions import get_admin_product_extension
 from app.repositories.model_repository import (
     create_instance,
     delete_instance,
@@ -29,9 +36,8 @@ from app.repositories.model_repository import (
     set_default_instance,
     update_instance_health,
     update_instance,
-    add_vision_capability,
 )
-from app.services.model_connectivity import backend_model_test_events, backend_vision_probe, next_event
+from app.services.model_connectivity import backend_model_test_events, next_event
 from app.services.image_model_configuration import (
     infer_image_runtime_kind,
     normalize_capabilities,
@@ -39,15 +45,12 @@ from app.services.image_model_configuration import (
     serialize_image_settings,
 )
 from app.services.model_image_connectivity import run_saved_image_model_test
-from app.services.model_test_tls import build_model_test_ssl_context
 from app.services.model_pricing import normalize_pricing
-from app.api.routes import model_knowledge_tests
+
 from app.api.routes import model_groups
 from app.repositories.model_group_repository import find_group, list_groups
-from app.product.extensions import get_admin_product_extension
 
 router = APIRouter()
-router.include_router(model_knowledge_tests.router)
 router.include_router(model_groups.router)
 
 
@@ -75,7 +78,11 @@ def _format_provider(doc: dict[str, Any]) -> dict[str, object]:
     }
 
 
-def _format_instance(doc: dict[str, Any], provider_map: dict[str, dict[str, Any]], group_map: dict[str, dict[str, Any]] | None = None) -> dict[str, object]:
+def _format_instance(
+    doc: dict[str, Any],
+    provider_map: dict[str, dict[str, Any]],
+    group_map: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, object]:
     provider_id = str(doc.get("provider_id", ""))
     provider = provider_map.get(provider_id, {})
     group_id = str(doc.get("group_id") or "")
@@ -98,7 +105,7 @@ def _format_instance(doc: dict[str, Any], provider_map: dict[str, dict[str, Any]
         pricing = None
     return {
         "id": str(doc["_id"]),
-        "mainId": doc.get("main_id", ""),
+        "tenantId": doc.get("tenant_id", ""),
         "providerId": provider_id,
         "groupId": group_id,
         "providerName": provider.get("name", ""),
@@ -121,8 +128,13 @@ def _format_instance(doc: dict[str, Any], provider_map: dict[str, dict[str, Any]
         "isDefault": bool(doc.get("is_default", False)),
         "priority": doc.get("priority", 100),
         "pricing": (
-            {"currency": pricing["currency"], "inputPerMillion": float(pricing["inputPerMillion"]), "outputPerMillion": float(pricing["outputPerMillion"])}
-            if pricing else None
+            {
+                "currency": pricing["currency"],
+                "inputPerMillion": float(pricing["inputPerMillion"]),
+                "outputPerMillion": float(pricing["outputPerMillion"]),
+            }
+            if pricing
+            else None
         ),
         "updatedAt": _as_time(doc.get("updated_at")),
     }
@@ -149,7 +161,7 @@ class ModelInstancePayload(BaseModel):
 
 
 class ModelTestPayload(BaseModel):
-    prompt: str = Field(default="Reply in one sentence to test the current model connection.", max_length=500)
+    prompt: str = Field(default="请用一句话回复当前模型连接测试。", max_length=500)
 
 
 def _validated_pricing(value: Any) -> dict[str, Any] | None:
@@ -157,6 +169,18 @@ def _validated_pricing(value: Any) -> dict[str, Any] | None:
         return normalize_pricing(value)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+class ModelDiscoverPayload(BaseModel):
+    providerType: str = Field(pattern=r"^(openai_compatible|azure_openai|anthropic|gemini|ollama)$")
+    baseUrl: str = Field(min_length=1, max_length=300)
+    apiKey: str = Field(default="", max_length=600)
+    apiVersion: str = Field(default="", max_length=40)
+    # 编辑已保存配置时前端拿不到已加密 Key（字段留空=保留），传实例 ID 让后端取已存密钥解密
+    instanceId: str = Field(default="", max_length=64)
+    # 组内成员共用模型组的连接凭据；前端只有 apiKeyMasked，传 groupId 让后端
+    # 解密组里已存的 Key 复用（与 instanceId 互斥，instanceId 优先）。
+    groupId: str = Field(default="", max_length=64)
 
 
 @router.get("/providers")
@@ -168,24 +192,24 @@ async def get_model_providers(current_user: dict = Depends(get_current_admin_use
 
 @router.get("/instances")
 async def get_model_instances(current_user: dict = Depends(get_current_admin_user)) -> list[dict[str, object]]:
-    main_id = str(current_user.get("main_id", "default"))
+    tenant_id = str(current_user.get("tenant_id", "default"))
     providers = await list_providers()
     provider_map = {str(item["_id"]): item for item in providers}
-    instances = await list_instances(main_id)
-    group_map = {str(group["_id"]): group for group in await list_groups(main_id)}
+    instances = await list_instances(tenant_id)
+    group_map = {str(group["_id"]): group for group in await list_groups(tenant_id)}
     return [_format_instance(item, provider_map, group_map) for item in instances]
 
 
 @router.get("/available")
 async def get_available_chat_models(
-    main_id: str = "default",
+    tenant_id: str = "default",
     current_user: dict = Depends(get_current_admin_user),
 ) -> list[dict[str, object]]:
-    main_id = str(current_user.get("main_id") or main_id or "default")
+    tenant_id = str(current_user.get("tenant_id") or tenant_id or "default")
     providers = await list_providers()
     provider_map = {str(item["_id"]): item for item in providers}
-    instances = await list_instances(str(main_id or "default"))
-    group_map = {str(group["_id"]): group for group in await list_groups(main_id)}
+    instances = await list_instances(str(tenant_id or "default"))
+    group_map = {str(group["_id"]): group for group in await list_groups(tenant_id)}
     result: list[dict[str, object]] = []
     for item in instances:
         if item.get("status") != "active":
@@ -211,22 +235,85 @@ async def get_available_chat_models(
     return result
 
 
+@router.post("/discover")
+async def discover_provider_models(
+    payload: ModelDiscoverPayload,
+    current_user: dict = Depends(get_current_admin_user),
+) -> dict[str, object]:
+    """探测 provider 真实可用的模型列表（OpenAI 兼容走 /v1/models，Azure 走 deployments 列表）。
+
+    用于 admin-web「新增模型配置」中的「获取模型列表」功能：管理员填入 Base URL 与
+    API Key 后，调用本端点拉取该账户真实可调用的模型，点选其一即可免去手填模型 ID。
+
+    编辑已保存配置时，前端刻意将 API Key 字段置空（占位提示“留空则保留当前 Key”，已加密
+    Key 不可回显）。此时 payload 会带上 ``instanceId``，本端点从库中取出该实例已加密的
+    Key 解密复用，免去每次「获取模型列表」都要重新输入。Ollama 无需 Key，跳过此逻辑。
+    组内成员同理：模型组的 Key 也只以密文存储，payload 带 ``groupId`` 时从组里解密复用。
+    """
+    tenant_id = str(current_user.get("tenant_id", "default"))
+    base_url = payload.baseUrl.strip().rstrip("/")
+    api_key = payload.apiKey.strip()
+    instance_id = payload.instanceId.strip()
+    group_id = payload.groupId.strip()
+    if not api_key and instance_id and payload.providerType != "ollama":
+        resolved_key, key_error = await _resolve_stored_api_key(instance_id, tenant_id)
+        if key_error:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=key_error)
+        api_key = resolved_key
+    elif not api_key and group_id and payload.providerType != "ollama":
+        resolved_key, key_error = await _resolve_group_api_key(group_id, tenant_id)
+        if key_error:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=key_error)
+        api_key = resolved_key
+    try:
+        if payload.providerType == "azure_openai":
+            models = await asyncio.to_thread(_discover_azure_models, base_url, api_key, payload.apiVersion.strip())
+        elif payload.providerType == "anthropic":
+            models = await asyncio.to_thread(_discover_anthropic_models, base_url, api_key)
+        elif payload.providerType == "gemini":
+            models = await asyncio.to_thread(_discover_gemini_models, base_url, api_key)
+        elif payload.providerType == "ollama":
+            models = await asyncio.to_thread(_discover_ollama_models, base_url, api_key)
+        else:
+            models = await asyncio.to_thread(_discover_openai_compatible_models, base_url, api_key)
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"无法从模型服务获取模型列表 (HTTP {exc.code}): {detail[:400]}",
+        ) from exc
+    except urllib.error.URLError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=_format_url_error(exc, base_url),
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 - surface upstream failure as 502
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"获取模型列表失败: {exc}",
+        ) from exc
+    return {"models": models}
+
+
 @router.post("/instances", status_code=status.HTTP_201_CREATED)
 async def post_model_instance(
     payload: ModelInstancePayload,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, object]:
-    main_id = str(current_user.get("main_id", "default"))
+    tenant_id = str(current_user.get("tenant_id", "default"))
     try:
         provider = await find_provider_by_id(payload.providerId)
     except InvalidId as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="供应商ID无效") from exc
     if provider is None or provider.get("status") != "active":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="供应商不存在或已禁用")
-    group = await find_group(payload.groupId, main_id) if payload.groupId else None
+    group = await find_group(payload.groupId, tenant_id) if payload.groupId else None
     if payload.groupId and (group is None or str(group.get("provider_id")) != payload.providerId):
         raise HTTPException(status_code=400, detail="model_group_invalid")
-    if not group and not payload.apiKey.strip():
+    # Ollama 本地部署没有凭据：前端「获取模型列表」已按同一口径豁免 Ollama，
+    # 这里再无条件校验会把所有 ollama 实例挡在门外（永远 400「API Key 不能为空」）。
+    provider_requires_key = str(provider.get("provider_type") or "") != "ollama"
+    if not group and provider_requires_key and not payload.apiKey.strip():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="API Key 不能为空")
 
     capabilities = normalize_capabilities(payload.capabilities)
@@ -259,23 +346,23 @@ async def post_model_instance(
                 "settings": image_settings if runtime_kind else None,
                 "max_context_tokens": payload.maxContextTokens,
                 "is_default": payload.isDefault,
-                "main_id": main_id,
+                "tenant_id": tenant_id,
                 "pricing": _validated_pricing(payload.pricing),
             }
         )
     except DuplicateKeyError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="模型配置已存在") from exc
 
-    created = await find_instance_by_id(instance_id, main_id)
+    created = await find_instance_by_id(instance_id, tenant_id)
     if created is None:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="模型配置创建失败")
     try:
         for callback in get_admin_product_extension().model_created:
-            result = callback(main_id, str(instance_id))
+            result = callback(tenant_id, str(instance_id))
             if hasattr(result, "__await__"):
                 await result
     except Exception:
-        await delete_instance(str(instance_id), main_id)
+        await delete_instance(str(instance_id), tenant_id)
         raise
     providers = await list_providers()
     provider_map = {str(item["_id"]): item for item in providers}
@@ -288,19 +375,19 @@ async def put_model_instance(
     payload: ModelInstancePayload,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, object]:
-    main_id = str(current_user.get("main_id", "default"))
+    tenant_id = str(current_user.get("tenant_id", "default"))
     try:
         provider = await find_provider_by_id(payload.providerId)
     except InvalidId as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="供应商ID无效") from exc
     if provider is None or provider.get("status") != "active":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="供应商不存在或已禁用")
-    existing = await find_instance_by_id(instance_id, main_id)
+    existing = await find_instance_by_id(instance_id, tenant_id)
     if existing is None:
         raise HTTPException(status_code=404, detail="model_not_found")
     if str(existing.get("group_id") or "") != payload.groupId:
         raise HTTPException(status_code=409, detail="model_group_membership_immutable")
-    group = await find_group(payload.groupId, main_id) if payload.groupId else None
+    group = await find_group(payload.groupId, tenant_id) if payload.groupId else None
     if payload.groupId and (group is None or str(group.get("provider_id")) != payload.providerId):
         raise HTTPException(status_code=400, detail="model_group_invalid")
     capabilities = normalize_capabilities(payload.capabilities)
@@ -335,7 +422,7 @@ async def put_model_instance(
                 "settings": image_settings if runtime_kind else None,
                 "max_context_tokens": payload.maxContextTokens,
                 "is_default": payload.isDefault,
-                "main_id": main_id,
+                "tenant_id": tenant_id,
                 "pricing": _validated_pricing(payload.pricing),
             },
         )
@@ -346,7 +433,7 @@ async def put_model_instance(
     if not ok:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="模型配置不存在")
 
-    updated = await find_instance_by_id(instance_id, main_id)
+    updated = await find_instance_by_id(instance_id, tenant_id)
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="模型配置不存在")
     providers = await list_providers()
@@ -359,17 +446,13 @@ async def remove_model_instance(
     instance_id: str,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, bool]:
-    main_id = str(current_user.get("main_id", "default"))
+    tenant_id = str(current_user.get("tenant_id", "default"))
     try:
-        ok = await delete_instance(instance_id, main_id)
+        ok = await delete_instance(instance_id, tenant_id)
     except InvalidId as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="模型配置ID无效") from exc
     if not ok:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="模型配置不存在")
-    for callback in get_admin_product_extension().model_deleted:
-        result = callback(main_id, instance_id)
-        if hasattr(result, "__await__"):
-            await result
     return {"success": True}
 
 
@@ -378,9 +461,9 @@ async def make_default_model_instance(
     instance_id: str,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, bool]:
-    main_id = str(current_user.get("main_id", "default"))
+    tenant_id = str(current_user.get("tenant_id", "default"))
     try:
-        ok = await set_default_instance(instance_id, main_id)
+        ok = await set_default_instance(instance_id, tenant_id)
     except InvalidId as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="模型配置ID无效") from exc
     if not ok:
@@ -391,46 +474,44 @@ async def make_default_model_instance(
 @router.post("/instances/{instance_id}/test")
 async def test_model_instance(
     instance_id: str,
-    request: Request,
     payload: ModelTestPayload | None = None,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, object]:
-    main_id = str(current_user.get("main_id", "default"))
+    tenant_id = str(current_user.get("tenant_id", "default"))
     try:
-        instance = await find_instance_by_id(instance_id, main_id)
+        instance = await find_instance_by_id(instance_id, tenant_id)
     except InvalidId as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="模型配置ID无效") from exc
     if instance is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="模型配置不存在")
-    prompt = (payload.prompt if payload else "") or "Reply in one sentence to test the current model connection."
+    prompt = (payload.prompt if payload else "") or "请用一句话回复当前模型连接测试。"
     result_text = ""
     error_text = ""
-    for event in backend_model_test_events(instance_id, main_id, prompt):
+    for event in backend_model_test_events(instance_id, tenant_id, prompt):
         if event["type"] == "delta":
             result_text += str(event.get("content") or "")
         elif event["type"] == "error":
             error_text = str(event.get("message") or "模型连接测试失败")
             break
     if error_text:
-        await update_instance_health(instance_id, main_id, "failed", error_text)
-        return {"success": False, "status": "failed", "message": localize_detail(error_text, 400, request.headers.get("accept-language"))}
+        await update_instance_health(instance_id, tenant_id, "failed", error_text)
+        return JSONResponse(status_code=502, content={"success": False, "status": "failed", "message": error_text})
     return {
         "success": True,
         "status": "healthy",
-        "message": result_text or localize_detail("模型连接测试成功。", 200, request.headers.get("accept-language")),
+        "message": result_text or "模型连接测试成功。",
     }
 
 
 @router.post("/instances/{instance_id}/test-image")
 async def test_image_model_instance(
     instance_id: str,
-    request: Request,
     payload: ModelTestPayload | None = None,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, object]:
-    main_id = str(current_user.get("main_id", "default"))
+    tenant_id = str(current_user.get("tenant_id", "default"))
     try:
-        instance = await find_instance_by_id(instance_id, main_id)
+        instance = await find_instance_by_id(instance_id, tenant_id)
     except InvalidId as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="模型配置ID无效") from exc
     if instance is None:
@@ -438,22 +519,22 @@ async def test_image_model_instance(
     capabilities = normalize_capabilities(instance.get("capabilities"))
     if "image_generation" not in capabilities:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="当前模型未启用图片生成能力")
-    prompt = (payload.prompt if payload else "") or "Generate a clean, futuristic presentation cover without text."
+    prompt = (payload.prompt if payload else "") or "生成一张简洁的科技感演示文稿封面，不要文字。"
     try:
-        result = await run_saved_image_model_test(instance_id, main_id, prompt=prompt)
+        result = await run_saved_image_model_test(instance_id, tenant_id, prompt=prompt)
     except Exception as exc:
         message = str(exc)
-        await update_instance_health(instance_id, main_id, "failed", message)
-        return {"success": False, "status": "failed", "message": localize_detail(message, 200, request.headers.get("accept-language"))}
+        await update_instance_health(instance_id, tenant_id, "failed", message)
+        return JSONResponse(status_code=502, content={"success": False, "status": "failed", "message": message})
     if not bool(result.get("success")):
         message = str(result.get("message") or "图片模型连接测试失败")
-        await update_instance_health(instance_id, main_id, "failed", message)
-        return {"success": False, "status": "failed", "message": localize_detail(message, 200, request.headers.get("accept-language"))}
-    await update_instance_health(instance_id, main_id, "healthy", "")
+        await update_instance_health(instance_id, tenant_id, "failed", message)
+        return JSONResponse(status_code=502, content={"success": False, "status": "failed", "message": message})
+    await update_instance_health(instance_id, tenant_id, "healthy", "")
     return {
         "success": True,
         "status": "healthy",
-        "message": localize_detail("图片生成测试成功。", 200, request.headers.get("accept-language")),
+        "message": "图片生成测试成功。",
         "imageUrl": str(result.get("image_url") or ""),
         "providerType": str(result.get("provider_type") or ""),
         "runtimeKind": str(result.get("runtime_kind") or ""),
@@ -461,63 +542,24 @@ async def test_image_model_instance(
     }
 
 
-@router.post("/instances/{instance_id}/test-vision")
-async def test_vision_capability(
-    instance_id: str,
-    current_user: dict = Depends(get_current_admin_user),
-) -> dict[str, bool]:
-    main_id = str(current_user.get("main_id", "default"))
-    try:
-        instance = await find_instance_by_id(instance_id, main_id)
-    except InvalidId as exc:
-        raise HTTPException(status_code=400, detail="模型配置ID无效") from exc
-    if instance is None:
-        raise HTTPException(status_code=404, detail="模型配置不存在")
-    if not set(normalize_capabilities(instance.get("capabilities"))).intersection({"chat", "text"}):
-        return {"supported": False}
-    try:
-        return {"supported": await asyncio.to_thread(backend_vision_probe, instance_id, main_id)}
-    except Exception:
-        return {"supported": False}
-
-
-@router.post("/instances/{instance_id}/enable-vision")
-async def enable_vision_capability(
-    instance_id: str,
-    current_user: dict = Depends(get_current_admin_user),
-) -> dict[str, bool]:
-    main_id = str(current_user.get("main_id", "default"))
-    try:
-        instance = await find_instance_by_id(instance_id, main_id)
-        if instance is None:
-            raise HTTPException(status_code=404, detail="模型配置不存在")
-        if not set(normalize_capabilities(instance.get("capabilities"))).intersection({"chat", "text"}):
-            raise HTTPException(status_code=400, detail="只有对话模型可以启用视觉输入")
-        await add_vision_capability(instance_id, main_id)
-    except InvalidId as exc:
-        raise HTTPException(status_code=400, detail="模型配置ID无效") from exc
-    return {"success": True}
-
-
 @router.post("/instances/{instance_id}/test/stream")
 async def stream_model_instance_test(
     instance_id: str,
     payload: ModelTestPayload,
-    request: Request,
     current_user: dict = Depends(get_current_admin_user),
 ) -> StreamingResponse:
-    main_id = str(current_user.get("main_id", "default"))
+    tenant_id = str(current_user.get("tenant_id", "default"))
     try:
-        instance = await find_instance_by_id(instance_id, main_id)
+        instance = await find_instance_by_id(instance_id, tenant_id)
     except InvalidId as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="模型配置ID无效") from exc
     if instance is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="模型配置不存在")
     async def event_stream():
         final_text = ""
-        await update_instance_health(instance_id, main_id, "unknown", "")
-        yield _sse({"type": "start", "message": localize_detail("正在连接 backend 模型运行时...", 200, request.headers.get("accept-language"))})
-        iterator = backend_model_test_events(instance_id, main_id, payload.prompt)
+        await update_instance_health(instance_id, tenant_id, "unknown", "")
+        yield _sse({"type": "start", "message": "正在连接 backend 模型运行时..."})
+        iterator = backend_model_test_events(instance_id, tenant_id, payload.prompt)
         while True:
             has_event, event = await asyncio.to_thread(next_event, iterator)
             if not has_event:
@@ -525,14 +567,12 @@ async def stream_model_instance_test(
             if event["type"] == "delta":
                 final_text += str(event.get("content") or "")
             if event["type"] == "error":
-                await update_instance_health(instance_id, main_id, "failed", str(event.get("message") or ""))
-                if isinstance(event.get("message"), str):
-                    event = {**event, "message": localize_detail(event["message"], 400, request.headers.get("accept-language"))}
+                await update_instance_health(instance_id, tenant_id, "failed", str(event.get("message") or ""))
                 yield _sse(event)
                 return
             yield _sse(event)
-        await update_instance_health(instance_id, main_id, "healthy", "")
-        yield _sse({"type": "done", "message": final_text or localize_detail("模型连接测试成功。", 200, request.headers.get("accept-language"))})
+        await update_instance_health(instance_id, tenant_id, "healthy", "")
+        yield _sse({"type": "done", "message": final_text or "模型连接测试成功。"})
 
     return StreamingResponse(
         event_stream(),
@@ -556,13 +596,19 @@ def _provider_test_events(
     provider_type = str(provider.get("provider_type") or "openai_compatible").strip()
     if provider_type == "azure_openai":
         return _azure_openai_test_events(instance, provider, prompt)
+    if provider_type == "anthropic":
+        return _anthropic_test_events(instance, provider, prompt)
+    if provider_type == "gemini":
+        return _gemini_test_events(instance, provider, prompt)
+    if provider_type == "ollama":
+        return _ollama_test_events(instance, provider, prompt)
     return _openai_compatible_test_events(instance, provider, prompt)
 
 
 def _iter_sse_response_chunks(
     request: urllib.request.Request,
 ) -> Iterator[dict[str, object]]:
-    context = build_model_test_ssl_context()
+    context = _build_ssl_context()
     with urllib.request.urlopen(request, timeout=60, context=context) as response:
         for raw_line in response:
             line = raw_line.decode("utf-8", errors="replace").strip()
@@ -634,7 +680,43 @@ def _stream_chat_completion_with_token_fallback(
                 current_body["temperature"] = 1
                 continue
             raise
-def _format_url_error(exc: urllib.error.URLError) -> str:
+
+
+def _build_ssl_context() -> ssl.SSLContext:
+    if settings.model_test_insecure_skip_verify:
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        return context
+    if settings.model_test_ca_bundle.strip():
+        return ssl.create_default_context(cafile=settings.model_test_ca_bundle.strip())
+    # Prefer certifi bundle when available to avoid local system trust-store issues.
+    if certifi is not None:
+        try:
+            return ssl.create_default_context(cafile=certifi.where())
+        except Exception:
+            pass
+    return ssl.create_default_context()
+
+
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
+
+
+def _loopback_base_url_hint(base_url: str) -> str:
+    """Base URL 指向 loopback 时，提示容器内应改用 host.docker.internal。"""
+    try:
+        host = (urllib.parse.urlsplit((base_url or "").strip()).hostname or "").lower()
+    except ValueError:
+        return ""
+    if host not in _LOOPBACK_HOSTS:
+        return ""
+    return (
+        "（提示：请求由容器内的 admin-api 发出，127.0.0.1/localhost 指向容器自身；"
+        "若模型服务运行在宿主机，请把 Base URL 改为 http://host.docker.internal:<端口>/...）"
+    )
+
+
+def _format_url_error(exc: urllib.error.URLError, base_url: str = "") -> str:
     reason_text = str(exc.reason)
     if "CERTIFICATE_VERIFY_FAILED" in reason_text:
         return (
@@ -643,7 +725,7 @@ def _format_url_error(exc: urllib.error.URLError) -> str:
             "仅开发环境可临时设置 ASKAI_ADMIN_MODEL_TEST_INSECURE_SKIP_VERIFY=true。"
             f" 原始错误: {reason_text}"
         )
-    return f"模型接口连接失败: {reason_text}"
+    return f"模型接口连接失败: {reason_text}{_loopback_base_url_hint(base_url)}"
 
 
 def _decrypt_api_key(instance: dict[str, Any]) -> tuple[str, str]:
@@ -652,6 +734,32 @@ def _decrypt_api_key(instance: dict[str, Any]) -> tuple[str, str]:
         return decrypt_secret(api_key_encrypted), ""
     except Exception:
         return "", "API Key 解密失败，请重新保存模型配置"
+
+
+async def _resolve_stored_api_key(instance_id: str, tenant_id: str) -> tuple[str, str]:
+    """编辑已保存配置且前端未填入 API Key 时，取该实例已加密存储的 Key 解密复用。"""
+    try:
+        instance = await find_instance_by_id(instance_id, tenant_id)
+    except InvalidId:
+        return "", "模型配置ID无效，请改为手动输入 API Key"
+    if instance is None:
+        return "", "未找到对应模型配置，请改为手动输入 API Key"
+    return _decrypt_api_key(instance)
+
+
+async def _resolve_group_api_key(group_id: str, tenant_id: str) -> tuple[str, str]:
+    """组内成员「获取模型列表」时，解密复用模型组共享的已存 Key。
+
+    组内实例本身不存凭据（base_url / api_key 都留空，由组提供），前端也拿不到
+    组的明文 Key（只回 apiKeyMasked），只能由后端按 groupId + tenant_id 取组解密。
+    """
+    try:
+        group = await find_group(group_id, tenant_id)
+    except (InvalidId, ValueError):
+        return "", "模型组ID无效，请改为手动输入 API Key"
+    if group is None:
+        return "", "未找到对应模型组，请改为手动输入 API Key"
+    return _decrypt_api_key(group)
 
 
 def _azure_openai_test_events(
@@ -672,9 +780,6 @@ def _azure_openai_test_events(
     if not endpoint:
         yield {"type": "error", "message": "Azure Endpoint 不能为空"}
         return
-    if not api_key:
-        yield {"type": "error", "message": "API Key 不能为空"}
-        return
 
     path_deployment = urllib.parse.quote(deployment, safe="")
     query = urllib.parse.urlencode({"api-version": api_version})
@@ -682,7 +787,7 @@ def _azure_openai_test_events(
     body = {
         "messages": [
             {"role": "system", "content": "You are a concise model connectivity test assistant."},
-            {"role": "user", "content": prompt or "Reply in one sentence to test the current model connection."},
+            {"role": "user", "content": prompt or "请用一句话回复当前模型连接测试。"},
         ],
         "stream": True,
         "temperature": 0,
@@ -699,9 +804,314 @@ def _azure_openai_test_events(
         detail = exc.read().decode("utf-8", errors="replace")
         yield {"type": "error", "message": f"模型接口返回 {exc.code}: {detail[:600]}"}
     except urllib.error.URLError as exc:
-        yield {"type": "error", "message": _format_url_error(exc)}
+        yield {"type": "error", "message": _format_url_error(exc, endpoint)}
     except TimeoutError:
         yield {"type": "error", "message": "模型接口连接超时"}
+    except Exception as exc:
+        yield {"type": "error", "message": f"模型连接测试失败: {exc}"}
+
+
+def _discover_openai_compatible_models(base_url: str, api_key: str) -> list[dict[str, str]]:
+    """调用 OpenAI 兼容接口的 ``GET /models``，返回该账户真实可用模型清单。"""
+    target = f"{base_url.rstrip('/')}/models"
+    headers = {
+        "Authorization": f"Bearer {api_key.strip()}",
+        "Accept": "application/json",
+    }
+    request = urllib.request.Request(target, headers=headers, method="GET")
+    with urllib.request.urlopen(request, timeout=30, context=_build_ssl_context()) as response:
+        raw = json.loads(response.read().decode("utf-8", errors="replace"))
+    items = raw.get("data") or []
+    seen: set[str] = set()
+    result: list[dict[str, str]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        model_id = item.get("id") or item.get("name") or item.get("model")
+        if not model_id:
+            continue
+        model_id = str(model_id)
+        if model_id in seen:
+            continue
+        seen.add(model_id)
+        result.append(
+            {
+                "id": model_id,
+                "name": str(item.get("name") or model_id),
+                "ownedBy": str(item.get("owned_by") or ""),
+            }
+        )
+    return result
+
+
+def _discover_azure_models(base_url: str, api_key: str, api_version: str) -> list[dict[str, str]]:
+    """调用 Azure OpenAI 的 deployments 列表（``GET /openai/deployments``）。"""
+    endpoint = base_url.rstrip("/")
+    version = urllib.parse.quote(api_version or "2024-10-21", safe="")
+    target = f"{endpoint}/openai/deployments?api-version={version}"
+    headers = {
+        "api-key": api_key.strip(),
+        "Accept": "application/json",
+    }
+    request = urllib.request.Request(target, headers=headers, method="GET")
+    with urllib.request.urlopen(request, timeout=30, context=_build_ssl_context()) as response:
+        raw = json.loads(response.read().decode("utf-8", errors="replace"))
+    items = raw.get("data") or []
+    seen: set[str] = set()
+    result: list[dict[str, str]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        model_id = item.get("id") or item.get("name") or item.get("model")
+        if not model_id:
+            continue
+        model_id = str(model_id)
+        if model_id in seen:
+            continue
+        seen.add(model_id)
+        result.append(
+            {
+                "id": model_id,
+                "name": str(item.get("display_name") or item.get("name") or model_id),
+                "ownedBy": "",
+            }
+        )
+    return result
+
+
+def _discover_anthropic_models(base_url: str, api_key: str) -> list[dict[str, str]]:
+    """调用 Anthropic 的 ``GET /v1/models``（需要 x-api-key + anthropic-version）。"""
+    target = f"{base_url.rstrip('/')}/v1/models"
+    headers = {
+        "x-api-key": api_key.strip(),
+        "anthropic-version": "2023-06-01",
+        "Accept": "application/json",
+    }
+    request = urllib.request.Request(target, headers=headers, method="GET")
+    with urllib.request.urlopen(request, timeout=30, context=_build_ssl_context()) as response:
+        raw = json.loads(response.read().decode("utf-8", errors="replace"))
+    items = raw.get("data") or []
+    seen: set[str] = set()
+    result: list[dict[str, str]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        model_id = item.get("id") or item.get("name")
+        if not model_id:
+            continue
+        model_id = str(model_id)
+        if model_id in seen:
+            continue
+        seen.add(model_id)
+        result.append(
+            {
+                "id": model_id,
+                "name": str(item.get("display_name") or model_id),
+                "ownedBy": "anthropic",
+            }
+        )
+    return result
+
+
+def _discover_gemini_models(base_url: str, api_key: str) -> list[dict[str, str]]:
+    """调用 Google Gemini 的 ``GET /v1beta/models?key=...``。"""
+    encoded_key = urllib.parse.quote(api_key.strip(), safe="")
+    target = f"{base_url.rstrip('/')}/v1beta/models?key={encoded_key}"
+    headers = {"Accept": "application/json"}
+    request = urllib.request.Request(target, headers=headers, method="GET")
+    with urllib.request.urlopen(request, timeout=30, context=_build_ssl_context()) as response:
+        raw = json.loads(response.read().decode("utf-8", errors="replace"))
+    items = raw.get("models") or []
+    seen: set[str] = set()
+    result: list[dict[str, str]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        model_id = str(item.get("name") or "")
+        # Gemini 返回形如 "models/gemini-1.5-pro"，去掉前缀更便于作为模型 ID 使用
+        model_id = model_id.split("/")[-1]
+        if not model_id or model_id in seen:
+            continue
+        seen.add(model_id)
+        result.append(
+            {
+                "id": model_id,
+                "name": str(item.get("displayName") or model_id),
+                "ownedBy": "google",
+            }
+        )
+    return result
+
+
+def _discover_ollama_models(base_url: str, api_key: str) -> list[dict[str, str]]:
+    """调用本地 Ollama 的 ``GET /api/tags``（无需鉴权）。"""
+    target = f"{base_url.rstrip('/')}/api/tags"
+    headers = {"Accept": "application/json"}
+    request = urllib.request.Request(target, headers=headers, method="GET")
+    with urllib.request.urlopen(request, timeout=30, context=_build_ssl_context()) as response:
+        raw = json.loads(response.read().decode("utf-8", errors="replace"))
+    items = raw.get("models") or []
+    seen: set[str] = set()
+    result: list[dict[str, str]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        model_id = item.get("name") or item.get("model")
+        if not model_id:
+            continue
+        model_id = str(model_id)
+        if model_id in seen:
+            continue
+        seen.add(model_id)
+        result.append(
+            {
+                "id": model_id,
+                "name": model_id,
+                "ownedBy": "ollama",
+            }
+        )
+    return result
+
+
+def _anthropic_test_events(
+    instance: dict[str, Any],
+    provider: dict[str, Any],
+    prompt: str,
+) -> Iterator[dict[str, object]]:
+    model_name = str(instance.get("model_name") or "").strip()
+    base_url = str(instance.get("base_url") or provider.get("default_base_url") or "").strip().rstrip("/")
+    if not model_name:
+        yield {"type": "error", "message": "模型 ID 不能为空"}
+        return
+    if not base_url:
+        yield {"type": "error", "message": "Base URL 不能为空"}
+        return
+    api_key, key_error = _decrypt_api_key(instance)
+    if key_error:
+        yield {"type": "error", "message": key_error}
+        return
+    url = f"{base_url}/v1/messages"
+    body = {
+        "model": model_name,
+        "max_tokens": 120,
+        "messages": [{"role": "user", "content": prompt or "请用一句话回复当前模型连接测试。"}],
+        "stream": False,
+    }
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    try:
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=60, context=_build_ssl_context()) as response:
+            data = json.loads(response.read().decode("utf-8", errors="replace"))
+        blocks = data.get("content") or []
+        text = "".join(str(block.get("text") or "") for block in blocks if block.get("type") == "text")
+        if not text:
+            yield {"type": "error", "message": "模型返回内容为空"}
+            return
+        yield {"type": "delta", "content": text}
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        yield {"type": "error", "message": f"模型接口返回 {exc.code}: {detail[:600]}"}
+    except urllib.error.URLError as exc:
+        yield {"type": "error", "message": _format_url_error(exc, base_url)}
+    except Exception as exc:
+        yield {"type": "error", "message": f"模型连接测试失败: {exc}"}
+
+
+def _gemini_test_events(
+    instance: dict[str, Any],
+    provider: dict[str, Any],
+    prompt: str,
+) -> Iterator[dict[str, object]]:
+    model_name = str(instance.get("model_name") or "").strip()
+    base_url = str(instance.get("base_url") or provider.get("default_base_url") or "").strip().rstrip("/")
+    if not model_name:
+        yield {"type": "error", "message": "模型 ID 不能为空"}
+        return
+    if not base_url:
+        yield {"type": "error", "message": "Base URL 不能为空"}
+        return
+    api_key, key_error = _decrypt_api_key(instance)
+    if key_error:
+        yield {"type": "error", "message": key_error}
+        return
+    url = f"{base_url}/v1beta/models/{urllib.parse.quote(model_name, safe='')}:generateContent?key={urllib.parse.quote(api_key, safe='')}"
+    body = {
+        "contents": [{"role": "user", "parts": [{"text": prompt or "请用一句话回复当前模型连接测试。"}]}],
+    }
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    try:
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=60, context=_build_ssl_context()) as response:
+            data = json.loads(response.read().decode("utf-8", errors="replace"))
+        parts = (data.get("candidates") or [{}])[0].get("content", {}).get("parts") or []
+        text = "".join(str(part.get("text") or "") for part in parts)
+        if not text:
+            yield {"type": "error", "message": "模型返回内容为空"}
+            return
+        yield {"type": "delta", "content": text}
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        yield {"type": "error", "message": f"模型接口返回 {exc.code}: {detail[:600]}"}
+    except urllib.error.URLError as exc:
+        yield {"type": "error", "message": _format_url_error(exc, base_url)}
+    except Exception as exc:
+        yield {"type": "error", "message": f"模型连接测试失败: {exc}"}
+
+
+def _ollama_test_events(
+    instance: dict[str, Any],
+    provider: dict[str, Any],
+    prompt: str,
+) -> Iterator[dict[str, object]]:
+    model_name = str(instance.get("model_name") or "").strip()
+    base_url = str(instance.get("base_url") or provider.get("default_base_url") or "").strip().rstrip("/")
+    if not model_name:
+        yield {"type": "error", "message": "模型 ID 不能为空"}
+        return
+    if not base_url:
+        yield {"type": "error", "message": "Base URL 不能为空"}
+        return
+    url = f"{base_url}/api/chat"
+    body = {
+        "model": model_name,
+        "messages": [{"role": "user", "content": prompt or "请用一句话回复当前模型连接测试。"}],
+        "stream": False,
+    }
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    try:
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=60, context=_build_ssl_context()) as response:
+            data = json.loads(response.read().decode("utf-8", errors="replace"))
+        text = str((data.get("message") or {}).get("content") or "")
+        if not text:
+            yield {"type": "error", "message": "模型返回内容为空"}
+            return
+        yield {"type": "delta", "content": text}
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        yield {"type": "error", "message": f"模型接口返回 {exc.code}: {detail[:600]}"}
+    except urllib.error.URLError as exc:
+        yield {"type": "error", "message": _format_url_error(exc, base_url)}
     except Exception as exc:
         yield {"type": "error", "message": f"模型连接测试失败: {exc}"}
 
@@ -723,16 +1133,13 @@ def _openai_compatible_test_events(
     if key_error:
         yield {"type": "error", "message": key_error}
         return
-    if not api_key:
-        yield {"type": "error", "message": "API Key 不能为空"}
-        return
 
     url = f"{base_url}/chat/completions"
     body = {
         "model": model_name,
         "messages": [
             {"role": "system", "content": "You are a concise model connectivity test assistant."},
-            {"role": "user", "content": prompt or "Reply in one sentence to test the current model connection."},
+            {"role": "user", "content": prompt or "请用一句话回复当前模型连接测试。"},
         ],
         "stream": True,
         "temperature": 0,
@@ -749,7 +1156,7 @@ def _openai_compatible_test_events(
         detail = exc.read().decode("utf-8", errors="replace")
         yield {"type": "error", "message": f"模型接口返回 {exc.code}: {detail[:600]}"}
     except urllib.error.URLError as exc:
-        yield {"type": "error", "message": _format_url_error(exc)}
+        yield {"type": "error", "message": _format_url_error(exc, base_url)}
     except TimeoutError:
         yield {"type": "error", "message": "模型接口连接超时"}
     except Exception as exc:

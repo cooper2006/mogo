@@ -1,0 +1,46 @@
+# 024 T090 (FR-047)：域名与证书清单。
+# cert-check.sh 据此做到期检查（剩余<=30 天告警）、证书链校验与外部拨测（T092），
+# 拨测结果回写本文件的 probeStatus（脚本用 --write-probe-status 更新）。
+
+version: 1
+domains:
+  - domain: app.example.com
+    owner: platform-oncall
+    purpose: 主应用网关（HTTP/HTTPS 入口）
+    expiry: 2027-03-01
+    renewMethod: 'certbot (ACME, profiles [acme]) | 客户自有证书时手工更换'
+    tls: true
+    protocol: "TLS 1.2/1.3"
+    probeStatus: unknown
+
+  - domain: api.example.com
+    owner: platform-oncall
+    purpose: 后端 API（chat-api / admin-api）
+    expiry: 2027-03-01
+    renewMethod: certbot (ACME)
+    tls: true
+    protocol: "TLS 1.2/1.3"
+    probeStatus: unknown
+
+  - domain: admin.example.com
+    owner: security
+    purpose: 管理后台（admin-api，仅内网 / VPN）
+    expiry: 2027-06-01
+    renewMethod: 客户自有证书（手工更换）
+    tls: true
+    protocol: "TLS 1.2/1.3"
+    probeStatus: unknown
+
+  - domain: mongo.example.com
+    owner: data-platform
+    purpose: MongoDB 副本集内部通信（可选，需 TLS 时）
+    expiry: 2027-06-01
+    renewMethod: 客户自有证书（手工更换）
+    tls: true
+    protocol: "TLS 1.2"
+    probeStatus: unknown
+
+alert:
+  daysBeforeExpiry: 30          # 剩余天数 <= 30 告警（FR-046/048）
+  daysBeforeCritical: 7         # 剩余 <= 7 升级为 critical
+  probeFromExternal: true       # 外部拨测（T092），不得仅本机检查

@@ -22,7 +22,7 @@ def test_parse_markdown_sync_uses_existing_parser_and_returns_markdown(monkeypat
     monkeypatch.setattr(
         markdown_parse_service,
         "parse_document",
-        lambda path, filename: ParsedDocument(
+        lambda path, filename, **_kwargs: ParsedDocument(
             markdown="# 标题\n\n| 地区 | 行业 |\n|---|---|\n| 北京 | 软件 |",
             raw={"parser": "docling", "tables": [{"rows": 2}]},
             raw_chunks=[{"text": "北京 软件"}],
@@ -75,7 +75,7 @@ def test_parse_markdown_sync_can_read_source_url_without_storage(monkeypatch) ->
     monkeypatch.setattr(
         markdown_parse_service,
         "parse_document",
-        lambda path, filename: ParsedDocument(markdown="从 URL 解析", raw={"parser": "docling"}),
+        lambda path, filename, **_kwargs: ParsedDocument(markdown="从 URL 解析", raw={"parser": "docling"}),
     )
 
     result = markdown_parse_service.parse_markdown_sync(

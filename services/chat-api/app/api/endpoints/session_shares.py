@@ -12,13 +12,13 @@ from __future__ import annotations
 import datetime
 from typing import Any, Literal
 
-from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.api.principal import ApiPrincipal, require_end_user_principal
 from app.core.db import get_db
-from app.core.tenant import add_main_scope
+from app.core.ids import is_valid_backend_id
+from app.core.tenant import add_tenant_scope
 from app.dsh_runtime.bindings.repository import KernelBindingRepository
 from app.dsh_runtime.conversation.participants_repository import SessionParticipantsRepository
 from app.services.session_identity_projection import resolve_author_projections
@@ -47,17 +47,17 @@ def _utcnow() -> datetime.datetime:
     return datetime.datetime.now(datetime.timezone.utc)
 
 
-def _session_oid(session_id: str) -> ObjectId:
-    if not ObjectId.is_valid(session_id):
+def _session_id(session_id: str) -> str:
+    if not is_valid_backend_id(session_id):
         raise HTTPException(
             status_code=404,
             detail={"code": "session_not_found", "message": "Session not found"},
         )
-    return ObjectId(session_id)
+    return session_id
 
 
 async def _resolve_viewer_session(
-    oid: ObjectId,
+    session_id: str,
     *,
     principal: ApiPrincipal,
     participants: SessionParticipantsRepository,
@@ -69,12 +69,12 @@ async def _resolve_viewer_session(
     ``user_id``; the participant branch is an active-row check (removed rows
     grant no visibility).
     """
-    session_doc = await get_db().chat_sessions.find_one(add_main_scope({"_id": oid}, principal.main_id))
+    session_doc = await get_db().chat_sessions.find_one(add_tenant_scope({"_id": session_id}, principal.tenant_id))
     role: str | None = None
     if session_doc is not None:
         if str(session_doc.get("user_id") or "") == principal.user_id:
             role = "owner"
-        elif await participants.is_member(str(oid), tenant_id=principal.main_id, user_id=principal.user_id):
+        elif await participants.is_member(session_id, tenant_id=principal.tenant_id, user_id=principal.user_id):
             role = "participant"
     if session_doc is None or role is None:
         raise HTTPException(
@@ -94,7 +94,7 @@ async def create_session_share(
     db = get_db()
     participants = SessionParticipantsRepository(db)
     session_doc, role = await _resolve_viewer_session(
-        _session_oid(session_id), principal=principal, participants=participants,
+        _session_id(session_id), principal=principal, participants=participants,
     )
     if role != "owner":
         raise HTTPException(
@@ -102,7 +102,7 @@ async def create_session_share(
             detail={"code": "session_share_owner_required", "message": "Only the session owner may share it"},
         )
     binding = await KernelBindingRepository(db).current(
-        str(session_doc["_id"]), tenant_id=principal.main_id, user_id=principal.user_id,
+        str(session_doc["_id"]), tenant_id=principal.tenant_id, user_id=principal.user_id,
     )
     if binding is None:
         raise HTTPException(
@@ -117,7 +117,7 @@ async def create_session_share(
     issued = issue_share(session_doc, now=_utcnow(), expires_in_days=payload.expires_in_days)
     link = portal_link(request, issued["token"]) if request is not None else ""
     await db.chat_sessions.update_one({"_id": session_doc["_id"]}, {"$set": issued["fields"]})
-    active_rows = await participants.list(str(session_doc["_id"]), tenant_id=principal.main_id)
+    active_rows = await participants.list(str(session_doc["_id"]), tenant_id=principal.tenant_id)
     participant_count = sum(
         1 for row in active_rows if str(row.get("user_id") or "") != principal.user_id
     )
@@ -140,7 +140,7 @@ async def join_session_share(
     except SessionShareError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail()) from exc
     session_doc = await db.chat_sessions.find_one(
-        add_main_scope({"share_token_hash": token_hash}, principal.main_id),
+        add_tenant_scope({"share_token_hash": token_hash}, principal.tenant_id),
     )
     if session_doc is None:
         raise HTTPException(
@@ -156,7 +156,7 @@ async def join_session_share(
     if str(session_doc.get("user_id") or "") != principal.user_id:
         # Owners are members through ownership and never get a participant row.
         await SessionParticipantsRepository(db).add(
-            tenant_id=principal.main_id, conversation_id=conversation_id, user_id=principal.user_id,
+            tenant_id=principal.tenant_id, conversation_id=conversation_id, user_id=principal.user_id,
         )
     return _response({"session_id": conversation_id})
 
@@ -169,7 +169,7 @@ async def revoke_session_share(
     db = get_db()
     participants = SessionParticipantsRepository(db)
     session_doc, role = await _resolve_viewer_session(
-        _session_oid(session_id), principal=principal, participants=participants,
+        _session_id(session_id), principal=principal, participants=participants,
     )
     if role != "owner":
         raise HTTPException(
@@ -190,15 +190,15 @@ async def list_participants(
 ) -> dict[str, object]:
     participants = SessionParticipantsRepository(get_db())
     session_doc, _role = await _resolve_viewer_session(
-        _session_oid(session_id), principal=principal, participants=participants,
+        _session_id(session_id), principal=principal, participants=participants,
     )
-    rows = await participants.list(str(session_doc["_id"]), tenant_id=principal.main_id)
+    rows = await participants.list(str(session_doc["_id"]), tenant_id=principal.tenant_id)
     member_ids = [str(session_doc.get("user_id") or "")]
     member_ids.extend(str(row.get("user_id") or "") for row in rows)
     # Todo 5: the shared tenant-scoped batch resolver owns display names and
     # the nullable avatar projection (signed URLs only, never object paths).
     identity = await resolve_author_projections(
-        get_db(), tenant_id=principal.main_id, user_ids=member_ids,
+        get_db(), tenant_id=principal.tenant_id, user_ids=member_ids,
     )
     owner_identity = identity.get(member_ids[0]) or {}
     items = [{
@@ -225,7 +225,7 @@ async def leave_session(
 ) -> dict[str, object]:
     participants = SessionParticipantsRepository(get_db())
     session_doc, role = await _resolve_viewer_session(
-        _session_oid(session_id), principal=principal, participants=participants,
+        _session_id(session_id), principal=principal, participants=participants,
     )
     if role != "participant":
         raise HTTPException(
@@ -233,7 +233,7 @@ async def leave_session(
             detail={"code": "session_share_participant_required", "message": "Only participants may leave a session"},
         )
     await participants.remove(
-        str(session_doc["_id"]), tenant_id=principal.main_id, user_id=principal.user_id,
+        str(session_doc["_id"]), tenant_id=principal.tenant_id, user_id=principal.user_id,
     )
     return _response({"session_id": str(session_doc["_id"])})
 
@@ -246,7 +246,7 @@ async def remove_participant(
 ) -> dict[str, object]:
     participants = SessionParticipantsRepository(get_db())
     session_doc, role = await _resolve_viewer_session(
-        _session_oid(session_id), principal=principal, participants=participants,
+        _session_id(session_id), principal=principal, participants=participants,
     )
     if role != "owner":
         raise HTTPException(
@@ -254,6 +254,6 @@ async def remove_participant(
             detail={"code": "session_share_owner_required", "message": "Only the session owner may remove participants"},
         )
     await participants.remove(
-        str(session_doc["_id"]), tenant_id=principal.main_id, user_id=user_id,
+        str(session_doc["_id"]), tenant_id=principal.tenant_id, user_id=user_id,
     )
     return _response({"session_id": str(session_doc["_id"]), "user_id": user_id})

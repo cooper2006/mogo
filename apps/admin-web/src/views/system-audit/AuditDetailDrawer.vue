@@ -30,5 +30,5 @@ const detailRows = computed(() => Object.entries(props.record?.details || {}).fi
 </template>
 
 <style scoped>
-.detail-value { color: #475467; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.detail-value { color: var(--mg-text-2); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 </style>

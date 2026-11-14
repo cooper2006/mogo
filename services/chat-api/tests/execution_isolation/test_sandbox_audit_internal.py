@@ -11,6 +11,6 @@ def test_end_user_cannot_read_admin_audit_entry() -> None:
     with pytest.raises(HTTPException) as error:
         asyncio.run(get_call_text(
             "message", "call", "stdout",
-            principal=ApiPrincipal(kind="end_user", main_id="tenant", user_id="user"),
+            principal=ApiPrincipal(kind="end_user", tenant_id="tenant", user_id="user"),
         ))
     assert error.value.status_code == 403

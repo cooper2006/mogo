@@ -6,7 +6,7 @@ import { RuntimeHttpServer } from './runtime-http-server.mjs'
 import { migrateLegacyPluginHome } from './plugin-user-home.mjs'
 
 function parseArgs(argv) {
-  const values = { host: '127.0.0.1', port: 8101, storageRoot: './storage', authTokenFile: '' }
+  const values = { host: '127.0.0.1', port: 8101, storageRoot: './storage', authTokenFile: '', instanceId: '' }
   for (let index = 0; index < argv.length; index += 2) {
     const name = argv[index]
     const value = argv[index + 1]
@@ -15,6 +15,7 @@ function parseArgs(argv) {
     else if (name === '--port') values.port = Number(value)
     else if (name === '--storage-root') values.storageRoot = value
     else if (name === '--auth-token-file') values.authTokenFile = value
+    else if (name === '--instance-id') values.instanceId = value
     else throw new Error(`unknown argument: ${name}`)
   }
   return values
@@ -37,6 +38,11 @@ async function main() {
     port: options.port,
     storageRoot: resolve(options.storageRoot),
     authToken: (await consumeTokenFile(options.authTokenFile)) || process.env.DSH_RUNTIME_HOST_TOKEN || '',
+    instanceId: options.instanceId || process.env.DSH_INSTANCE_ID || '',
+    // Cross-replica hand-off: the pool's own membership, used to relay a
+    // request the sticky LB misrouted during a membership change.
+    peers: process.env.DSH_RUNTIME_PEERS || '',
+    selfUrl: process.env.DSH_RUNTIME_SELF_URL || '',
   })
   const address = await runtime.start()
   process.stdout.write(`${JSON.stringify({
@@ -46,6 +52,7 @@ async function main() {
     kernel: 'dsh',
     kernelVersion: ASKAI_DSH_KERNEL_VERSION,
     protocolVersion: ASKAI_DSH_HOST_PROTOCOL_VERSION,
+    instanceId: runtime.instanceId,
     pid: process.pid,
   })}\n`)
   let stopping = false

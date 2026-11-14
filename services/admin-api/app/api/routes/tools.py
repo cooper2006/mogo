@@ -11,13 +11,15 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
+from app.security.kms import KmsConfigError
+from app.security.service_token import service_token_headers
+from app.security.tool_credentials import encrypt_credentials, merge_credential_preserve, redact_credentials
 from app.api.deps import get_current_admin_user
 from app.api.time_utils import utc_iso
 from app.api.tool_limits import validate_mcp_activation
 from app.core.config import settings
-from app.core.legacy_error_messages import backend_unavailable
 from app.core.db import get_db
-from app.product.resource_lifecycle import notify_resource_created, notify_resource_deleted
+from app.governance import GateContext, gatekeeper
 from app.services.organization_tools import (
     organization_tool_fields,
     organization_tool_query,
@@ -65,14 +67,14 @@ def _time_text(value: Any) -> str:
 def _serialize(doc: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(doc.get("_id") or ""),
-        "mainId": str(doc.get("main_id") or "default"),
+        "tenantId": str(doc.get("tenant_id") or "default"),
         "name": str(doc.get("name") or ""),
         "type": str(doc.get("type") or "http"),
         "description": str(doc.get("description") or ""),
         "usageHint": str(doc.get("usage_hint") or ""),
         "tags": [str(item) for item in _safe_list(doc.get("tags")) if str(item).strip()],
         "status": str(doc.get("status") or "disabled"),
-        "config": _safe_dict(doc.get("config")),
+        "config": redact_credentials(_safe_dict(doc.get("config"))),
         "lastTestStatus": str(doc.get("last_test_status") or "untested"),
         "lastTestAt": _time_text(doc.get("last_test_at")),
         "lastTestMessage": str(doc.get("last_test_message") or ""),
@@ -82,7 +84,12 @@ def _serialize(doc: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _normalize_payload(payload: dict[str, Any], *, partial: bool = False) -> dict[str, Any]:
+def _normalize_payload(
+    payload: dict[str, Any],
+    *,
+    partial: bool = False,
+    existing_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     patch: dict[str, Any] = {}
     if not partial or "name" in payload:
         name = str(payload.get("name") or "").strip()
@@ -111,7 +118,24 @@ def _normalize_payload(payload: dict[str, Any], *, partial: bool = False) -> dic
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="状态只支持 active 或 disabled")
         patch["status"] = tool_status
     if not partial or "config" in payload:
-        patch["config"] = _safe_dict(payload.get("config"))
+        incoming_config = _safe_dict(payload.get("config"))
+        if existing_config:
+            # FR-006：全量更新 / 携带 config 的 PATCH 时，缺失或为空的凭证键
+            # 从既有密文继承，避免掩码约定导致凭证被打成空。
+            incoming_config = merge_credential_preserve(incoming_config, existing_config)
+        try:
+            patch["config"] = encrypt_credentials(incoming_config)
+        except KmsConfigError as exc:
+            # fail-closed：主密钥缺失/过短时不落明文兜底。
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"工具凭证加密不可用，请先配置主密钥：{exc}",
+            ) from exc
+        except Exception as exc:  # EncryptionError 等
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"工具凭证加密失败：{exc}",
+            ) from exc
     return patch
 
 
@@ -125,10 +149,10 @@ def _validate_final_activation(existing: dict[str, Any] | None, patch: dict[str,
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error)
 
 
-def _backend_url(path: str, main_id: str) -> str:
+def _backend_url(path: str, tenant_id: str) -> str:
     base_url = str(settings.backend_base_url or "http://127.0.0.1:8000").rstrip("/")
     separator = "&" if "?" in path else "?"
-    return f"{base_url}/api/external-tools{path}{separator}{urllib.parse.urlencode({'mainId': main_id})}"
+    return f"{base_url}/api/external-tools{path}{separator}{urllib.parse.urlencode({'tenantId': tenant_id})}"
 
 
 def _config_timeout_seconds(config: dict[str, Any], default: int = 35) -> int:
@@ -148,16 +172,16 @@ def _tool_timeout_seconds(payload: Any, default: int = 35) -> int:
     return _config_timeout_seconds(_safe_dict(tool.get("config")), default=default)
 
 
-def _request_backend(method: str, path: str, main_id: str, body: Any | None = None, timeout: int = 35) -> Any:
+def _request_backend(method: str, path: str, tenant_id: str, body: Any | None = None, timeout: int = 35) -> Any:
     data = None
     headers = {
         "Accept": "application/json",
-        "X-MOVO-Service-Token": settings.backend_service_token,
+        **service_token_headers(settings.backend_service_token),
     }
     if body is not None:
         data = json.dumps(body, ensure_ascii=False).encode("utf-8")
         headers["Content-Type"] = "application/json"
-    request = urllib.request.Request(_backend_url(path, main_id), data=data, headers=headers, method=method)
+    request = urllib.request.Request(_backend_url(path, tenant_id), data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             raw = response.read().decode("utf-8")
@@ -170,7 +194,7 @@ def _request_backend(method: str, path: str, main_id: str, body: Any | None = No
             message = detail or str(exc)
         raise HTTPException(status_code=exc.code, detail=message) from exc
     except urllib.error.URLError as exc:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=backend_unavailable(exc.reason)) from exc
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"backend 不可用：{exc.reason}") from exc
     return json.loads(raw) if raw else {"code": 0, "data": None}
 
 
@@ -208,22 +232,26 @@ class ToolDescriptionGeneratePayload(BaseModel):
 
 @router.get("")
 async def list_tools(current_user: dict = Depends(get_current_admin_user)) -> list[dict[str, Any]]:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
-    cursor = db.external_tools.find(organization_tool_query(main_id)).sort("updated_at", -1)
+    cursor = db.external_tools.find(organization_tool_query(tenant_id)).sort("updated_at", -1)
     return [_serialize(doc) async for doc in cursor]
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
-async def create_tool(payload: ToolPayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
+async def create_tool_record(*, tenant_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Create one external tool row.
+
+    041 FR-004（同构硬约束）：连接器市场「从模板创建」必须复用本函数落库，
+    不允许另建一套工具存储或注入路径。返回的是库内原始文档（未脱敏），
+    调用方自行 `_serialize`。
+    """
     db = get_db()
     now = _now()
     doc = {
         "_id": uuid.uuid4().hex,
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         **organization_tool_fields(),
-        **_normalize_payload(payload.model_dump()),
+        **_normalize_payload(payload),
         "status": "disabled",
         "last_test_status": "untested",
         "last_test_at": None,
@@ -233,19 +261,21 @@ async def create_tool(payload: ToolPayload, current_user: dict = Depends(get_cur
         "updated_at": now,
     }
     await db.external_tools.insert_one(doc)
-    try:
-        await notify_resource_created("tool", main_id, str(doc["_id"]))
-    except Exception:
-        await db.external_tools.delete_one({"_id": doc["_id"], "main_id": main_id})
-        raise
+    return doc
+
+
+@router.post("", status_code=status.HTTP_201_CREATED)
+async def create_tool(payload: ToolPayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
+    tenant_id = str(current_user.get("tenant_id") or "default")
+    doc = await create_tool_record(tenant_id=tenant_id, payload=payload.model_dump())
     return _serialize(doc)
 
 
 @router.get("/{tool_id}")
 async def get_tool(tool_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
-    doc = await db.external_tools.find_one(organization_tool_query(main_id, _id=str(tool_id)))
+    doc = await db.external_tools.find_one(organization_tool_query(tenant_id, _id=str(tool_id)))
     if not doc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="工具连接不存在")
     return _serialize(doc)
@@ -253,35 +283,39 @@ async def get_tool(tool_id: str, current_user: dict = Depends(get_current_admin_
 
 @router.put("/{tool_id}")
 async def update_tool(tool_id: str, payload: ToolPayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
-    existing = await db.external_tools.find_one(organization_tool_query(main_id, _id=str(tool_id)))
+    existing = await db.external_tools.find_one(organization_tool_query(tenant_id, _id=str(tool_id)))
     if not existing:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="工具连接不存在")
-    patch = {**_normalize_payload(payload.model_dump()), "updated_at": _now()}
+    patch = {**_normalize_payload(payload.model_dump(), existing_config=_safe_dict(existing.get("config"))), "updated_at": _now()}
     _validate_final_activation(existing, patch)
-    result = await db.external_tools.update_one(organization_tool_query(main_id, _id=str(tool_id)), {"$set": patch})
+    result = await db.external_tools.update_one(organization_tool_query(tenant_id, _id=str(tool_id)), {"$set": patch})
     if not result.matched_count:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="工具连接不存在")
-    doc = await db.external_tools.find_one(organization_tool_query(main_id, _id=str(tool_id)))
+    doc = await db.external_tools.find_one(organization_tool_query(tenant_id, _id=str(tool_id)))
     return _serialize(doc or {})
 
 
 @router.patch("/{tool_id}")
 async def patch_tool(tool_id: str, payload: ToolPatchPayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
-    existing = await db.external_tools.find_one(organization_tool_query(main_id, _id=str(tool_id)))
+    existing = await db.external_tools.find_one(organization_tool_query(tenant_id, _id=str(tool_id)))
     if not existing:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="工具连接不存在")
-    patch = _normalize_payload(payload.model_dump(exclude_unset=True), partial=True)
+    patch = _normalize_payload(
+        payload.model_dump(exclude_unset=True),
+        partial=True,
+        existing_config=_safe_dict(existing.get("config")),
+    )
     if patch:
         _validate_final_activation(existing, patch)
         patch["updated_at"] = _now()
-        result = await db.external_tools.update_one(organization_tool_query(main_id, _id=str(tool_id)), {"$set": patch})
+        result = await db.external_tools.update_one(organization_tool_query(tenant_id, _id=str(tool_id)), {"$set": patch})
         if not result.matched_count:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="工具连接不存在")
-    doc = await db.external_tools.find_one(organization_tool_query(main_id, _id=str(tool_id)))
+    doc = await db.external_tools.find_one(organization_tool_query(tenant_id, _id=str(tool_id)))
     if not doc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="工具连接不存在")
     return _serialize(doc)
@@ -289,44 +323,92 @@ async def patch_tool(tool_id: str, payload: ToolPatchPayload, current_user: dict
 
 @router.delete("/{tool_id}")
 async def delete_tool(tool_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, str]:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
-    binding = await db["knowledge_retrieval_sources"].find_one(
-        {"main_id": main_id, "config.mode": "external", "config.toolId": str(tool_id)}, {"_id": 1}
-    )
-    if binding:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="该工具正在被知识库配置引用。请先切换知识检索来源或更换工具并保存，再删除。",
-        )
-    result = await db.external_tools.delete_one(organization_tool_query(main_id, _id=str(tool_id)))
+    result = await db.external_tools.delete_one(organization_tool_query(tenant_id, _id=str(tool_id)))
     if not result.deleted_count:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="工具连接不存在")
-    await notify_resource_deleted("tool", main_id, str(tool_id))
     return {"id": tool_id}
 
 
 @router.post("/{tool_id}/test")
 async def test_tool(tool_id: str, request: Request, response: Response, current_user: dict = Depends(get_current_admin_user)) -> Any:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
-    doc = await db.external_tools.find_one(organization_tool_query(main_id, _id=str(tool_id)))
+    doc = await db.external_tools.find_one(organization_tool_query(tenant_id, _id=str(tool_id)))
     if not doc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="企业工具连接不存在")
     payload = await request.json()
+    await _enforce_gate(str(tool_id), tenant_id, current_user, payload)
     timeout = _config_timeout_seconds(_safe_dict((doc or {}).get("config")))
-    result = _backend_data(_request_backend("POST", f"/{tool_id}/test", main_id, payload, timeout=timeout))
-    response.headers["X-MOVO-Operation-Result"] = "success" if _operation_succeeded(result) else "failed"
+    result = _backend_data(_request_backend("POST", f"/{tool_id}/test", tenant_id, payload, timeout=timeout))
+    response.headers["X-MOGO-Operation-Result"] = "success" if _operation_succeeded(result) else "failed"
     return result
 
 
 @router.post("/test-draft")
 async def test_draft_tool(request: Request, response: Response, current_user: dict = Depends(get_current_admin_user)) -> Any:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     payload = await request.json()
-    result = _backend_data(_request_backend("POST", "/test-draft", main_id, payload, timeout=_tool_timeout_seconds(payload)))
-    response.headers["X-MOVO-Operation-Result"] = "success" if _operation_succeeded(result) else "failed"
+    tool_id = str(payload.get("id") or payload.get("tool_id") or "test-draft")
+    await _enforce_gate(tool_id, tenant_id, current_user, payload)
+    result = _backend_data(_request_backend("POST", "/test-draft", tenant_id, payload, timeout=_tool_timeout_seconds(payload)))
+    response.headers["X-MOGO-Operation-Result"] = "success" if _operation_succeeded(result) else "failed"
     return result
+
+
+async def _enforce_gate(tool_id: str, tenant_id: str, current_user: dict, payload: Any) -> None:
+    """Run the six-layer gatekeeper before executing a tool (feature 001, T006).
+
+    Denials map to HTTP status by layer: identity/RBAC -> 403, approval pending ->
+    409 (+ token), quota -> 429. A tool is identified by its id; the actor is the
+    admin user with its bound position roles.
+    """
+    # Admin accounts carry no position-role bindings (006 binds roles to *employees*
+    # in end_user_position_roles). Without a fallback the RBAC layer would see an
+    # empty role set and fail closed on every admin tool call — the original
+    # breakage (001 audit, 2026-10-03). Admin console calls run under the tenant's
+    # full-access preset, which is exactly what a platform/org admin is.
+    roles = current_user.get("role_ids") or current_user.get("roles") or []
+    if not roles and tenant_id:
+        roles = [f"system:{tenant_id}:full_access_admin"]
+    # FR-2 resume: a caller re-enters a suspended call carrying its approval ticket.
+    # Only a ticket a human approver already approved is consumable by the gate.
+    _payload = _safe_dict(payload)
+    annotations: dict[str, Any] = {}
+    _approval_token = str(_payload.get("approvalToken") or _payload.get("approval_token") or "")
+    if _approval_token:
+        annotations["approval_token"] = _approval_token
+        annotations["approval_action_id"] = str(
+            _payload.get("approvalActionId") or _payload.get("approval_action_id") or ""
+        )
+    ctx = GateContext(
+        tool=str(tool_id),
+        tenant_id=tenant_id,
+        user_id=str(current_user.get("user_id") or current_user.get("id") or ""),
+        roles=[str(r) for r in roles],
+        request=_payload,
+        scope="tool",
+        annotations=annotations,
+    )
+    # US2: resolve the tool's registered risk tier so the autonomy matrix can act.
+    from app.governance import risk as governance_risk
+
+    ctx.risk_level = await governance_risk.risk_level_for(tenant_id=tenant_id, tool=str(tool_id))
+    ctx.autonomy_level = str(current_user.get("autonomy_level") or "L3")
+    verdict = await gatekeeper.evaluate(str(tool_id), ctx)
+    if verdict.allowed:
+        return
+    detail: dict[str, Any] = {"layer": verdict.layer, "reason": verdict.reason}
+    approval_info = verdict.detail.get("approval") if isinstance(verdict.detail.get("approval"), dict) else None
+    if verdict.layer == "approval" and approval_info:
+        if approval_info.get("token"):
+            detail["approval_token"] = approval_info["token"]
+        if approval_info.get("action_id"):
+            detail["approval_action_id"] = approval_info["action_id"]
+    if verdict.detail.get("scope"):
+        detail["quota"] = verdict.detail
+    raise HTTPException(status_code=verdict.status_code, detail=detail)
 
 
 def _operation_succeeded(result: Any) -> bool:
@@ -339,22 +421,25 @@ def _operation_succeeded(result: Any) -> bool:
 
 @router.post("/{tool_id}/discover")
 async def discover_tool(tool_id: str, current_user: dict = Depends(get_current_admin_user)) -> Any:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
-    if not await db.external_tools.find_one(organization_tool_query(main_id, _id=str(tool_id)), {"_id": 1}):
+    if not await db.external_tools.find_one(organization_tool_query(tenant_id, _id=str(tool_id)), {"_id": 1}):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="企业工具连接不存在")
-    return _backend_data(_request_backend("POST", f"/{tool_id}/discover", main_id, {}))
+    return _backend_data(_request_backend("POST", f"/{tool_id}/discover", tenant_id, {}))
 
 
 @router.post("/generate-description")
 async def generate_tool_description(payload: ToolDescriptionGeneratePayload, current_user: dict = Depends(get_current_admin_user)) -> Any:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     body = payload.model_dump()
-    return _backend_data(_request_backend("POST", "/generate-description", main_id, body))
+    return _backend_data(_request_backend("POST", "/generate-description", tenant_id, body))
 
 
 async def ensure_indexes() -> None:
     db = get_db()
-    await db.external_tools.create_index([("main_id", 1), ("updated_at", -1)])
-    await db.external_tools.create_index([("main_id", 1), ("status", 1), ("type", 1)])
-    await db.external_tools.create_index([("main_id", 1), ("scope", 1), ("updated_at", -1)])
+    await db.external_tools.create_index([("tenant_id", 1), ("updated_at", -1)])
+    await db.external_tools.create_index([("tenant_id", 1), ("status", 1), ("type", 1)])
+    await db.external_tools.create_index([("tenant_id", 1), ("scope", 1), ("updated_at", -1)])
+    from app.governance import schema as governance_schema
+
+    await governance_schema.ensure_indexes()

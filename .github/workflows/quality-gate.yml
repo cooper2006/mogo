@@ -1,0 +1,585 @@
+name: Quality Gate
+
+on:
+  pull_request:
+  push:
+    branches: [ main, master ]
+
+# Least privilege for PR/push triggers: read-only by default. Fork PRs
+# otherwise inherit the repository default token scope, which is wider than
+# this gate needs (it only checks out code and runs build/test/scan).
+permissions:
+  contents: read
+
+jobs:
+  # Release blocker: the version declared in package manifests AND in the
+  # FastAPI app objects must match the newest CHANGELOG entry. Without this,
+  # tagging v0.2.0 while manifests still say 0.1.0 ships an inconsistent
+  # release.
+  #
+  # The FastAPI checks matter because `version=` is published as
+  # `info.version` in /openapi.json — an externally visible contract. QA R7
+  # (2026-10-11) found all three services stuck at 0.1.0 while every manifest
+  # said 0.2.0: the drift survived precisely because these three files were
+  # outside this gate's view.
+  #
+  # Two more version literals are checked separately (O3):
+  #   - `MCP_CLIENT_VERSION` in mcp_streamable_http.py — the version MOGO
+  #     advertises as an MCP client in the initialize handshake. It is a
+  #     distinct, named constant (not the MCP protocol version), so it is
+  #     matched by name rather than by the FastAPI extraction below.
+  # The FastAPI extraction is anchored on the FastAPI(...) call and uses
+  # parenthesis-depth tracking, so unrelated `"version"` literals in the same
+  # file (/health payload, DSH kernel versions) are not picked up, and it
+  # survives default args that contain `)` (e.g. middleware=[Depends(...)]).
+  # 022 FR-26 (T048/T050)：供应链门禁。两条独立的防线：
+  #   1. secrets-scan —— 阻止密钥入库（钩子在本地按提交范围扫，CI 全量扫）
+  #   2. action-pinning —— 发布关键 GitHub Actions 必须固定到不可变 commit SHA
+  #      （tag 是可移动引用，被上游重打等于一次供应链入侵）
+  supply-chain-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Secret pattern scan (full tree)
+        run: scripts/check-secrets.sh --all
+      - name: Build-critical action pinning
+        run: python3 scripts/check_action_pinning.py
+      - name: Contributor guidance
+        if: ${{ github.ref == 'refs/heads/main' }}
+        run: |
+          # 不强制所有贡献者开钩子（fork 工作流会卡住），只提示。
+          echo "::notice::本地启用密钥钩子：git config core.hooksPath .githooks"
+
+  version-consistency:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read newest CHANGELOG version
+        id: changelog
+        run: |
+          version=$(grep -oE '^## v[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md | head -1 | sed 's/^## v//')
+          if [ -z "$version" ]; then
+            echo "::error::could not parse a version heading from CHANGELOG.md"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "CHANGELOG newest version: $version"
+
+      - name: Compare manifest versions against CHANGELOG
+        run: |
+          expected="${{ steps.changelog.outputs.version }}"
+          failed=0
+          check() {
+            label="$1"; actual="$2"
+            if [ "$actual" != "$expected" ]; then
+              echo "::error file=$1::$label is $actual but CHANGELOG declares $expected"
+              failed=1
+            else
+              echo "ok  $1 ($label=$actual)"
+            fi
+          }
+          check "services/chat-api/pyproject.toml"    "$(grep -oE '^version = "[^"]+"' services/chat-api/pyproject.toml    | head -1 | grep -oE '[0-9.]+')"
+          check "services/admin-api/pyproject.toml"    "$(grep -oE '^version = "[^"]+"' services/admin-api/pyproject.toml    | head -1 | grep -oE '[0-9.]+')"
+          check "apps/admin-web/package.json"          "$(node -p "require('./apps/admin-web/package.json').version")"
+          check "apps/user-web/package.json"           "$(node -p "require('./apps/user-web/package.json').version")"
+          # Extract the version= string passed to the FastAPI(...) call.
+          # Uses parenthesis-depth tracking (not a naive `sed ... , /)/`) so the
+          # extraction survives default args that contain `)` — e.g.
+          # middleware=[Depends(...)] placed after version= — which would
+          # otherwise truncate the range and falsely fail the gate on a future
+          # refactor. Fail-safe: prints nothing if the call or its version
+          # kwarg is missing.
+          extract_fastapi_version() {
+            awk '
+              /FastAPI\(/ { in_call=1; depth=0 }
+              in_call {
+                if (match($0, /version[[:space:]]*=[[:space:]]*"[^"]+"/)) {
+                  s=substr($0, RSTART, RLENGTH)
+                  gsub(/version[[:space:]]*=[[:space:]]*"|"/, "", s)
+                  print s
+                  in_call=0
+                  next
+                }
+                n=split($0, a, "")
+                for (i=1; i<=n; i++) {
+                  if (a[i]=="(") depth++
+                  else if (a[i]==")") { depth--; if (depth<=0) { in_call=0; break } }
+                }
+              }
+            ' "$1"
+          }
+          check_fastapi() {
+            label="$1"
+            actual="$(extract_fastapi_version "$label")"
+            if [ -z "$actual" ]; then
+              echo "::error file=$label::could not extract FastAPI(version=...) — is the FastAPI( call still present?"
+              failed=1
+            elif [ "$actual" != "$expected" ]; then
+              echo "::error file=$label::$label FastAPI version is $actual but CHANGELOG declares $expected"
+              failed=1
+            else
+              echo "ok  $label (FastAPI version=$actual)"
+            fi
+          }
+          # O3: the version MOGO advertises as an MCP client must track the
+          # release version too. It is a plain module-level constant, so a
+          # simple anchored grep is enough (no nesting risk).
+          check_mcp_client_version() {
+            label="$1"
+            actual="$(grep -oE 'MCP_CLIENT_VERSION[[:space:]]*=[[:space:]]*"[0-9.]+"' "$label" | grep -oE '[0-9.]+')"
+            if [ -z "$actual" ]; then
+              echo "::error file=$label::could not extract MCP_CLIENT_VERSION = \"...\""
+              failed=1
+            elif [ "$actual" != "$expected" ]; then
+              echo "::error file=$label::$label MCP_CLIENT_VERSION is $actual but CHANGELOG declares $expected"
+              failed=1
+            else
+              echo "ok  $label (MCP_CLIENT_VERSION=$actual)"
+            fi
+          }
+          check_fastapi "services/chat-api/app/main.py"
+          check_fastapi "services/admin-api/app/main.py"
+          check_fastapi "services/document-parser/app/main.py"
+          check_mcp_client_version "services/chat-api/app/services/mcp_streamable_http.py"
+          exit $failed
+
+  # Frontend builds and type checks
+  frontend-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: |
+            apps/user-web/pnpm-lock.yaml
+            apps/admin-web/pnpm-lock.yaml
+      - uses: pnpm/action-setup@v6
+        with:
+          version: "10.14.0"
+
+      - name: Build & typecheck user-web
+        working-directory: apps/user-web
+        run: pnpm install --frozen-lockfile && pnpm typecheck && pnpm build
+
+      - name: Build & typecheck admin-web
+        working-directory: apps/admin-web
+        run: pnpm install --frozen-lockfile && pnpm typecheck && pnpm build
+
+      - name: ESLint user-web
+        working-directory: apps/user-web
+        run: pnpm lint
+
+      - name: Format check user-web
+        working-directory: apps/user-web
+        run: pnpm format:check
+
+      - name: ESLint admin-web
+        working-directory: apps/admin-web
+        run: pnpm lint
+
+      - name: Format check admin-web
+        working-directory: apps/admin-web
+        run: pnpm format:check
+
+      - name: Dependency audit (user-web)
+        working-directory: apps/user-web
+        run: pnpm audit --production --audit-level high
+
+      - name: Dependency audit (admin-web)
+        working-directory: apps/admin-web
+        run: pnpm audit --production --audit-level high
+
+  # Backend Python compilation and tests
+  backend-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        include:
+          - service: admin-api
+            venv: venv
+            python: "3.13"
+          - service: chat-api
+            venv: venv
+            python: "3.13"
+          # document-parser ships on Python 3.13 (Docling 2.108.0 + rapidocr 3.8.4);
+          # keep CI isomorphic with the production image. 2.108.0 is the ceiling:
+          # 2.109.0 requires rapidocr>=3.9.1, which defaults to PP-OCRv6 while the
+          # shipped 485MB model bundle only carries v4.
+          - service: document-parser
+            venv: .venv
+            python: "3.13"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: services/${{ matrix.service }}/requirements.txt
+
+      - name: Compile Python
+        working-directory: services/${{ matrix.service }}
+        run: python -m compileall -q app
+
+      # Python static correctness (QA R3 leftover #2, landed in QA R5).
+      # `compileall` only proves the file parses; this catches duplicate except
+      # clauses, duplicate dict keys, and silent broad excepts. Pure stdlib, so
+      # it runs before dependency install. Counted ceilings live in
+      # scripts/python_static_allowance.json — the gate fails when a count grows.
+      - name: Python static correctness
+        run: python scripts/check_python_static.py services/${{ matrix.service }}/app --service ${{ matrix.service }}
+
+      # Regression guard for the "implemented + green tests but unreachable in
+      # production" class of defect (QA 2026-10-06: the whole 021 layer had zero
+      # production imports). Pure stdlib, so it runs before dependency install.
+      - name: Production wiring check
+        if: matrix.service == 'chat-api'
+        working-directory: services/chat-api
+        run: python scripts/check_production_wiring.py
+
+      # 025 FR-29 (T007)：错误码跨服务唯一性 + 状态映射一致性 + 字典登记完整性。
+      # 跨服务视角，只跑一次即可；纯 stdlib，无需安装依赖。
+      - name: API error-code uniqueness (025 T007)
+        if: matrix.service == 'admin-api'
+        run: python3 tools/api_check/error_codes_uniqueness.py
+
+      # 025 FR-1 (T008/T009/T010)：路由路径命名检查——动词段
+      # (get/list/create/update/delete/do) 一律禁止。脚本 AST 扫描三服务
+      # app/api/routes/，跨服务视角只跑一次即可；纯 stdlib，无需安装依赖。
+      # include_in_schema=False / deprecated=True 的兼容别名默认跳过
+      # (T009/T010 保留的旧路径)，--strict 下才会点名。
+      - name: API path-naming (025 T008)
+        if: matrix.service == 'admin-api'
+        run: python3 tools/api_check/path_naming.py
+
+      # 025 FR-2 (T011)：状态码语义——错误路径不得用 200/3xx，业务错误不得以默认
+      # 200 返回。跨服务视角只跑一次；纯 stdlib。保守口径：只识别静态可确定的
+      # 字面量（code 非 0 / success: False / HTTPException status_code），不误报变量。
+      - name: API status-code semantics (025 T011)
+        if: matrix.service == 'admin-api'
+        run: python3 tools/api_check/status_code_semantics.py
+
+      # 057 T014：pg_compat 聚合管道阶段白名单。PanWeiDB 兼容层只实现了
+      # SUPPORTED_AGGREGATION_STAGES 里的阶段；新增 $unwind/$lookup 等会在
+      # Mongo 下正常、切 PG 后静默失败。跨服务视角只跑一次；纯 stdlib。
+      - name: pg_compat pipeline stages (057 T014)
+        if: matrix.service == 'admin-api'
+        run: python3 scripts/check_pg_compat_pipeline_stages.py services
+
+      # 059 T014：fail-open 反模式扫描。四类模式（except→return True、
+      # db/row is None→allow、default="allow"、mode=="off"→allow）。
+      # 支持 `# fail-open-exempt: <理由>` 行内豁免；本地 pre-commit 跑 --staged，
+      # 这里跑全量，保证没有漏网。跨服务视角只跑一次；纯 stdlib。
+      - name: Fail-open anti-pattern scan (059 T014)
+        if: matrix.service == 'admin-api'
+        run: python3 scripts/check_fail_open_patterns.py services
+
+      # 058 T007：拦截新增的 uuid4().hex 实体主键。存量登记在
+      # scripts/uuid_hex_baseline.json（渐进收口，替换一批后重建基线），
+      # 只有基线之外的新增才失败。跨服务视角只跑一次；纯 stdlib。
+      - name: Unordered primary-key scan (058 T007)
+        if: matrix.service == 'admin-api'
+        run: python3 scripts/check_uuid_hex_usage.py --full
+
+      - name: Create venv and install
+        working-directory: services/${{ matrix.service }}
+        run: |
+          python -m venv ${{ matrix.venv }}
+          # --require-hashes verifies package integrity (QF-465, B7):
+          # all three services now ship hashed, pinned requirements.txt.
+          # (requirements-docling.txt is installed only in the Docker image,
+          # not here — its Docling tree pins versions but carries no hashes
+          # because the CPU-only torch index makes a hash set unusable; see
+          # docs/WORK_LOG.md 2026-10-07 probe.)
+          ${{ matrix.venv }}/bin/pip install --require-hashes -r requirements.txt
+          # pytest-timeout provides the --timeout flag used in "Run tests";
+          # without it pytest exits 4 with "unrecognized arguments: --timeout=120".
+          ${{ matrix.venv }}/bin/pip install pytest pytest-asyncio pytest-timeout pytest-cov
+
+      # Undefined names (pyflakes F821) — a NameError waiting for the one code
+      # path that reaches it. QA R5 found two live instances (a string
+      # annotation naming a symbol that was never imported). Only `undefined
+      # name` fails the build: the repo carries pre-existing unused imports
+      # that are tracked separately and must not mask a real defect here.
+      - name: Undefined-name check (pyflakes)
+        working-directory: services/${{ matrix.service }}
+        run: |
+          ${{ matrix.venv }}/bin/pip install -q pyflakes
+          out=$(${{ matrix.venv }}/bin/python -m pyflakes app || true)
+          # pyflakes 有两种措辞都含 "undefined name"，只有第 1 种是缺陷：
+          #   1) 真 F821：`<file>:<line>:<col>: 'foo' is undefined name`（阻断）
+          #   2) 抑制提示：`'from x import *' used; unable to detect undefined names`
+          # 第 2 种只表示"这里有通配导入，本模块无法全量解析"，不是缺名缺陷，
+          # 但它的措辞含 "undefined name" 子串，直接 grep 会误判为阻断失败
+          #（QA R11 在 admin-api services/trust_rating/__init__.py 复现）。
+          bad=$(echo "$out" | grep "undefined name" \
+            | grep -v "unable to detect undefined names" || true)
+          if [ -n "$bad" ]; then
+            echo "$bad"
+            echo "::error::pyflakes found undefined name(s)"
+            exit 1
+          fi
+          echo "ok: no undefined names"
+
+      # 022 FR-25 (T046)：依赖漏洞扫描阻断。`pip-audit` 比对 OSV / PyPI 的
+      # advisory 数据库，HIGH/CRITICAL 即失败。放在测试之前：依赖树有问题时
+      # 不必再跑一遍测试浪费时间，且依赖缺陷与代码缺陷是两条独立的风险线。
+      # 已知误报走 docs/security/RESIDUAL_RISK.md 的豁免流程，不在此硬编码。
+      - name: Dependency vulnerability audit (pip-audit)
+        working-directory: services/${{ matrix.service }}
+        run: |
+          ${{ matrix.venv }}/bin/pip install -q pip-audit
+          ${{ matrix.venv }}/bin/pip-audit -r requirements.txt || {
+            echo "::error::pip-audit found HIGH/CRITICAL vulnerabilities"
+            echo "::error::已知误报请走 docs/security/RESIDUAL_RISK.md 豁免流程"
+            exit 1
+          }
+
+      - name: Run tests
+        working-directory: services/${{ matrix.service }}
+        env:
+          TZ: Asia/Shanghai  # QF-106: 固定时区
+          LANG: en_US.UTF-8  # QF-106: 固定语言环境
+          LC_ALL: en_US.UTF-8  # QF-106: 固定 locale
+          ASKAI_ADMIN_MONGODB_URI: mongodb://127.0.0.1:27017
+          ASKAI_ADMIN_MONGODB_DB: mogo_test
+          ASKAI_ADMIN_JWT_SECRET: test-secret-key-for-ci
+        run: |
+          if [[ "${{ matrix.service }}" == "document-parser" ]]; then
+            # document-parser's actual coverage is ~40% (tasks/, workers/ untested).
+            # Use its own floor from pytest.ini rather than the 55% gate that
+            # fits chat-api/admin-api.
+            ${{ matrix.venv }}/bin/python -m pytest tests/ --tb=short -q --timeout=120 --cov=app --cov-report=term-missing --cov-report=json --cov-fail-under=40 -m "not dsh_host_e2e"
+          else
+            ${{ matrix.venv }}/bin/python -m pytest tests/ --tb=short -q --timeout=120 --cov=app --cov-report=term-missing --cov-report=json --cov-fail-under=55 -m "not dsh_host_e2e"
+          fi
+
+      # Per-directory / per-file coverage floors for the newer subsystems
+      # (017 memory, 021 context space, 009 hooks). The global 55% gate is too
+      # coarse for these — they are small, actively changed, and testable.
+      - name: Module coverage floors
+        if: matrix.service == 'chat-api'
+        working-directory: services/chat-api
+        run: ${{ matrix.venv }}/bin/python scripts/check_module_coverage.py
+
+  # DSH Runtime Host end-to-end — runs the real Node host as a subprocess.
+  # Split from the main gate so "needs a Runtime Host" never masquerades as a
+  # regression in the primary test job.
+  dsh-host-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: services/chat-api/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install chat-api
+        working-directory: services/chat-api
+        run: |
+          python -m venv venv
+          venv/bin/pip install --require-hashes -r requirements.txt
+          venv/bin/pip install pytest pytest-asyncio pytest-timeout
+
+      # Mirrors dsh/runtime-host/Dockerfile. This directory is a pnpm workspace
+      # with a committed pnpm-lock.yaml, so `npm install` ignored the lockfile
+      # and the e2e job exercised a *different* dependency set from the one that
+      # ships (QA R5). --frozen-lockfile makes the job fail loudly on drift.
+      - name: Install Runtime Host dependencies
+        working-directory: services/chat-api/dsh/runtime-host
+        run: |
+          npm install --global pnpm@10.34.4
+          pnpm install --frozen-lockfile
+
+      - name: Run DSH Runtime Host e2e
+        working-directory: services/chat-api
+        env:
+          # The host is probed over loopback; a proxy must not intercept it.
+          NO_PROXY: 127.0.0.1,localhost
+          no_proxy: 127.0.0.1,localhost
+        run: venv/bin/python -m pytest tests/dsh_runtime/ -m dsh_host_e2e -q --tb=short --timeout=300
+
+  # Security checks
+  security-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for debug endpoints in production config
+        run: |
+          echo "Checking main.py for docs_url=None in production..."
+          grep -n "docs_url=None\|redoc_url=None\|openapi_url=None" services/admin-api/app/main.py
+
+      - name: Check for global exception handler
+        run: |
+          echo "Checking for global exception handler..."
+          grep -n "global_exception_handler\|exception_handler" services/admin-api/app/main.py
+
+      - name: Check for content type validation
+        run: |
+          echo "Checking for magic byte validation..."
+          grep -n "_validate_content_type\|_MAGIC_BYTE_MAP" services/admin-api/app/api/routes/knowledge_documents.py
+
+      # ── Container image vulnerability scan (QF-460) ────────────────
+      # Scans the published candidate images for known CVEs.
+      # Full SBOM + provenance scanning happens in container-release.yml.
+      - name: Scan Python images with Trivy (CRITICAL + HIGH only)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: "fs"
+          scan-ref: "services/chat-api"
+          format: "table"
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: "CRITICAL,HIGH"
+
+      - name: Scan admin-api images with Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: "fs"
+          scan-ref: "services/admin-api"
+          format: "table"
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: "CRITICAL,HIGH"
+
+      - name: Scan document-parser images with Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: "fs"
+          scan-ref: "services/document-parser"
+          format: "table"
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: "CRITICAL,HIGH"
+
+  # Docling pipeline coverage for document-parser.
+  # requirements-docling.txt is installed only inside the Docker image (not the
+  # venv used by backend-quality — see the "Create venv and install" note), so
+  # docling-dependent code is never exercised there. That was the coverage hole
+  # flagged in the 2026-10-11 regression round. This job builds the
+  # document-parser image (production-equivalent: 3.13 + transformers 5.10.0 +
+  # docling 2.108.0 + offline /opt/docling/models) and runs the docling pipeline
+  # tests inside it, closing that hole without touching the production
+  # dependency declaration.
+  #
+  # The image's Dockerfile uninstalls pip at build time, so we bootstrap it
+  # inside the run (get-pip) and install pytest, then mount the repo's tests/
+  # read-only and run only the docling tests. They are protected by
+  # pytest.importorskip("docling"), so on any environment without docling they
+  # skip rather than fail.
+  #
+  # Cost: building the image pulls LibreOffice + torch, so this is heavier than
+  # backend-quality. It runs in parallel and is isolated, so a slow docling
+  # build never blocks the primary gate.
+  document-parser-docling:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build document-parser image
+        working-directory: services/document-parser
+        run: docker build -t document-parser:docling-test .
+
+      - name: Run docling pipeline tests in container
+        env:
+          DOCLING_ARTIFACTS_PATH: /opt/docling/models
+          PYTORCH_ACCELERATOR: cpu
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}/services/document-parser/tests:/app/tests:ro" \
+            -e DOCLING_ARTIFACTS_PATH \
+            -e PYTORCH_ACCELERATOR \
+            document-parser:docling-test \
+            bash -c "curl -fsSL https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py \
+              && python /tmp/get-pip.py --quiet \
+              && python -m pip install --quiet pytest pytest-timeout \
+              && cd /app \
+              && python -m pytest tests/test_docling_pipeline.py -v --tb=short --timeout=120 -p no:cacheprovider"
+  # 025 API 契约硬化门禁（T048）。把 FR-1 / FR-16~FR-24 / FR-25-26 / FR-29 /
+  # FR-31 的机器校验串成一条独立 job：路径命名 → 错误码跨服务唯一性 → 错误码
+  # ↔ HTTP 状态码映射稳定性 → 契约结构校验 → 契约兼容性 diff → OpenAPI 生成
+  # (--check) + 校验 → 弃用观察期 → 消费方源码证据。
+  #
+  # 依赖说明：
+  #   - 契约工具（validate/diff/deprecation_check/consumer_refs）需要 PyYAML；
+  #     OpenAPI 校验需要 openapi-spec-validator。均装在宿主 python3 上。
+  #   - `generate.py` 通过 subprocess 隔离 import 各服务的 `app.main`（三服务都用
+  #     顶层包名 `app`，串行 import 会互相污染），因此需要三份 venv + requirements
+  #     （依赖 hash 校验与 backend-quality 一致）。仅 document-parser 需要 celery
+  #     stub，由 generate.py 注入，不启动 worker。
+  #   - `diff.py` 取 HEAD~1 的契约文件作基线，故 checkout 拉取深度 2。
+  api-contract-hardening:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install tool dependencies (PyYAML + OpenAPI validator)
+        run: python3 -m pip install --quiet PyYAML openapi-spec-validator
+
+      - name: Create service venvs (OpenAPI generation imports app.main)
+        run: |
+          for svc in admin-api chat-api document-parser; do
+            echo "== create venv for $svc"
+            python3 -m venv "$svc-venv"
+            "$svc-venv/bin/pip" install --require-hashes -r "services/$svc/requirements.txt"
+          done
+
+      - name: API path naming (FR-1)
+        run: python3 tools/api_check/path_naming.py
+
+      - name: API error-code uniqueness (FR-29)
+        run: python3 tools/api_check/error_codes_uniqueness.py
+
+      - name: Error-code mapping stability (FR-31, T046)
+        # 与基线快照 specs/025-api-contract-hardening/baseline/error-code-mapping.json
+        # 比对：某 code 的 http_status 变更或移除 → changed_status_semantics（须 major 升级）
+        run: python3 tools/api_check/error_code_mapping.py
+
+      - name: Contract validation (FR-16 ~ FR-24)
+        run: python3 tools/contract/validate.py
+
+      - name: Contract compatibility diff (FR-20)
+        run: |
+          for svc in admin-api chat-api document-parser; do
+            rel="specs/025-api-contract-hardening/contracts/$svc.yaml"
+            if git show "HEAD~1:$rel" > "/tmp/old-$svc.yaml" 2>/dev/null; then
+              echo "== diff $svc"
+              python3 tools/contract/diff.py --old "/tmp/old-$svc.yaml" --new "$rel"
+            else
+              echo "== $svc: 无上一版契约（首次运行），跳过 diff"
+            fi
+          done
+
+      - name: OpenAPI generate --check + validate (FR-25, FR-26)
+        run: |
+          for svc in admin-api chat-api document-parser; do
+            echo "== generate $svc"
+            "$svc-venv/bin/python" tools/openapi/generate.py --service "$svc" --check
+          done
+          python3 tools/openapi/validate.py --all
+
+      - name: Deprecation observation window (FR-22)
+        run: python3 tools/contract/deprecation_check.py --all
+
+      - name: Consumer evidence (FR-16, FR-17)
+        run: python3 tools/contract/consumer_refs.py --all

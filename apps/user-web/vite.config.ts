@@ -3,16 +3,17 @@ import vue from '@vitejs/plugin-vue'
 import { fileURLToPath } from 'node:url'
 
 const communityProductExtension = fileURLToPath(new URL('./src/product/community.ts', import.meta.url))
-const configuredProductExtension = process.env.MOVO_PRODUCT_UI_EXTENSION?.trim()
-const developmentService = process.env.MOVO_DEV_SERVICE_URL?.trim().replace(/\/+$/, '')
+const configuredProductExtension = process.env.MOGO_PRODUCT_UI_EXTENSION?.trim()
 
 // https://vitejs.dev/config/
 export default defineConfig({
     plugins: [vue()],
     resolve: {
         alias: {
-            '@movo-product-extension': configuredProductExtension || communityProductExtension,
-            '@movo-user-web': fileURLToPath(new URL('./src', import.meta.url)),
+            // 与 admin-web 对齐：`@/xxx` 指向 src，供组件内绝对路径引用（045 资产中心门户页使用）。
+            '@': fileURLToPath(new URL('./src', import.meta.url)),
+            '@mogo-product-extension': configuredProductExtension || communityProductExtension,
+            '@mogo-user-web': fileURLToPath(new URL('./src', import.meta.url)),
             'vue': fileURLToPath(new URL('./node_modules/vue', import.meta.url)),
             'naive-ui': fileURLToPath(new URL('./node_modules/naive-ui', import.meta.url)),
             'axios': fileURLToPath(new URL('./node_modules/axios', import.meta.url)),
@@ -20,6 +21,30 @@ export default defineConfig({
     },
     build: {
         target: 'esnext',
+        // Disable sourcemap in production to prevent source code leakage (QF-009).
+        sourcemap: false,
+        // 026 T035: 生产构建优化 —— gzip 体积报告、CSS 代码分割、静态资源内联阈值、
+        // 模块预加载 polyfill、带 hash 的 chunk 文件名（CDN 长缓存友好）。
+        // 传输层 gzip/brotli 压缩由 nginx/CDN 完成（deploy/nginx/static-assets-cdn.conf）。
+        reportCompressedSize: true,
+        cssCodeSplit: true,
+        assetsInlineLimit: 4096,
+        modulePreload: { polyfill: true },
+        chunkSizeWarningLimit: 600,
+        rollupOptions: {
+            output: {
+                chunkFileNames: 'assets/[name]-[hash].js',
+                manualChunks: {
+                    'vendor-vue': ['vue'],
+                    'vendor-ui': ['naive-ui', '@vicons/ionicons5'],
+                    'vendor-editor': ['codemirror', '@codemirror/commands', '@codemirror/lang-python', '@codemirror/state', '@codemirror/view'],
+                    'vendor-terminal': ['@xterm/xterm', '@xterm/addon-fit'],
+                    'vendor-pdf': ['pdfjs-dist'],
+                    'vendor-http': ['axios'],
+                    'vendor-highlight': ['highlight.js'],
+                },
+            },
+        },
     },
     optimizeDeps: {
         esbuildOptions: {
@@ -29,14 +54,7 @@ export default defineConfig({
     server: {
         host: '0.0.0.0',
         port: 3000,
-        proxy: developmentService ? Object.fromEntries(
-            ['/api', '/portal-api', '/knowledge-api', '/sso', '/aigc', '/askai-api', '/admin-api']
-                .map((prefix) => [prefix, {
-                    target: developmentService,
-                    changeOrigin: true,
-                    ws: prefix === '/askai-api',
-                }]),
-        ) : {
+        proxy: {
             '/api': {
                 target: process.env.VITE_LEGACY_API_TARGET || 'http://127.0.0.1:8000',
                 changeOrigin: true,
@@ -66,6 +84,10 @@ export default defineConfig({
                 target: 'http://localhost:8000',
                 changeOrigin: true,
                 rewrite: (path) => path.replace(/^\/askai-api/, ''),
+                // 与 deploy/nginx/nginx.conf 对齐：chat-api 的旧 /api/* → /api/v1/*
+                // 301 会把 X-Forwarded-Prefix 拼回 Location，否则浏览器跟随后落到
+                // 本站 /api/v1/*，vite 再 strip /api → chat-api /v1/* → 404。
+                headers: { 'X-Forwarded-Prefix': '/askai-api' },
                 ws: true,
             },
             '/admin-api': {

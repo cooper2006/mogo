@@ -112,7 +112,7 @@ async function handleImport(event: Event) {
 </script>
 
 <template>
-  <div class="flex flex-col h-full w-full bg-[#f8fafc]">
+  <div class="mg-page app-view-page">
     <!-- Header -->
     <header class="h-16 border-b border-gray-200 bg-white/80 backdrop-blur-sm flex items-center px-8 justify-between shrink-0 sticky top-0 z-10">
       <div>
@@ -269,11 +269,11 @@ async function handleImport(event: Event) {
   background: transparent;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #e2e8f0;
+  background: var(--mg-scrollbar-thumb);
   border-radius: 10px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #cbd5e1;
+  background: var(--mg-scrollbar-thumb-hover);
 }
 
 .line-clamp-3 {

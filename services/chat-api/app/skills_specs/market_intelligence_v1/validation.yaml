@@ -1,0 +1,34 @@
+# Validation contract for the market_intelligence_v1 sub-agent.
+#
+# The parent orchestration (competitor_deep_dive) owns the end-to-end acceptance
+# criteria; this file pins the per-node output shape.
+
+skill: market_intelligence_v1
+role: subagent
+parent_skill: competitor_deep_dive
+output_key: market_intel_result
+
+required_sections:
+    - Company Overview
+    - Funding & Market
+    - Growth Trajectory
+    - Key Milestones Timeline
+
+must_include_fields:
+    - Data source URLs
+    - Collection timestamp
+    - Confidence score per claim
+
+checks:
+  - id: sub-1
+    criterion: Company Overview
+    test: tests/orchestration/test_competitor_deep_dive.py
+  - id: sub-2
+    criterion: Funding & Market
+    test: tests/orchestration/test_competitor_deep_dive.py
+  - id: sub-3
+    criterion: Growth Trajectory
+    test: tests/orchestration/test_competitor_deep_dive.py
+  - id: sub-4
+    criterion: Key Milestones Timeline
+    test: tests/orchestration/test_competitor_deep_dive.py

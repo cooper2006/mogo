@@ -48,9 +48,9 @@ defineEmits<{ back: []; test: []; next: [] }>();
 <style scoped>
 .step-content { display: grid; gap: 4px; }
 .step-heading { margin-bottom: 12px; }
-.step-kicker { color: #3568e8; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-.step-heading h2 { margin: 6px 0; color: #10204a; font-size: 24px; }
-.step-heading p { margin: 0; color: #64748b; line-height: 1.6; }
+.step-kicker { color: var(--mg-brand); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.step-heading h2 { margin: 6px 0; color: var(--mg-text-1); font-size: 24px; }
+.step-heading p { margin: 0; color: var(--mg-text-2); line-height: 1.6; }
 .security-note { margin-bottom: 14px; }
 .test-result { margin: 4px 0 14px; }
 .actions { display: grid; grid-template-columns: auto 1fr 1fr; gap: 10px; }

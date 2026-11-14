@@ -3,6 +3,22 @@ Base validator with common validation logic for document files.
 """
 
 import re
+import pathlib
+
+
+def _safe_extract(zf, dest):
+    """Zip-slip-safe extraction (QF-420).
+
+    Extract every member only when its resolved path stays inside *dest*.
+    Guards against absolute paths and ``../`` traversal entries. Works on
+    Python 3.10+ without relying on the 3.12+ ``filter=`` argument.
+    """
+    dest = pathlib.Path(dest).resolve()
+    for member in zf.infolist():
+        target = (dest / member.filename).resolve()
+        if target != dest and dest not in target.parents:
+            raise ValueError(f"Refusing zip-slip entry: {member.filename!r}")
+        zf.extract(member, str(dest))
 from pathlib import Path
 
 import lxml.etree
@@ -888,7 +904,7 @@ class BaseSchemaValidator:
 
             # Extract original file
             with zipfile.ZipFile(self.original_file, "r") as zip_ref:
-                zip_ref.extractall(temp_path)
+                _safe_extract(zip_ref, temp_path)
 
             # Find corresponding file in original
             original_xml_file = temp_path / relative_path

@@ -36,7 +36,7 @@ def parse_spreadsheet(path: Path):
 
     from app.services.document_parsing_service import ParsedDocument
 
-    with tempfile.TemporaryDirectory(prefix="movo-workbook-") as temp:
+    with tempfile.TemporaryDirectory(prefix="mogo-workbook-") as temp:
         source, repaired = normalized_workbook_path(path, Path(temp))
         workbook = load_workbook(source, read_only=True, data_only=True)
         try:

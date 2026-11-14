@@ -236,7 +236,7 @@ test('manual ASKAI selection becomes an official DSH user Skill invocation', asy
 })
 
 test('official DSH automatically selects a referenced Skill with a resource bundle over 20 MiB', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'movo-large-skill-e2e-'))
+  const root = await mkdtemp(join(tmpdir(), 'mogo-large-skill-e2e-'))
   const archive = Buffer.from(zipSync({
     'large/SKILL.md': strToU8('# Steps\nRead references/info.txt before answering.'),
     'large/references/info.txt': strToU8('Large Skill resource loaded.'),

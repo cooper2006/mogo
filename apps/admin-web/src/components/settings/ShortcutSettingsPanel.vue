@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { NAlert, NInput, useMessage } from 'naive-ui'
-import { t, translateSourceText } from '@/composables/i18n'
+import { t } from '@/composables/i18n'
 import { fetchShortcutPlan, saveShortcutPlan, type ShortcutEntry, type ShortcutEntryType, type ShortcutGroup, type ShortcutPlan } from '@/api/shortcut-settings'
 import { fetchSkills, type SkillItem } from '@/api/skills'
 import { ShortcutGroupToggleIcon } from '@/icons/ShortcutGroupToggleIcon'
@@ -72,7 +72,7 @@ async function load() {
     plan.value = result
     savedSnapshot.value = currentSnapshot.value
   }
-  catch (error: any) { message.error(error?.response?.data?.detail || t('legacy.failed_to_load_quick_access_scheme')) }
+  catch (error: any) { message.error(error?.response?.data?.detail || t('快捷入口方案加载失败')) }
   finally { loading.value = false }
 }
 
@@ -156,7 +156,7 @@ function moveEntryToGroup(entry: ShortcutEntry, groupKey: string) {
   const target = plan.value.groups.find(group => group.key === groupKey)
   if (!target) return
   if (plan.value.entries.filter(item => item.categoryKey === groupKey).length >= 6) {
-    message.warning(t('legacy.each_group_can_contain_up_to_6_entries'))
+    message.warning(t('每个分组最多 6 个入口'))
     return
   }
   Object.assign(entry, {
@@ -175,7 +175,7 @@ function openGroupIconPicker(group: { key: string }) {
 
 function openGroupEditor() {
   if (!plan.value || plan.value.groups.length >= 6) {
-    message.warning(t('legacy.up_to_6_groups_are_allowed_delete_an_existing'))
+    message.warning(t('最多创建 6 个分组，请先删除现有分组'))
     return
   }
   groupDraft.value = { label: '', iconKey: 'grid', iconSvg: '' }
@@ -192,7 +192,7 @@ function createGroup() {
 
 function removeGroup(group: { key: string; entries: ShortcutEntry[] }) {
   if (!plan.value || group.entries.length) {
-    message.warning(t('legacy.move_the_group_entries_to_another_group_first'))
+    message.warning(t('请先将分组内入口移动到其他分组'))
     return
   }
   plan.value.groups = plan.value.groups.filter(item => item.key !== group.key)
@@ -239,7 +239,7 @@ function applyCustomSvg(content: string, label: string) {
   const end = content.toLowerCase().lastIndexOf('</svg>')
   const svg = start >= 0 && end > start ? content.slice(start, end + 6).trim() : ''
   if (!svg || /<script\b|<foreignobject\b|\son[a-z]+\s*=|javascript:/i.test(svg)) {
-    message.error(t('legacy.the_svg_icon_format_is_unsafe'))
+    message.error(t('SVG 图标格式不安全'))
     return
   }
   const icon = { label, value: `custom.${Date.now()}`, svg }
@@ -255,7 +255,7 @@ function removeCustomIcon(value: string) {
 function applySvgText() {
   const content = svgText.value.trim()
   if (!content) return
-  applyCustomSvg(content, t('legacy.pasted_svg'))
+  applyCustomSvg(content, t('粘贴的 SVG'))
 }
 
 function toggleGroup(groupKey: string) {
@@ -270,34 +270,58 @@ function remove(entry: ShortcutEntry) {
   plan.value.entries = plan.value.entries.filter(item => item.id !== entry.id)
 }
 
-function saveEntry() {
-  if (!plan.value || !draft.value.label.trim() || (draft.value.type === 'skill' && !draft.value.resourceId) || (draft.value.type !== 'skill' && !draft.value.prompt.trim())) return
-  if (editingEntryId.value) {
-    const entry = plan.value.entries.find(item => item.id === editingEntryId.value)
-    if (entry) {
-      if (entry.categoryKey !== draft.value.groupKey && plan.value.entries.filter(item => item.categoryKey === draft.value.groupKey).length >= 6) {
-        message.warning(t('legacy.each_group_can_contain_up_to_6_entries'))
-        return
-      }
-      entry.label = draft.value.label.trim()
-      entry.type = draft.value.type
-      entry.resourceId = draft.value.resourceId
-      entry.prompt = draft.value.prompt.trim() || t('shortcuts.skillPromptDefault', { name: entry.label })
-      moveEntryToGroup(entry, draft.value.groupKey)
-    }
-    editingEntryId.value = null
-    editorVisible.value = false
+/** 校验草稿必填项：名称，以及 Skill 资源或 Prompt 文本。 */
+function isDraftValid(): boolean {
+  if (!draft.value.label.trim()) return false
+  if (draft.value.type === 'skill' && !draft.value.resourceId) return false
+  if (draft.value.type !== 'skill' && !draft.value.prompt.trim()) return false
+  return true
+}
+
+/** 统计指定分组当前的入口数量。 */
+function countEntriesInGroup(planDoc: ShortcutPlan, groupKey: string): number {
+  return planDoc.entries.filter(entry => entry.categoryKey === groupKey).length
+}
+
+/** 判断把入口移入目标分组后是否超过每个分组的数量上限。 */
+function entryGroupOverLimit(planDoc: ShortcutPlan, entry: ShortcutEntry, groupKey: string): boolean {
+  if (entry.categoryKey === groupKey) return false
+  return countEntriesInGroup(planDoc, groupKey) >= 6
+}
+
+/** 把草稿写入入口：prompt 留空时回退为 Skill 提示语。 */
+function applyDraftToEntry(entry: ShortcutEntry | undefined) {
+  if (!entry) return
+  entry.label = draft.value.label.trim()
+  entry.type = draft.value.type
+  entry.resourceId = draft.value.resourceId
+  entry.prompt = draft.value.prompt.trim() || `请使用 Skill「${entry.label}」完成以下任务：`
+  moveEntryToGroup(entry, draft.value.groupKey)
+}
+
+/** 编辑已有入口：更新字段并按需移动分组，最后关闭编辑器。 */
+function saveExistingEntry(planDoc: ShortcutPlan) {
+  const target = planDoc.entries.find(item => item.id === editingEntryId.value)
+  if (target && entryGroupOverLimit(planDoc, target, draft.value.groupKey)) {
+    message.warning(t('每个分组最多 6 个入口'))
     return
   }
-  const group = plan.value.groups.find(item => item.key === draft.value.groupKey) || plan.value.groups[0]
+  applyDraftToEntry(target)
+  editingEntryId.value = null
+  editorVisible.value = false
+}
+
+/** 新增入口：校验分组容量后写入并重置草稿。 */
+function createNewEntry(planDoc: ShortcutPlan) {
+  const group = planDoc.groups.find(item => item.key === draft.value.groupKey) || planDoc.groups[0]
   if (!group) return
-  if (plan.value.entries.filter(entry => entry.categoryKey === group.key).length >= 6) {
-    message.warning(t('legacy.each_group_can_contain_up_to_6_entries'))
+  if (countEntriesInGroup(planDoc, group.key) >= 6) {
+    message.warning(t('每个分组最多 6 个入口'))
     editorVisible.value = false
     return
   }
   const id = `custom.${Date.now()}`
-  plan.value.entries.push({
+  planDoc.entries.push({
     id,
     type: draft.value.type,
     categoryKey: group.key,
@@ -306,13 +330,23 @@ function saveEntry() {
     iconKey: draft.value.type === 'skill' ? 'build' : 'document',
     categoryIconKey: group.iconKey,
     categoryIconSvg: group.iconSvg || '',
-    prompt: draft.value.prompt.trim() || t('shortcuts.skillPromptDefault', { name: draft.value.label.trim() }),
+    prompt: draft.value.prompt.trim() || `请使用 Skill「${draft.value.label.trim()}」完成以下任务：`,
     resourceId: draft.value.resourceId,
     enabled: true,
     locked: false,
   })
-  draft.value = { type: 'prompt', label: '', prompt: '', groupKey: plan.value.groups[0]?.key || '', resourceId: '' }
+  draft.value = { type: 'prompt', label: '', prompt: '', groupKey: planDoc.groups[0]?.key || '', resourceId: '' }
   editorVisible.value = false
+}
+
+function saveEntry() {
+  const planDoc = plan.value
+  if (!planDoc || !isDraftValid()) return
+  if (editingEntryId.value) {
+    saveExistingEntry(planDoc)
+    return
+  }
+  createNewEntry(planDoc)
 }
 
 function openPromptEditor(groupKey?: string) {
@@ -320,7 +354,7 @@ function openPromptEditor(groupKey?: string) {
   const targetGroup = plan.value.groups.find(group => group.key === groupKey) || plan.value.groups[0]
   if (!targetGroup) return
   if (plan.value.entries.filter(entry => entry.categoryKey === targetGroup.key).length >= 6) {
-    message.warning(t('legacy.each_group_can_contain_up_to_6_entries'))
+    message.warning(t('每个分组最多 6 个入口'))
     return
   }
   editingEntryId.value = null
@@ -372,10 +406,10 @@ async function save() {
         categoryIconSvg: entry.categoryIconSvg || '',
       })),
     })
-    message.success(t('legacy.quick_access_scheme_saved'))
+    message.success(t('快捷入口方案已保存'))
     savedSnapshot.value = currentSnapshot.value
   } catch (error: any) {
-    message.error(error?.response?.data?.detail || t('legacy.failed_to_save_quick_access_scheme'))
+    message.error(error?.response?.data?.detail || t('快捷入口方案保存失败'))
   } finally { saving.value = false }
 }
 
@@ -387,53 +421,53 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', handleBeforeUnl
   <div class="shortcut-settings">
     <div class="settings-header shortcut-settings-header">
       <div class="shortcut-header-copy">
-        <div class="settings-title">{{ t('legacy.quick_access_scheme') }}</div>
-        <div class="settings-subtitle">{{ t('legacy.configure_default_shortcuts_for_all_employees_they_can_reorder') }}</div>
+        <div class="settings-title">{{ t('快捷入口方案') }}</div>
+        <div class="settings-subtitle">{{ t('配置所有员工默认看到的快捷入口；未锁定分组允许员工调整组内顺序。') }}</div>
       </div>
       <n-space>
         <n-button secondary @click="openGroupEditor">
           <template #icon><ShortcutActionIcon kind="add" /></template>
-          {{ t('legacy.new_group_fa4ff6b') }}
+          {{ t('新建分组') }}
         </n-button>
         <n-button type="primary" :loading="saving" :disabled="!hasUnsavedChanges" @click="save">
           <template #icon><ShortcutActionIcon kind="save" /></template>
-          {{ hasUnsavedChanges ? t('legacy.save_817af18') : t('legacy.saved') }}
+          {{ hasUnsavedChanges ? t('保存配置') : t('已保存') }}
         </n-button>
       </n-space>
     </div>
 
-    <n-alert type="info" :bordered="false">{{ t('legacy.employees_cannot_change_a_locked_group_or_its_entries') }}</n-alert>
+    <n-alert type="info" :bordered="false">{{ t('锁定分组后，员工不能调整该分组及其中的入口；快捷入口不会改变 Skill 本身的权限。') }}</n-alert>
     <n-spin :show="loading">
       <div v-if="plan" class="group-list">
         <section v-for="(group, groupIndex) in entryGroups" :key="group.key" class="entry-group">
           <header class="group-header">
             <div class="group-title">
-              <button type="button" class="icon-picker-trigger" :aria-label="t('legacy.choose_group_icon')" @click="openGroupIconPicker(group)">
+              <button type="button" class="icon-picker-trigger" :aria-label="t('选择分组图标')" @click="openGroupIconPicker(group)">
                 <span v-html="group.iconSvg || shortcutIconCatalog.find(icon => icon.value === group.iconKey)?.svg" />
               </button>
               <n-input
                 :value="groupDraftLabels[group.key] ?? group.label"
                 size="small"
-                :aria-label="t('legacy.group_name_65731c1')"
+                :aria-label="t('分组名称')"
                 @update:value="(value: string) => updateGroupLabel(group.key, value)"
                 @blur="() => renameGroup(group)"
               />
-              <span>{{ t('legacy.shortcuts', { count: group.entries.length }) }}</span>
+              <span>{{ t('共 {count} 个入口', { count: group.entries.length }) }}</span>
             </div>
             <div class="group-controls">
-              <n-button secondary size="small" @click="openPromptEditor(group.key)">{{ t('legacy.add_entry') }}</n-button>
-              <label class="entry-switch"><span>{{ t('legacy.lock_group') }}</span><n-switch :value="!!group.locked" size="small" @update:value="(value: boolean) => setGroupLocked(group.key, value)" /></label>
-              <n-button quaternary type="error" size="small" :disabled="group.entries.length > 0" @click="removeGroup(group)">{{ t('legacy.delete_group') }}</n-button>
+              <n-button secondary size="small" @click="openPromptEditor(group.key)">{{ t('添加入口') }}</n-button>
+              <label class="entry-switch"><span>{{ t('锁定分组') }}</span><n-switch :value="!!group.locked" size="small" @update:value="(value: boolean) => setGroupLocked(group.key, value)" /></label>
+              <n-button quaternary type="error" size="small" :disabled="group.entries.length > 0" @click="removeGroup(group)">{{ t('删除分组') }}</n-button>
               <div class="group-order-actions">
-                <n-button quaternary size="tiny" :disabled="groupIndex === 0" :aria-label="t('legacy.move_group_up')" @click="moveGroup(groupIndex, -1)">↑</n-button>
-                <n-button quaternary size="tiny" :disabled="groupIndex === entryGroups.length - 1" :aria-label="t('legacy.move_group_down')" @click="moveGroup(groupIndex, 1)">↓</n-button>
+                <n-button quaternary size="tiny" :disabled="groupIndex === 0" :aria-label="t('分组上移')" @click="moveGroup(groupIndex, -1)">↑</n-button>
+                <n-button quaternary size="tiny" :disabled="groupIndex === entryGroups.length - 1" :aria-label="t('分组下移')" @click="moveGroup(groupIndex, 1)">↓</n-button>
               </div>
             </div>
             <n-button
               quaternary
               size="small"
               class="group-toggle"
-              :aria-label="collapsedGroups.has(group.key) ? t('legacy.expand_group') : t('legacy.collapse_group')"
+              :aria-label="collapsedGroups.has(group.key) ? t('展开分组') : t('收起分组')"
               :aria-expanded="!collapsedGroups.has(group.key)"
               @click="toggleGroup(group.key)"
             >
@@ -447,37 +481,37 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', handleBeforeUnl
               <n-button quaternary size="tiny" :disabled="index === group.entries.length - 1" @click="move(group, index, 1)">↓</n-button>
             </div>
             <div class="entry-main">
-              <strong>{{ translateSourceText(entry.label) }}</strong>
+              <strong>{{ t(entry.label) }}</strong>
               <span>{{ entry.type === 'prompt' ? 'Prompt' : entry.type === 'skill' ? 'Skill' : 'Agent' }}</span>
             </div>
-            <button type="button" class="icon-picker-trigger entry-icon-trigger" :aria-label="t('legacy.choose_shortcut_icon')" @click="openEntryIconPicker(entry)">
+            <button type="button" class="icon-picker-trigger entry-icon-trigger" :aria-label="t('选择入口图标')" @click="openEntryIconPicker(entry)">
               <span v-html="entry.iconSvg || shortcutIconCatalog.find(icon => icon.value === entry.iconKey)?.svg" />
             </button>
             <n-select :value="entry.categoryKey" size="small" class="entry-group-select" :options="plan.groups.map(item => ({ label: item.label, value: item.key }))" @update:value="(value: string) => moveEntryToGroup(entry, value)" />
-            <label class="entry-switch"><span>{{ t('legacy.visible') }}</span><n-switch v-model:value="entry.enabled" size="small" /></label>
-            <n-button quaternary size="small" @click="openEntryEditor(entry)">{{ t('legacy.edit') }}</n-button>
-            <n-button quaternary type="error" size="small" @click="remove(entry)">{{ t('legacy.delete') }}</n-button>
+            <label class="entry-switch"><span>{{ t('展示') }}</span><n-switch v-model:value="entry.enabled" size="small" /></label>
+            <n-button quaternary size="small" @click="openEntryEditor(entry)">{{ t('编辑') }}</n-button>
+            <n-button quaternary type="error" size="small" @click="remove(entry)">{{ t('删除') }}</n-button>
             </article>
           </template>
         </section>
       </div>
     </n-spin>
 
-    <n-modal v-model:show="groupEditorVisible" preset="card" :title="t('legacy.new_group_fa4ff6b')" style="width: min(460px, calc(100vw - 32px))">
+    <n-modal v-model:show="groupEditorVisible" preset="card" :title="t('新建分组')" style="width: min(460px, calc(100vw - 32px))">
       <n-form label-placement="top">
-        <n-form-item :label="t('legacy.group_name_65731c1')" required><n-input v-model:value="groupDraft.label" :placeholder="t('legacy.enter_group_name')" /></n-form-item>
-        <n-form-item :label="t('legacy.group_icon')">
-          <button type="button" class="icon-picker-trigger" :aria-label="t('legacy.choose_group_icon')" @click="iconPickerTarget = { kind: 'group', key: '__new__' }; iconPickerVisible = true">
+        <n-form-item :label="t('分组名称')" required><n-input v-model:value="groupDraft.label" :placeholder="t('请输入分组名称')" /></n-form-item>
+        <n-form-item :label="t('分组图标')">
+          <button type="button" class="icon-picker-trigger" :aria-label="t('选择分组图标')" @click="iconPickerTarget = { kind: 'group', key: '__new__' }; iconPickerVisible = true">
             <span v-html="shortcutIconCatalog.find(icon => icon.value === groupDraft.iconKey)?.svg" />
           </button>
         </n-form-item>
       </n-form>
-      <template #footer><n-space justify="end"><n-button @click="groupEditorVisible = false">{{ t('legacy.cancel') }}
-      </n-button><n-button type="primary" @click="createGroup">{{ t('legacy.create') }}
+      <template #footer><n-space justify="end"><n-button @click="groupEditorVisible = false">{{ t('取消') }}
+      </n-button><n-button type="primary" @click="createGroup">{{ t('创建') }}
       </n-button></n-space></template>
     </n-modal>
 
-    <n-modal v-model:show="iconPickerVisible" preset="card" :title="t('legacy.choose_icon')" style="width: min(560px, calc(100vw - 32px))">
+    <n-modal v-model:show="iconPickerVisible" preset="card" :title="t('选择图标')" style="width: min(560px, calc(100vw - 32px))">
       <div class="icon-picker-grid">
         <button v-for="icon in [...shortcutIconCatalog, ...customIcons]" :key="icon.value" type="button" class="icon-option" @click="selectIcon(icon)">
           <span v-html="icon.svg" />
@@ -487,7 +521,7 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', handleBeforeUnl
             class="icon-delete"
             role="button"
             tabindex="0"
-            :aria-label="t('legacy.delete_custom_icon')"
+            :aria-label="t('删除自定义图标')"
             @click.stop="removeCustomIcon(icon.value)"
             @keydown.enter.stop="removeCustomIcon(icon.value)"
           >×</span>
@@ -495,28 +529,28 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', handleBeforeUnl
         <label class="icon-option icon-upload-option">
           <input type="file" accept=".svg,image/svg+xml" @change="handleIconUpload" />
           <span class="upload-plus">＋</span>
-          <small>{{ t('legacy.upload_svg') }}</small>
+          <small>{{ t('上传 SVG') }}</small>
         </label>
       </div>
       <div class="svg-code-panel">
-        <n-input v-model:value="svgText" type="textarea" :rows="3" :placeholder="t('legacy.paste_svg_code')" />
-        <n-button type="primary" size="small" :disabled="!svgText.trim()" @click="applySvgText">{{ t('legacy.use_svg_code') }}</n-button>
+        <n-input v-model:value="svgText" type="textarea" :rows="3" :placeholder="t('粘贴 SVG 代码')" />
+        <n-button type="primary" size="small" :disabled="!svgText.trim()" @click="applySvgText">{{ t('使用 SVG 代码') }}</n-button>
       </div>
     </n-modal>
 
-    <n-modal v-model:show="editorVisible" preset="card" :title="t(editingEntryId ? 'legacy.edit_shortcut_entry' : 'legacy.new_shortcut_entry')" style="width: min(560px, calc(100vw - 32px))">
+    <n-modal v-model:show="editorVisible" preset="card" :title="t(editingEntryId ? '编辑快捷入口' : '新增快捷入口')" style="width: min(560px, calc(100vw - 32px))">
       <n-form label-placement="top">
-        <n-form-item :label="t('legacy.entry_type')" required>
+        <n-form-item :label="t('入口类型')" required>
           <n-select v-model:value="draft.type" :options="[{ label: 'Prompt', value: 'prompt' }, { label: 'Skill', value: 'skill' }]" />
         </n-form-item>
-        <n-form-item v-if="draft.type === 'skill'" :label="t('legacy.select_skill')" required>
+        <n-form-item v-if="draft.type === 'skill'" :label="t('选择 Skill')" required>
           <n-select :value="draft.resourceId || null" :options="skillOptions.map(skill => ({ label: skill.name, value: skill.id }))" :loading="skillLoading" filterable @update:value="selectSkill" />
         </n-form-item>
-        <n-form-item :label="t('legacy.shortcut_name')" required><n-input v-model:value="draft.label" /></n-form-item>
-        <n-form-item :label="t('legacy.group')" required><n-select v-model:value="draft.groupKey" :options="plan?.groups.map(item => ({ label: translateSourceText(item.label), value: item.key })) || []" /></n-form-item>
-        <n-form-item v-if="draft.type === 'prompt'" :label="t('legacy.prompt_content')" required><n-input v-model:value="draft.prompt" type="textarea" :rows="5" /></n-form-item>
+        <n-form-item :label="t('入口名称')" required><n-input v-model:value="draft.label" /></n-form-item>
+        <n-form-item :label="t('所属分组')" required><n-select v-model:value="draft.groupKey" :options="plan?.groups.map(item => ({ label: item.label, value: item.key })) || []" /></n-form-item>
+        <n-form-item v-if="draft.type === 'prompt'" :label="t('Prompt 内容')" required><n-input v-model:value="draft.prompt" type="textarea" :rows="5" /></n-form-item>
       </n-form>
-      <template #footer><n-space justify="end"><n-button @click="editorVisible = false">{{ t('legacy.cancel') }}</n-button><n-button type="primary" @click="saveEntry">{{ t(editingEntryId ? 'legacy.save_changes' : 'legacy.add_94191ce') }}</n-button></n-space></template>
+      <template #footer><n-space justify="end"><n-button @click="editorVisible = false">{{ t('取消') }}</n-button><n-button type="primary" @click="saveEntry">{{ t(editingEntryId ? '保存修改' : '添加') }}</n-button></n-space></template>
     </n-modal>
   </div>
 </template>
@@ -524,43 +558,43 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', handleBeforeUnl
 <style scoped>
 .shortcut-settings { display: grid; gap: 16px; }
 .settings-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.shortcut-settings-header { position: sticky; top: -22px; z-index: 20; margin: -22px -22px 0; padding: 14px 22px 12px; border-bottom: 1px solid #e6ebf2; background: rgba(255,255,255,.98); box-shadow: 0 4px 12px rgba(30, 55, 90, .05); backdrop-filter: blur(8px); }
+.shortcut-settings-header { position: sticky; top: -22px; z-index: 20; margin: -22px -22px 0; padding: 14px 22px 12px; border-bottom: 1px solid var(--mg-border); background: color-mix(in srgb, var(--mg-bg-surface) 98%, transparent); box-shadow: 0 4px 12px rgba(30, 55, 90, .05); backdrop-filter: blur(8px); }
 .shortcut-header-copy { min-width: 0; }
-.settings-title { color: #182236; font-size: 20px; font-weight: 700; }
-.settings-subtitle, .summary { margin-top: 6px; color: #7b8799; font-size: 13px; }
+.settings-title { color: var(--mg-text-1); font-size: 20px; font-weight: 700; }
+.settings-subtitle, .summary { margin-top: 6px; color: var(--mg-text-3); font-size: 13px; }
 .group-list { display: grid; gap: 14px; }
-.entry-group { overflow: hidden; border: 1px solid #e5eaf2; border-radius: 14px; background: #fff; }
-.group-header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid #edf1f6; background: #f8faff; flex-wrap: wrap; }
+.entry-group { overflow: hidden; border: 1px solid var(--mg-border); border-radius: 14px; background: var(--mg-bg-surface); }
+.group-header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--mg-border); background: var(--mg-bg-surface); flex-wrap: wrap; }
 .group-title { display: flex; min-width: 220px; flex: 1; align-items: center; gap: 10px; }
 .group-controls { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .group-title :deep(.n-input) { max-width: 240px; }
-.group-title > span { color: #8a96a8; font-size: 12px; white-space: nowrap; }
-.icon-picker-trigger { display: inline-flex; width: 32px; height: 32px; align-items: center; justify-content: center; padding: 6px; border: 1px solid #dce4ef; border-radius: 8px; color: #3867d6; background: #fff; cursor: pointer; }
-.icon-picker-trigger:hover { border-color: #4b7bec; background: #f4f7ff; }
+.group-title > span { color: var(--mg-text-3); font-size: 12px; white-space: nowrap; }
+.icon-picker-trigger { display: inline-flex; width: 32px; height: 32px; align-items: center; justify-content: center; padding: 6px; border: 1px solid var(--mg-border); border-radius: 8px; color: var(--mg-brand); background: var(--mg-bg-surface); cursor: pointer; }
+.icon-picker-trigger:hover { border-color: var(--mg-brand); background: var(--mg-brand-soft); }
 .icon-picker-trigger :deep(svg) { width: 18px; height: 18px; }
 .group-toggle { min-width: 28px; }
 .group-order-actions { display: flex; gap: 2px; }
 .group-toggle-icon { display: block; width: 16px; height: 16px; transition: transform .18s ease; }
 .group-toggle-icon.collapsed { transform: rotate(-90deg); }
-.entry-row { display: flex; min-height: 62px; align-items: center; gap: 10px; padding: 9px 16px; border-bottom: 1px solid #edf1f6; }
-.entry-row:hover { background: #fbfcff; }
+.entry-row { display: flex; min-height: 62px; align-items: center; gap: 10px; padding: 9px 16px; border-bottom: 1px solid var(--mg-border); }
+.entry-row:hover { background: var(--mg-bg-surface-hover); }
 .entry-group .entry-row:last-child { border-bottom: 0; }
 .entry-order { display: flex; gap: 2px; }
 .entry-main { display: grid; min-width: 0; flex: 1; gap: 4px; }
-.entry-main strong { color: #26344a; font-size: 14px; }
-.entry-main span { color: #8a96a8; font-size: 12px; }
+.entry-main strong { color: var(--mg-text-1); font-size: 14px; }
+.entry-main span { color: var(--mg-text-3); font-size: 12px; }
 .entry-icon-trigger { flex: 0 0 auto; }
 .entry-group-select { width: 150px; }
 .icon-picker-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
-.icon-option { position: relative; display: flex; min-height: 70px; flex-direction: column; align-items: center; justify-content: center; gap: 7px; border: 1px solid #e2e8f0; border-radius: 10px; color: #52627a; background: #fff; cursor: pointer; }
-.icon-option:hover { border-color: #4b7bec; color: #3867d6; background: #f4f7ff; }
+.icon-option { position: relative; display: flex; min-height: 70px; flex-direction: column; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--mg-border); border-radius: 10px; color: var(--mg-text-2); background: var(--mg-bg-surface); cursor: pointer; }
+.icon-option:hover { border-color: var(--mg-brand); color: var(--mg-brand); background: var(--mg-brand-soft); }
 .icon-option :deep(svg) { width: 24px; height: 24px; }
 .icon-option small { overflow: hidden; max-width: 100%; padding: 0 4px; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.icon-delete { position: absolute; top: 3px; right: 6px; color: #a0aabd; font-size: 16px; line-height: 16px; }
-.icon-delete:hover { color: #d03050; }
+.icon-delete { position: absolute; top: 3px; right: 6px; color: var(--mg-text-3); font-size: 16px; line-height: 16px; }
+.icon-delete:hover { color: var(--mg-danger-text); }
 .icon-upload-option input { display: none; }
 .upload-plus { font-size: 26px; line-height: 24px; }
-.svg-code-panel { display: grid; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid #edf1f6; }
+.svg-code-panel { display: grid; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--mg-border); }
 .svg-code-panel .n-button { justify-self: end; }
-.entry-switch { display: flex; align-items: center; gap: 7px; color: #667085; font-size: 12px; }
+.entry-switch { display: flex; align-items: center; gap: 7px; color: var(--mg-text-2); font-size: 12px; }
 </style>

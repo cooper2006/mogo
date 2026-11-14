@@ -1,10 +1,11 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import logging
 from typing import Any
 
 from app.core.db import get_db
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 from app.services.skill_packages import validate_skill_package
 from app.services.skill_packages.archive_store import read_archive
 
@@ -21,10 +22,10 @@ class LegacySkillShareMigration:
     def __init__(self, distribution: SkillDistributionService | None = None) -> None:
         self._distribution = distribution or SkillDistributionService()
 
-    async def migrate_owned(self, *, main_id: str, owner_user_id: str) -> None:
-        db, tenant_id = get_db(), resolve_main_id(main_id)
+    async def migrate_owned(self, *, tenant_id: str, owner_user_id: str) -> None:
+        db, tenant_id = get_db(), resolve_tenant_id(tenant_id)
         shares = await db.skill_shares.find({
-            "main_id": tenant_id, "owner_user_id": str(owner_user_id), "status": "active",
+            "tenant_id": tenant_id, "owner_user_id": str(owner_user_id), "status": "active",
         }).to_list(length=10_000)
         for share in shares:
             if share.get("distribution_id") and share.get("release_id"):
@@ -34,17 +35,17 @@ class LegacySkillShareMigration:
             except Exception as exc:
                 logger.warning("legacy owned Skill share migration failed", extra={"share_id": str(share.get("_id") or ""), "error": str(exc)[:500]})
 
-    async def migrate_installed(self, *, main_id: str, recipient_user_id: str) -> None:
-        db, tenant_id = get_db(), resolve_main_id(main_id)
+    async def migrate_installed(self, *, tenant_id: str, recipient_user_id: str) -> None:
+        db, tenant_id = get_db(), resolve_tenant_id(tenant_id)
         skills = await db.user_skills.find({
-            "main_id": tenant_id, "user_id": str(recipient_user_id),
+            "tenant_id": tenant_id, "user_id": str(recipient_user_id),
         }).to_list(length=10_000)
         for skill in skills:
             source = dict(skill.get("package_source") or {})
-            if source.get("kind") != "movo_share" or source.get("distributionId"):
+            if source.get("kind") != "mogo_share" or source.get("distributionId"):
                 continue
             share_id = str(source.get("shareId") or "")
-            share = await db.skill_shares.find_one({"_id": share_id, "main_id": tenant_id})
+            share = await db.skill_shares.find_one({"_id": share_id, "tenant_id": tenant_id})
             if share is None:
                 continue
             try:
@@ -58,7 +59,7 @@ class LegacySkillShareMigration:
                 continue
             source.update({"distributionId": distribution_id, "releaseId": release_id})
             await db.user_skills.update_one(
-                {"_id": skill["_id"], "main_id": tenant_id, "user_id": str(recipient_user_id)},
+                {"_id": skill["_id"], "tenant_id": tenant_id, "user_id": str(recipient_user_id)},
                 {"$set": {"package_source": source, "distribution_id": distribution_id}},
             )
             await self._distribution.record_accept(
@@ -82,10 +83,15 @@ class LegacySkillShareMigration:
         try:
             archive = await read_archive(db, share)
             package = validate_skill_package(archive)
-        except Exception:
+        except Exception as exc:
+            log_print(
+                "[services.skill_sharing.legacy_migration] "
+                f"legacy share archive unreadable, keeping share as-is: {exc}",
+                flush=True,
+            )
             return share
         distribution = await self._distribution.ensure(
-            main_id=str(share.get("main_id") or "default"),
+            tenant_id=str(share.get("tenant_id") or "default"),
             owner_user_id=owner_id,
             source_skill_id=source_skill_id,
         )
@@ -100,7 +106,7 @@ class LegacySkillShareMigration:
             "release_version": str(release.get("version") or package.version or "1.0.0"),
         }
         await get_db().skill_shares.update_one(
-            {"_id": share["_id"], "main_id": share["main_id"]}, {"$set": updates},
+            {"_id": share["_id"], "tenant_id": share["tenant_id"]}, {"$set": updates},
         )
         return {**share, **updates}
 

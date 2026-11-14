@@ -81,8 +81,12 @@ class ProfilePresetResolver:
                     raw_request=user_text,
                     confidence=float(res.confidence or 0.0),
                 )
-        except Exception:
-            pass
+        except Exception as exc:
+            log_print(
+                f"[profile_presets][resolver] extract_compose_profile LLM failed, "
+                f"using minimal fallback: {exc}",
+                flush=True,
+            )
         return ComposeProfile(intent_statement=user_text[:300], raw_request=user_text)
 
     async def _rank(self, *, compose_profile: ComposeProfile, preset: ProfilePreset) -> _RankExtract:
@@ -100,8 +104,12 @@ class ProfilePresetResolver:
                     constraint_score=max(0.0, min(1.0, float(res.constraint_score or 0.0))),
                     reason=str(res.reason or "").strip(),
                 )
-        except Exception:
-            pass
+        except Exception as exc:
+            log_print(
+                f"[profile_presets][resolver] _rank LLM failed, using "
+                f"0.55/0.55 fallback: {exc}",
+                flush=True,
+            )
         return _RankExtract(fit_score=0.55, constraint_score=0.55, reason="fallback")
 
     async def resolve(self, *, messages: List[Dict[str, Any]], output_spec: Dict[str, Any], task_ir: Dict[str, Any]) -> PresetResolution:
@@ -171,19 +179,16 @@ class ProfilePresetResolver:
                 dynamic_quality_trace[f"repair_{repair_attempt}"] = qv
             if not bool(qv.get("ok")):
                 reason = "dynamic_preset_generated_with_minimal_contract_fallback"
-            try:
-                log_print(
-                    "[profile_preset][dynamic_quality] preset=%s ok=%s score=%.3f issues=%s"
-                    % (
-                        str(selected.preset_id or ""),
-                        bool(qv.get("ok")),
-                        float(qv.get("score") or 0.0),
-                        json.dumps(list(qv.get("issues") or []), ensure_ascii=False),
-                    ),
-                    flush=True,
-                )
-            except Exception:
-                pass
+            log_print(
+                "[profile_preset][dynamic_quality] preset=%s ok=%s score=%.3f issues=%s"
+                % (
+                    str(selected.preset_id or ""),
+                    bool(qv.get("ok")),
+                    float(qv.get("score") or 0.0),
+                    json.dumps(list(qv.get("issues") or []), ensure_ascii=False),
+                ),
+                flush=True,
+            )
         else:
             if selected is not None:
                 selected = normalize_minimal_spec(
@@ -192,20 +197,17 @@ class ProfilePresetResolver:
                     output_spec=output_spec,
                     task_ir=task_ir,
                 )
-            try:
-                log_print(
-                    "[profile_preset][selected] source=%s reason=%s candidates=user_db:%s system_builtin:%s other:%s"
-                    % (
-                        str(selected.source if selected else ""),
-                        str(reason or ""),
-                        len(user_filtered),
-                        len(system_filtered),
-                        len(other_filtered),
-                    ),
-                    flush=True,
-                )
-            except Exception:
-                pass
+            log_print(
+                "[profile_preset][selected] source=%s reason=%s candidates=user_db:%s system_builtin:%s other:%s"
+                % (
+                    str(selected.source if selected else ""),
+                    str(reason or ""),
+                    len(user_filtered),
+                    len(system_filtered),
+                    len(other_filtered),
+                ),
+                flush=True,
+            )
         if selected is not None and used_dynamic:
             selected = normalize_minimal_spec(
                 preset=selected,

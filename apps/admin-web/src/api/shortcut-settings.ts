@@ -42,11 +42,11 @@ export interface ShortcutCustomIcon {
 }
 
 export async function fetchShortcutPlan(): Promise<ShortcutPlan> {
-  const { data } = await apiClient.get<ShortcutPlan>('/api/settings/shortcuts')
+  const { data } = await apiClient.get<ShortcutPlan>('/api/v1/settings/shortcuts')
   return data
 }
 
 export async function saveShortcutPlan(plan: Pick<ShortcutPlan, 'name' | 'entries' | 'groups' | 'customIcons'>): Promise<ShortcutPlan> {
-  const { data } = await apiClient.put<ShortcutPlan>('/api/settings/shortcuts', plan)
+  const { data } = await apiClient.put<ShortcutPlan>('/api/v1/settings/shortcuts', plan)
   return data
 }

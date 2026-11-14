@@ -1,19 +1,723 @@
 # Changelog
 
-All notable MOVO Community Edition changes are recorded here. Releases use
+All notable MOGO Community Edition changes are recorded here. Releases use
 semantic version tags and the same tag is applied to every published container
 image.
 
 ## Unreleased
 
+### Fixed
+
+- **dsh-runtime-host 构建校验版本对齐 rc.2（commit `c5a4b936`）**：`services/chat-api/dsh/runtime-host/Dockerfile` 第 174 行硬编码 `@deepseek-ai/dsh-web-frontend@0.2.2-rc.1`，但 `pnpm-lock.yaml` 已解析 `rc.2`，导致离线构建只装 rc.2、校验却找 rc.1 误报 `dist/index.html not found`。改为 `rc.2` 并补注释说明须与 lockfile 保持一致。
+
+### Changed
+
+- **本地开发环境文档口径同步（k3s → 可选备用）**：本地开发默认栈明确为 `docker --context kiri` 的 Docker Compose（`docs/dev-build-guide.md`）；k3s 本地开发路径降级为「可选备用」——仅当改动需要真实集群验证时临时 `kiri k8s start`、用完 `kiri k8s stop` 收掉，不常驻（`docs/k3s-local-dev-deploy.md` 已加状态标注）。Dory 引擎维持已停服的历史状态。
+
+## v0.2.8 - 2026-11-11
+
+### Fixed
+
+- **admin-web 菜单方案（`GET /api/v1/settings/menus`）未认证时序 401 修复**：`useMenuOptions` 在布局 `onMounted` 时即调用 `menuStore.load()` → `fetchMenuPlan()`，请求头 token 取自 `authStore.token`；若此刻会话尚未初始化（SSO 换票/校验窗口）或 token 已过期，请求无 `Authorization` 头 → 服务端返回 401，且全局响应拦截器对任意 401 触发 `clearSession()` + 跳转登录页，存在把已登录用户弹出的风险。改为 `onMounted` 与 `watch(tenantKey)` 均仅在 `authStore.isAuthenticated` 时拉取菜单方案；会话初始化完成后 `tenantKey` 由 `''` 变为真实租户 ID，自然触发首次加载，从源头杜绝无 token 的 401 与误跳转。
+- **演示数据校准（运行态，非代码发布项）**：修复 v0.2.8 演示播种中 `asset_templates` 等 13 个集合的 `created_at`/`updated_at` 被写成字符串（应为 BSON `datetime`），导致 `GET /api/v1/templates` 列表接口 `updated_at.isoformat()` 抛 `AttributeError` → 500；已将全部种子文档时间戳转为 `datetime`。
+- **user-web 会话列表相对时间「8 小时前」时区偏差修复**：后端（mongo 存 naive UTC）返回的 `created_at`/`updated_at`/`last_message_at` 可能为无时区后缀的 ISO 字符串，`formatRelativeTime` 原直接 `new Date(iso)` 被浏览器按本地时区解析，导致 UTC+8 用户把刚发生的会话显示为「8 小时前」。检测 naive ISO（无 `Z` 且无 `±HH:MM` 偏移）补 `Z` 按 UTC 解析后再转本地显示。该修复此前仅存在于本地 dev 的 `fix-tz` 镜像工作树中，现随 `d02e4a42` 提交入库。
+
+### QA / 发布就绪
+
+### QA / 发布就绪
+
+- **standard 深度全量 QA 审计（2026-11-11，覆盖磁盘 54 个特性）**：
+  - 审计产物：`deliverables/QA-AUDIT-STANDARD-2026-11-11.md`（逐条可勾）、`docs/regression-arm-kiri-2026-11-11.md`（kiri 三轮回归明细）。
+  - 全量重扫：54 特性（001–053 + 055；054 在途），五件套修前 49/54 `quickstart.md` → 修后 54/54；`tasks.md` 1681/1696（99.12%），50 份 100% 勾选，4 份部分勾选（017/024/049/051 共余 15 项环境类保留）。
+  - 真实缺陷修复：① `tenant_purge.TENANT_SCOPED_COLLECTIONS` 补齐 050–053 引入的 7 个租户集合（`asset_templates` / `template_clones` / `template_upgrades` / `employees` / `employee_api_keys` / `channel_employee_bindings` / `orchestration_runs`），消除租户删除后跨服务数据残留；② `test_t999_audit_t998_docs.py` 同步 051 新增 `im.employee.route` 审计事件；③ `drift-check.sh` / `verify-artifact.sh` 在 compose 栈停机（生产由 k3s 承载）时不再「比对 0 项报 OK」，改为显式 SKIP + rc=2。
+  - 文档一致性：README 中英 / INDEX / PPT / CHANGELOG 特性数与 tasks 计数由 49（或 53）对齐到磁盘实测 54 / 1696；040 spec + checklist 的 `admin_model_instances._id` 由 24-hex 改为 32-hex 终态口径。
+  - 生产环境：以 **kiri** 为准，运行栈为 k3s（10 Pod，镜像 `83bd0973` = HEAD），数据后端为 ServeBay Mongo；三轮回归 A1–A7 逐项记录。
+- **实体 ID 归一阶段 2 落地（2026-11-11 停机窗口）**：全库主键统一为「只认 32-hex」，事件流两集合截断重建；迁移脚本 `scripts/migrate_ids_to_hex32.py` 与执行手册 `docs/id-unification-hex32-runbook.md` 已入库；`verify` PASS（0 个 ObjectId / 24-hex 残留）。
+
+### QA
+
+- **standard 深度全量 QA 审计（2026-11-04，覆盖 001–048 共 48 特性）**：
+  - 审计产物：`deliverables/QA-AUDIT-STANDARD-2026-11-04.md`（逐条可勾报告）。
+  - 基线结论：48 特性 spec/plan/tasks 文档件套齐备；47/48 `tasks.md` 100% 勾选（024 余 7 项环境类保留，如实留空）；需求门禁清单 47/48（031 已补建）。
+  - 修复文档一致性：INDEX.md 三处数字错误（046/047 计数陈旧、测试总数自相矛盾 2684 vs 2601、特性完成度"45 份"误写）；补建 031 `checklists/requirements.md`。
+  - 已知保留项（不阻塞评审）：024 真实 DR 演练/压测/全链路回归 7 项、026 水平扩展压测 1 项、023 RTO/RPO 真实实测；建议 CI 跑三服务全量 pytest 并对齐测试计数后发布。
+  - **027 PanWeiDB 数据后端口径明确**：默认数据后端为 **MongoDB**（`MOGO_DATA_BACKEND` 未设置 = MongoDB，行为不变）；PanWeiDB 为**可选后端**，仅显式设置 `MOGO_DATA_BACKEND=panweidb` 时启用，开关式回滚、不改业务代码。已在 `docs/release-checklist-self-hosted.md` 与本公告显式说明，避免误述为默认/必选。
+  - **第二轮复核整改（2026-11-04 续）**：① INDEX 第 229 行原称 045 "spec/plan/tasks/quickstart 齐备" 但磁盘缺文件（虚假声明）；2026-11-04 已批量补建 032–048 共 17 份 quickstart.md，该声明随之成真（见 F-6）；② INDEX 第 230 行 2026-10-24 快照中 036/037/038/039/040/041/042/043 的"部分勾选"计数，经 2026-11-04 全量重扫确认均已 100%，已加复核注释闭合；③ 032 checklist 锚点链接经复核为有效链接（目标文件存在，锚点对应 spec.md L150 标题），此前"断链"为扫描器未剥离 `#anchor` 误报，确认非缺陷；④ 更正审计报告对 trust_rating 失败用例"已移除"的误判——该用例 `test_scanner_walks_ratings_and_records_state` 仍存活于 `test_trust_rating.py:455` 且未 skip/xfail，需 CI 实跑确认。
+  - **F-6 闭环（2026-11-04）**：批量生成 032–048 共 17 份 `quickstart.md`（032–044 整合批次 + 045 + 046–048 收口批次），对齐 001–030 既有风格（前置 / 做了什么 / 如何启用 / 如何验证 / 注意事项），引用各特性实测测试文件作为验证入口；现已 48/48 特性 quickstart 齐备。原 INDEX 对 045 的"齐备"声明随之成真。
+  - **三服务全量 pytest 对齐（2026-11-04，OrbStack 隔离网 `mogo_backend`，镜像 `4abce5be`）**：admin-api 1519 passed / 1 skipped、document-parser 72 passed / 6 skipped、chat-api 3103 passed / 3 skipped（marker 过滤 `not dsh_host_e2e and not network`，27 deselected；`MONGODB_URI=mongodb://mongo:27017`）；**三服务共 4694 passed / 10 skipped / 0 failed**。INDEX 中 2601（2026-10-05 基线）为陈旧计数，以此为准。
+  - **chat-api 陈旧测试修正（2026-11-04）**：`tests/dsh_runtime/test_user_questions_api.py` 中 2 个用例（`test_other_shared_member_cannot_answer` / `test_completed_run_has_no_answerable_question`）仍按旧语义断言 403/404，而 endpoint `user_questions.py` 在 commit `7630ef99`（读侧不再要求 run 发起者）与 `af3794af`（无 run 时 GET 返回 200 空列表）后语义已变更但测试未同步。本轮已按新语义修正：读侧 4 个用例改为断言 `{"questions": []}`，并补 `test_answer_requires_initiator`（POST 侧 403）与 `test_answer_without_run_is_rejected`（POST 侧 404）两条控制/作答侧断言，共 5 passed。
+  - **测试运行器离线 bundle 落地（B 方案，2026-11-04）**：为 docparser/chat 补入测试运行器，使镜像内可直接 `python -m pytest`，消除「跨镜像抽包 + PYTHONPATH 注入 + py shim」脏活。新增 `requirements-test.{in,txt}`（6 个纯 py 包：pytest 9.1.1 / pytest-asyncio 1.4.0 / pluggy 1.6.0 / iniconfig 2.3.0 / packaging 26.3 / pygments 2.21.0，与 admin 镜像对齐）；扩展 `scripts/pip_wheels_bundle.sh` 的 test 闭包下载腿（`pip download --only-binary=:all: --no-deps`），与生产 wheel 共用同一 per-arch 离线缓存；两 Dockerfile 各加 `INSTALL_TEST_DEPS_AT_BUILD` 门控层（默认 false 生产镜像不变）。**build 回归全绿**：门控测试层已前移至 `pip uninstall` 之前（pip 还活着时装测试闭包，无需 ensurepip 自举），docparser 72 passed / 6 skipped、chat-api 3103 passed / 3 skipped（均 0 failed），import pytest 9.1.1 / pytest-asyncio 1.4.0 校验通过。
+  - **test_prepare_skill.py 路径固化（2026-11-04）**：新增 `services/chat-api/tests/sandbox_script/conftest.py`，pytest 自动把 `sandbox_script/` 注入 `sys.path`，根治「顶层 import prepare_skill 找不到模块」的收集错误，任何环境（镜像/CI/宿主）无需再传 PYTHONPATH。
+
+## v0.2.7 - 2026-11-08
+
 ### Added
 
-- Share conversations with other users in the same organization through a
-  revocable, expiring session share link. Recipients log in when needed and
-  join from the link, and the session appears under a "Shared with me"
-  sidebar section; both members see the full author-labelled history while
-  each keeps their own model, tools, and permissions. Thanks to @vinvcn
-  for contributing this feature.
+- **049 项目成员与项目层配额收口（2026-11-05，SPEC 049）**：一处读路径修复 + 一个能力扩展，
+  收口 042/046 的读路径残留并给 `projects` 加成员（ADR-9），把 046 D1 的纯个人语义扩展为
+  「个人 + 可协作」：
+  - **读路径切 `projects`**：`services/admin-api/app/services/quota_projects.py` 的
+    `PROJECT_COLLECTION` 从退役的 `quota_projects`（0 行）切到 046 统一后的 `projects`；
+    `quota_policy.py` 的 `QUOTA_PROJECT_COLLECTION` 同步迁移。admin-web「项目管理」从恒空列表
+    变为返回真实项目（2 active: 默认项目 + test，8 archived 折叠进「已归档」），
+    给真实项目 id 配额度不再 404。
+  - **项目加成员**：`projects` 新增 `member_user_ids`；user-web 侧边栏非默认项目「…」菜单
+    新增「成员」弹窗（左侧租户 `org_units` 部门树、右侧 `end_users` 按部门及其下级过滤的多选
+    列表，保存走 `PATCH /projects/{id}` 全量集合）；成员管理权归创建者、非成员 PATCH 403；
+    默认项目不出「…」菜单。
+  - **可见性扩展**：`GET /projects` 从「我的」改为「我的 ∪ 我作为成员的」
+    （`user_id = me OR member_user_ids ⊇ me OR _id = "default"`），成员可在侧边栏看到项目。
+  - **配额口径同步**：项目层配额 = 项目成员（含创建者）的 `token_usage_logs` 周期用量合计，
+    参与 042 四层取小；`member_user_ids` 为空时按创建者兜底；archived 项目不参与取小。
+    双服务 `quota_policy.py` 同口径，消除 042 项目层白做风险。
+  - **`quota_projects` 退役**：写端点下线、读路径 0 命中、`tenant_purge` 旧表清理项移除；
+    新成员语义落在 `projects.member_user_ids`，与旧表无关（046 FR-012 继续成立）。
+  - 治理：spec/plan/tasks/checklist/quickstart 四件套齐备 + ADR-9，
+    tasks 23/25（余 T022 全链路手工验证需 admin 会话与 A/B/C 三账号、T025 成员变更审计回归用例）；
+    前端双端 SFC 编译 4/4 + 双端 `vue-tsc` 0 错误；后端 chat-api 27 用例、admin-api 51 用例全绿。
+
+- **017 三范围记忆：核心模型与链路（B2/B3，D4 直接改名）**：
+  - 记忆范围从 `workspace/org` 直接改名为 `personal/project/department`，落到 spec/design v3 目标态；
+    **无运行时兼容层**（D4），与 049 的 `projects` 表在同一维护窗口原子切换。
+  - `app/memory/scope.py`：新 `MemoryScope{PROJECT, DEPARTMENT}`、`Memory` 字段
+    `project_id`/`project_owner_id`/`department_id`；`visible_to(memory, viewer)` 成为唯一可见性判据。
+  - `app/memory/viewer.py`：`MemoryViewerContext` 补齐 A-1 字段；`visible_project_keys` 改为
+    `(project_id, project_owner_id)` 二元组消歧（N1）；部门集合展开含后代不含祖先（D3）；
+    `default` 项目隔离（N2）；解析失败 fail-closed。
+  - store / retrieval / address / sediment 三条链路同步目标态；`promote` 与通用 PATCH 走增量
+    `$set`，不再清空分层与 provenance。
+  - 新增 `project_context.py`：046 会话取值 + 反查项目创建者，`default`/缺行/歧义回落 personal，
+    接通两处会话沉淀调用点；`MEMORY_DECAY_DAYS` 配置注入 + `MemoryLifecycle.touch` 接线。
+  - adapters.py RAG 检索改传 viewer、旧地址段 404；测试适配目标态 + 新增
+    `test_scope_visibility_v3` 可见性矩阵、收紧空归属 fail-closed 回归。
+  - 验证：相关测试 275 passed，`compileall` 通过。tasks 41/46（余 T031 真实浏览器 E2E 待执行、
+    T042/T043/T045 切换演练与对账需维护窗口 + 凭据、T046 真实构建 + 全量回归待维护窗口；
+    手册已产出 `cutover-drill-runbook.md` 与 `rollout-017-d4-cutover.md`）。
+
+### Fixed
+
+- **多租户下 `GET /projects` 500（049 衍生）**：默认项目按租户分片，修复多租户查询 500。
+- **dsh-runtime-host 本地 sandbox bypass 动态读取已安装的 DSH release train**：不再硬编码
+  镜像标签，按宿主实际安装版本推导。
+- **dsh-runtime-host 默认镜像固化**为 `dsh-0.2.2-rc.1`；晋升 dsh-runtime-host 到 0.2.2-rc.1
+  并修复插件安装 `pnpm ENOENT`。
+- **部署脚本按镜像 ID 比对内容并支持 `--force-push`**；新增 arm64/amd64 基础镜像干净名一键切换脚本。
+
+## v0.2.6 - 2026-11-03
+
+### Added
+
+- **046 项目维度统一 / 047 配额可发现性 / 048 业务线维度删除（2026-11-01，SPEC 046–048）**：
+  - 046：三套同名「项目」收敛为一套（`desktop_projects` → `projects`、默认项目 `default`、
+    `chat_sessions.project_id`、网关反查绑定、全量回填、侧边栏与驾驶舱切读、042 项目层
+    `scope_id = project_id`）；T001–T031 全部完成。
+  - 047：042 配额引擎的可发现性整改——新增独立菜单「项目管理」、修 `?open=quota` 深链、
+    驾驶舱补「配额异常」卡片、文案「团队」→「部门」（标识符保留）、跨服务一致性测试 + tz 统一。
+  - 048：删除无写方且必然产出单桶假数据的「业务线」维度——后端 `_resolve_business_line` /
+    `businessLineAttribution`、前端标签/类型、测试断言；成本段 6 段 → 5 段。
+  - 治理：三包 spec/plan/tasks/checklist 四件套齐备，tasks 046 34/34、047 30/30、048 13/13 全勾，
+    `specs/INDEX.md` 已收录。
+
+- **045 资产中心枢纽落地（2026-10-29，SPEC 045 方案 A+B）**：
+  - 资产中心页 `/assets`：技能/能力资产（MCP/工具/连接器）统一坐标
+    `(asset_type, asset_key)` 互链，前端 join 技能/评级/上架/申领数据成一张表；
+    后端补只读接口 `GET /api/v1/capabilities/list`（`test_capability_assets_admin.py` 5 passed）。
+  - 资产卡片四徽标下钻：评级 → `/trust-ratings?asset=…`（未评级禁用）、
+    上架/下架 → `/portal/listings?asset=…` 预填、最近申领 → `/portal/approvals` 定位、
+    最近使用统计与 `grantCount`（与 `permission_grants` 同源）。
+  - 五块互链：技能页评级徽标定位评级行；评级页资产列加类型徽标/上架标志/最近申领统计；
+    门户上架页资产下拉选（skill → `GET /api/v1/skills`，mcp/tool/connector → `GET /api/v1/capabilities/list?kind=…`）。
+  - 门户审批页 `applied` 态按 `asset_key` 聚合为资产视角卡片，可下钻回资产中心。
+  - 治理：`specs/045-asset-center/` 三件套 + checklist 19/19，tasks 15/15 勾选，
+    `specs/INDEX.md` 表已补 045 行与统计节。
+
+- **023 可观测性与韧性 Phase 8 端到端验证落地（2026-10-25，T116–T118）**：
+  - 三个**剧本脚本**，把「配置在就算齐了」升级为「真跑一遍」，全部遵循
+    `0 通过 / 1 断言失败 / 2 环境不具备` 的退出码约定（`2` 不算通过，CI 应标 skipped）：
+    - `scripts/verify_e2e_observability.sh`（T116 全链路）：注入 `traceparent` 发起一次
+      真实请求 → 用该 trace_id 反查 Loki 日志 / Tempo trace / Prometheus
+      `mogo_http_requests_total` / `mogo:slo:availability:error_rate` / mogo 告警规则组（≥10 条）。
+    - `scripts/drill/inject_dependency_fault.sh`（T117 韧性）：真停/起 compose 数据服务 →
+      探针转红 → 5 次请求断言全 5xx 且 ≤1s 快速失败 →
+      `mogo_circuit_breaker_state{dependency,state="open"}=1` → Alertmanager `Mogo*` 告警 →
+      `uid=mogo-troubleshooting` 看板可读 → 恢复后断言 `state="closed"`；docker 调用带超时保护。
+    - `scripts/drill/full_recovery_drill.sh`（T118 恢复）：调**生产同款**
+      `backup_mongo.sh --mode full` → 取最新归档 → `drill_recovery.sh` 恢复演练 + 抽样比对
+      → 报告记录 RTO/RPO → `--api-url` 就绪探针验证服务切换；演练库与源库同名直接拒绝；
+      备份失败则跳过阶段 2（不在坏归档上继续）。
+  - 三个**行为测试**证明剧本的断言真的会失败（防止剧本退化成「永远返回 0」的装饰）：
+    `scripts/test_verify_e2e_observability.sh`（假后端 4 场景 + 无环境）、
+    `scripts/test_inject_dependency_fault.sh`（9 场景，含 no-alert / stuck-ready / no-circuit 反例）、
+    `scripts/test_full_recovery_drill.sh`（6 场景，含 `FAKE_DUMP_FAIL` / `FAKE_RESTORE_TRUNCATE` 反例）。
+  - 测试替身：`scripts/testlib/fake_observability_backends.py`（5 个假可观测性后端）、
+    `scripts/testlib/fake_docker.py` + `scripts/testlib/fake_fault_env.py`（假 compose +
+    假故障环境，共享状态文件复现「停容器 → 探针转红 → 熔断 → 告警」因果链）。
+  - 文档：`docs/observability/architecture.md` 补 §9 端到端验证与故障注入链路、
+    `slo-definition.md` / `monitoring-dashboard.md` 补剧本化验证、新建
+    `quickstart.md`（起栈、三剧本、退出码语义、常见失败对照），README 增加指引链接。
+  - **如实声明**：本机 docker daemon 无响应，真实 compose 链路的实测未跑；
+    剧本在真实环境会以 `2` 退出并提示缺哪个后端，CI/可用环境跑一遍即可（这一步不算完成）。
+
+- **023 可观测性与韧性 Phase 1 基座落地（2026-10-24，T001–T013）**：
+  - 公共基座 `services/common/` 三模块：`observability_base.py`（structlog 结构化日志 / OpenTelemetry 追踪 / Prometheus 指标 / contextvars trace_id 上下文 / status_class 工具）、`dependency_guard.py`（pybreaker 熔断 5 连失败·30s 半开 / TimeoutHierarchy 30s→10s→5s / 重试 1.5s 基数·30s 上限·±10% 抖动·3 次 / PoolRegistry + PoolSpec 连接池隔离）、`slo.py`（SLOSpec / ErrorBudget / BurnRate 双窗口 1h/6h + 6h/3d / DEFAULT_SLOS 99.9%·P99<3s·LLM 错误率<1%）；三服务 vendored 副本（`services/{admin-api,chat-api,document-parser}/app/common/`）+ `scripts/check_common_sync.py` 字节一致性 CI 门禁（3 模块 × 3 服务）。
+  - 依赖钉扎：`admin-api` / `chat-api` / `document-parser` 三个 `requirements.in` 各追加 `structlog>=24.1` / `opentelemetry-{api,sdk,exporter-otlp}>=1.25` / `prometheus-client>=0.20` / `pybreaker>=1.2`，锁文件（`--generate-hashes`）纯增量新增，零版本漂移（msgpack 历史漂移 1.2.2→1.1.2 已按 `requirements.in` 钉扎修正）。
+  - 可观测性栈：`docker-compose.yml` 追加 6 服务（`prometheus` / `grafana` / `alertmanager` / `otel-collector` / `tempo` / `loki`），由 `--profile observability` 门控（沿用 pool/panweidb profile 先例，默认部署形态不变）；`grafana` 挂 public + backend（宿主 3001，回环 127.0.0.1 默认绑定）；其余 5 服务挂 backend（internal 网络，仅容器内可达）；持久化卷 5 个（`prometheus-data` / `grafana-data` / `alertmanager-data` / `tempo-data` / `loki-data`，MOGO_VOLUME_PREFIX 前缀）。
+  - 部署配置：`deploy/prometheus/prometheus.yml`（3 业务服务 + 栈自身抓取）、`deploy/otel-collector/config.yaml`（OTLP gRPC 4317 / HTTP 4318 接收，路由到 Tempo + Loki）、`deploy/grafana/provisioning/datasources/datasources.yml`（Prometheus/Loki/Tempo 三数据源）、`deploy/alertmanager/alertmanager.yml`（P0/P1/P2 分级 + IM webhook + 邮件兜底 + 静默/抑制规则）、`deploy/tempo/tempo.yaml`、`deploy/loki/loki.yaml`。
+  - 验证：`docker compose config --quiet` 通过；三服务全量回归绿；`check_common_sync.py` 3 模块 × 3 服务字节一致。
+
+- **025 API 契约加固 Phase 1 落地（2026-10-24，T001–T007）**：三服务统一错误契约——
+  各新增 `app/core/errors.py`（稳定字符串错误码枚举 + `ErrorResponse`，RFC 9457 扩展
+  `type`/`title`/`status`/`instance`，兼容键 `detail`/`message` 并存）、
+  `app/core/error_handler.py`（接管 422/500；路由级 `HTTPException` 形状不变，留待
+  T011 逐路由整改）、`app/middleware/trace_id.py`（`X-Trace-ID` 沿用/生成 + 响应头
+  回写，chat-api 侧打通 observability `request_context`）、`app/core/errors_codes.md`
+  （code/http_status/trigger/remedy 四字段字典）；新增
+  `tools/api_check/error_codes_uniqueness.py` 跨服务错误码唯一性 + 状态漂移 +
+  字典登记完整性检查，接入 `.github/workflows/quality-gate.yml`（backend-quality）。
+  验证：admin-api 新增 `tests/test_error_contract_phase1.py` 14 项，admin-api /
+  chat-api / document-parser 三服务全量 pytest 通过，`check_python_static.py` 门禁通过。
+- **023–026 治理口径修正与 clarify 消解（2026-10-24 QA R11 后续）**：README（中/英）
+  撤回 022–026「按波交付已实施」宣称；`specs/INDEX.md` 表行逐特性区分阻塞原因。
+  023 的 OQ-1~OQ-8 经需求方确认全部消解（Loki / Tempo / pybreaker / 本地磁盘 +
+  S3 兼容对象存储异地 / IM webhook + 邮件 / SLO 99.9%·P99<3s·LLM 错误率<1% /
+  RTO≤30min·RPO≤15min / 单宿主机演练如实声明）；026 性能预算阈值定值（默认可配，
+  见其 spec「Clarify 记录」）。四特性规约层阻塞全部解除。
+
+- **AgentOS 整合批次 032–044 落地（13 个特性）**，2026-10-23 立项、2026-10-24 全部落地
+  （spec/plan/tasks 三件套齐备，详见 `specs/INDEX.md`「四（补 6）」）：
+  - **032 评测门禁 eval-gate**：技能发布前强制跑 golden 用例集
+    （`skill_eval_cases` / `skill_eval_policies` / `skill_eval_runs`），未达
+    `EVAL_PASS_RATE_THRESHOLD` / `MIN_EVAL_RUNS` 阻断发布；审计写 `gate_events`，
+    写失败 fail-closed（503）；模型网关走 HMAC 令牌而非静态服务令牌。
+  - **033 Canary 灰度**：按租户比例投放 skill 新版本，`skill_shadow_runs` 影子观测。
+  - **034 工具凭证加密**：工具凭证 KMS 加密存储 + 一键轮换
+    （`scripts/migrate_tool_credentials_encryption.py` / `rotate_tool_credentials_key.py`）。
+  - **035 成本归因三维**：token 用量按 `(tenant_id, project_id, skill_id)` 归因。
+  - **036 信任评级 L1–L4**：`trust_ratings` / `trust_rating_settings` + 降级扫描器
+    （默认 21 天窗口 / 6h 间隔），L1 技能对用户不可见；管理端新增
+    `TrustRatingPage.vue` 与 skills 页 L1–L4 徽标。
+  - **037 统一门户**：资产发布 / 申领 / 审批 / 开通回收全链路
+    （`portal_listings` / `portal_requests` / `portal_settings`），admin-api 与
+    chat-api 双写侧共用字段契约。
+  - **038 出口沙箱 egress**：域名 / 工具 / 路径前缀白名单 + 企业工具调用审计
+    （`egress_allowlist` / `enterprise_tool_audit`）。
+  - **039 可视化编排**：Vue Flow 画布（`OrchestrationCanvasPage.vue`）。
+  - **040 模型档位路由**：`app/llm/complexity.py` + `app/config/model_routing.yaml`，
+    按任务复杂度选档位，`aget_llm_client` 为真实生效路径。
+  - **041 连接器市场**：模板安装计数按 `(tenant_id, template_id)`（`connector_installs`）。
+  - **042 三级配额**：组织 / 项目 / 用户三级（`quota_projects` / `quota_alert_events`）。
+  - **043 会话回放 Stage 1（纯前端）**：执行轨迹时间轴 + 步骤下钻面板；成本字段
+    严格只认有限数值，无数据不渲染。
+  - **044 多 Agent 模式**：010 编排引擎新增 `round_robin` / `debate` 两模式，
+    补 `contracts/orchestration.md` 六模式契约。
+- **租户清除覆盖补齐**：`TENANT_SCOPED_COLLECTIONS` /
+  `TENANT_GOVERNANCE_COLLECTIONS` 收进上述新集合（`skill_eval_cases` /
+  `skill_eval_policies` / `skill_eval_runs` / `connector_installs` /
+  `portal_listings` / `portal_requests` / `portal_settings` / `egress_allowlist` /
+  `enterprise_tool_audit` / `quota_projects` / `quota_alert_events`）。此前 032–044
+  的新集合全部漏在租户清除清单外，删除租户会留下跨集合数据残留（GDPR 硬伤），
+  本轮补全；`test_every_tenant_id_keyed_collection_in_the_tree_is_covered`
+  自动扫描全仓 `*_COLLECTION` 常量防再次漂移。
+
+### Changed
+
+- **chat-api 未处理异常（500）响应体契约变更（025 FR-11，属预期破坏性收敛）**：
+  `{"code": -1, "message": ...}` → 统一 `ErrorResponse` 结构（`code` 为稳定字符串
+  `api.internal_error`，`message`/`detail` 兼容键保留）。HTTP 层消费方注意；
+  SSE 流内帧 `code: 0/-1` envelope 不受影响。
+
+- **审计写失败不再静默**：037 统一门户双写侧（chat-api `services/portal/requests.py`、
+  admin-api `api/routes/portal_admin.py`）的 `gate_events` 审计写入原本
+  `except Exception: pass`，证据链断口无法被发现，现改为写 warning 日志。
+  admin-api 三个后台扫描器的 shutdown 停止同样补上 warning。
+- **`scripts/check_python_static.py` 静默异常门重新收敛**：修复后 chat-api
+  42 → 41、admin-api 16 → 12，全部回到上限内，未抬高任何上限。
+
+### Fixed
+
+- **镜像命名统一 + 全量重建（2026-11-02）**：
+  - `./mogo build` 的产物此前是**裸名**（`chat-api:bf5000d1`），而 compose 与
+    `./mogo up` 引用的是 `ghcr.io/mogoai/chat-api`，两套命名对不上——本地构建完的镜像
+    `mogo_require_local_images` 找不到，容器硬化用例也只能去验一个旧 `:latest`。
+    现在源码构建与 registry 部署共用 `<registry>/<service>:<tag>`，registry 取自 `.env`
+    的 `MOGO_IMAGE_REGISTRY`（缺省 `ghcr.io/mogoai`）。
+  - 守卫同步：`scripts/check_compose_image_modes.sh` 的源码构建断言改为前缀形态，
+    并新增「`MOGO_IMAGE_REGISTRY` 覆盖对 build 路径同样生效」一条。
+  - `deploy/tests/test_container_hardening.py` 的镜像 tag 兜底由 `latest` 改为
+    `git rev-parse --short HEAD`（与 `./mogo build` 的 `mogo_default_version` 一致）：
+    否则本地刚构建完仍去验一个更早的 `:latest`，用例报红但源码是对的。
+  - 重建全部 7 个 target（dsh-runtime-host / chat-api / admin-api / document-parser /
+    user-web / admin-web / gateway），tag 与 HEAD 短 hash 一致。
+  - user-web 侧边栏文案 `我的 插件` → `我的插件`（`plugins.sidebar` 的中文值多了一个空格）。
+
+- **R13 全量 QA 审计修复（2026-11-01，`docs/2026-11-01-full-qa-audit-r13.md`）**：
+  - 开源卫生卷数漂移：`check_open_source_hygiene.py` 常量 20 → 23，登记 port-movo
+    新增的 `sandbox-workspaces` 卷（内联前缀出现 3 次）。
+  - 密钥扫描误报：`useSessionShareLanding.ts`、`model_center_runtime.py` 两处
+    「变量赋值/解密调用」按行级 `pragma: allowlist secret` 精确豁免。
+  - 前端 `no-undef`：`apps/eslint.shared.config.js` 补 `ReadableStream` /
+    `ReadableStreamDefaultReader` 两个浏览器全局。
+  - **前端 lint 9 个复杂度 error 全部重构清零**（纯结构拆分、无行为变更）：
+    `useSessionLiveStream`（40/17）、`ChatWindow.displayMessages`（19）、
+    `reviewSourceBinding.bindReviewSources`（19）、`userBoundProjects.refresh`（18）、
+    `useChatRuntimeStore.mergeSessionMessages`（17）、admin-web 的
+    `ModelGroupMemberRow.save`（31）、`ModelGroupEditor.save`（17）、
+    `TopicAdmissionPanel.loadRules`（19）。`eslint src/` 双应用 0 error。
+  - 契约测试：`test:code-platform` 断言按 046 FR-011（分组键 `project_id`）同步；
+    新增 `test:session-live-stream` 覆盖 SSE 解析/游标/control 帧/撤销/不重试语义。
+    契约测试 16/16 通过。
+  - **chat-api entrypoint 与容器硬化对齐**：新增 `rootfs_is_read_only()`（读
+    `/proc/mounts` 根挂载点的 `ro` 标志），`install_system_deps_on_start` /
+    `install_playwright_on_start` 先探测只读再执行；同时把
+    `AUTO_INSTALL_SYSTEM_DEPS_ON_START` / `AUTO_INSTALL_PLAYWRIGHT_ON_START`
+    默认值由 `true` 改为 `false`（依赖已在构建阶段装好，镜像以非 root 运行、
+    apt 需要 root，默认开启必然失败；确需启动期补装请显式传 `=true` 并以 root 运行）。
+    `--read-only` 与裸 `docker run` 均恢复为 exit 0；`deploy/tests` 新增静态回归断言。
+    **注意：需重建 chat-api 镜像后 `test_image_runs_as_non_root[chat-api]` 才转绿。**
+  - **设计令牌清零（G1）**：21 个前端文件共 214 处硬编码色值全部映射到 `--mg-*`
+    语义层（表面/边框/文本三级/品牌/状态/装饰/阴影），深色主题随语义层自动生效，
+    不再需要逐组件写覆盖块。`check_design_tokens.mjs --strict` error 0 / warn 0。
+  - **文档解析正文丢失（G5，真实缺陷）**：office 分支在 OCR 前把 `raw_chunks=None`
+    变成「只含 OCR 块」，导致「交给调用方切块」的兜底被跳过、Markdown 正文整段
+    不进分块结果。新增 `_ensure_raw_chunks()` 先补齐再 OCR，并把 `chunkSize` /
+    `chunkOverlap` 透传到解析层。doc 套件 68 passed。
+  - **插件列表/删除 500（F8）**：`ProductExtension` 数据类从未声明
+    `resource_access_policy`，而 `resource_access.py` 与 `dsh_plugins` 端点都在读它。
+    补字段（`None` = 社区版无人员级 ACL）。
+  - **MCP 工具 schema 未走兼容层（F9）**：`mcp_schema.py` 实现完整但
+    `ToolProfileCompiler._compile_mcp` 从未调用，畸形工具名会让整份 Runtime
+    Profile 编译失败。改为逐 child 工具 `normalize_mcp_schema()` + 校验隔离，
+    坏工具只丢自己（`mcp_tool_schema_incompatible` / `mcp_tool_profile_invalid`）。
+  - **租户清除漏集合（F10）**：`TENANT_SCOPED_COLLECTIONS` 补
+    `admin_model_groups`、`topic_admission_policies`，避免删租户后数据永久残留
+    （后者残留还会让新租户继承旧策略）。
+  - **可选插件失败拖垮 Runtime（F11）**：`profile_without_unavailable_plugins()`
+    未被调用，一个第三方插件装不上等于该租户所有回合起不来。`create_runtime`
+    改为「逐插件探活 → 剔除不可用 → 重试一次」。
+  - **脚本沙箱守卫（F12，SEC-01）**：非容器执行路径的 `open` 钩子装在
+    `exec_module` 之后（模块级 `open()` 直接穿透），且 `io.FileIO` / `os.scandir`
+    完全没拦。守卫整体前移，补 `FileIO` / `scandir` / `listdir`；只读白名单补
+    stdlib/sys.prefix，并在装守卫前预热白名单库（openpyxl 等在 import 期读系统配置）。
+  - **docx 短文档正文丢失（F15）**：`# 标题` 后直接跟普通段落（无 H2）时，状态机
+    把首段当封面摘要后**不再转入正文态**，后续段落全被丢弃，导出 docx 只剩封面。
+  - **话题准入从未强制（F14）**：`TopicAdmissionService` 与 admin 端策略/面板都在，
+    但 chat-api 回合路径从未调用。`DshChatService.prepare_turn()` 第一步改为
+    `gate.require(...)`（未装配即 fail-closed 抛错），`DshRuntimeApplication`
+    注入实例，桌面端回合加同一道闸门（403 `topic_admission_denied`）。
+    **注意：上线后历史遗留的 `mode=allowlist` + 空规则会让该租户所有回合被拒，
+    发布前请抽查 `topic_admission_policies`。**
+  - **测试基建**：chat-api 补 `real_mongo_db` 夹具（未配 `MONGODB_URI` 时跳过，
+    配了则每用例独立库名 + teardown 删库）与 `allow_all_topic_admission` 替身；
+    同步 6 个漂移用例（transport `sticky_key`、skill 包校验器契约、归档摘要载体、
+    准入替身签名）。admin-api **1518 passed**、chat-api **3104 passed**。
+
+## v0.2.5 - 2026-10-23
+
+### Removed
+
+- **彻底下线 movo 过渡回退机制**：`docker-compose.yml` 的卷名前缀回退链
+  （`${MOGO_VOLUME_PREFIX:-${MOVO_VOLUME_PREFIX:-movo}}`）简化为只写
+  `MOGO_VOLUME_PREFIX`，默认值由 `movo` 改为 `mogo`，卷名示例
+  `movo-mongo-data` → `mogo-mongo-data`；secrets 双写（同时写 `movo_` 与
+  `mogo_` 两份）取消，只保留 `MOGO_*` 权威键；`./mogo` CLI 内部 `movo_*`
+  辅助函数命名与 `MOVO_*_IMAGE` 环境覆盖键一并退役；文档与镜像 registry 示例
+  统一为 `ghcr.io/mogoai`，`MOVO_*` / `himovo` 字样从用户可见文档、
+  NOTICE、LICENSE 与测试断言中清除。`MOGO_` 是唯一权威拼写，`.env` / CI 中
+  残留的 `MOVO_*` 键需改名为 `MOGO_*`。
+
+### Added
+
+- **MongoDB 升级到 8.3.13**：按 6.0 → 7.0 → 8.0 → 8.3 逐级过 FCV 门升级（不能
+  一步到位），FCV 停在 `8.0` 便于回退 8.0 二进制；升级前自动做逻辑 + 冷卷双备份，
+  升级后 `mogo_dev` 56 个非空集合与升级前一致。
+- **数据库连接信息全部下沉 `.env`**：新增 `MOGO_MONGODB_URI` / `MOGO_MONGODB_DB` /
+  `MOGO_REDIS_URL`（业务缓存，DB/0）/ `MOGO_KERNEL_REDIS_URL`（DSH 锁与归属缓存，
+  DB/1），默认值仍指向栈内服务名；`MOGO_MONGO_IMAGE` / `MOGO_REDIS_IMAGE` /
+  `MOGO_WEAVIATE_IMAGE` / `MOGO_PANWEIDB_IMAGE` 可覆盖镜像（含 Portainer 离线模板）。
+- **纯外部数据库部署模式**：设 `MOGO_USE_EXTERNAL_DB=1` 时 `./mogo up` 自动加载
+  `docker-compose.external.yml`，把 `mongo` / `redis` / `panweidb` 三个容器排除出
+  拓扑，应用只连 `.env` 里给的外部实例。起栈前会体检连接信息（缺失或仍指向栈内
+  服务名直接拦下）并探测外部 MongoDB 版本（低于 7.0 提醒需逐级升级）；不启动栈
+  单独体检用 `./mogo check`。
+- **离线 bundle 漂移加固**：`scripts/apt_packages_bundle.sh` 现在会刷新离线
+  Packages 索引（原先生成时索引长期滞后，叠加构建期 `apt-get update` 就是
+  `E: Unable to fetch some archives` 的放大器）；chat-api / document-parser 补齐
+  `libexpat1 2.5.0-1+deb12u5` 与 krb5 依赖，dsh-runtime-host 补齐
+  `ca-certificates 20250419~deb12u2`；`apt` / `pip` bundle 下载失败不再被
+  `|| true` 静默吞掉（失败即报错）。
+
+## v0.2.4 - 2026-10-20
+
+### Fixed
+
+- **会话删除不生效**（P0）：`DELETE /api/sessions/{id}` 在会话没有活跃 DSH
+  conversation 时 `dispose_conversation()` 抛 `LookupError`，导致整个请求
+  返回 500、MongoDB 删除未执行；前端仅 console.warn，5 秒后
+  `refreshSessionSummaries` 又拉回已删会话。修复：将
+  `dispose_conversation` 包入 try/except（与已有 sedimentation 块一致），降级
+  为 warn 日志后继续执行 MongoDB 删除；前端补 catch 块并显示错误 toast。同时
+  修正 `refreshSessionSummaries` 中 `mergeSessionPages` 参数顺序反了的问题
+  （原调用把服务器列表当基础集，已删会话被重新加回）。
+
+## v0.2.3 - 2026-10-18
+
+### Added
+
+- **027 数据后端迁移：PanWeiDB（MongoDB → openGauss 系）R1/R2/R3 全量落地**。
+  三服务新增可选后端 `MOGO_DATA_BACKEND=panweidb`（默认仍为 `mongo`，回滚只改
+  环境变量）。核心是 `app/core/pg_compat.py` Motor/PyMongo 兼容门面：集合映射
+  `(id, tenant_id, doc JSONB, created_at, updated_at)` 单表；R2 补齐聚合管道编译
+  器与 `bulk_write`（25 处 `aggregate()` 零修改可用）；R3 对 44 张表做「列 + doc」
+  双写扁平化，读路径列优先、筛选/ORDER BY/distinct 路由真实列可用 btree；T083
+  七处 TTL 应用层清理（openGauss 无 TTL 索引）；T085 主键调用点后端解耦。
+  新增宿主机一键拉起脚本 `scripts/pg/`。完整回归报告见 `specs/027-*`。
+- **030 本体数据权限层**：chat-api 终端用户侧本体授权自查端点、admin-api 按用户
+  汇总授权接口、admin-web「本体清单」+「用户本体授权」双视图、user-web「我的本体」
+  页；撤销路由支持 `ontology://` 形态 URI；演示数据补种脚本。菜单/侧边栏文案
+  国际化（本体授权 → 我的本体）。
+- **031 模型供应商发现与多协议接入**：admin-web「获取模型列表」支持
+  Anthropic/Gemini/Ollama（后端代理探测 provider 真实可用模型，点选免手填）；
+  编辑已保存配置时复用已存 API Key。
+- **部署：容器经 `host.docker.internal` 访问宿主机模型网关**，loopback 地址报错
+  提示，方便本机 Ollama/网关直连。
+
+### Fixed
+
+- PanWeiDB 兼容层恢复 MongoDB 数组元素匹配语义（9f824bb）；补聚合 `$in`/`$toLower`
+  并修占位符顺序，修复 dashboard overview 500（0f607a4）。
+- 访问链路：localhost:3000 访问 + chat-api settings 导入（ceb47e5）、HTTP 补
+  `/dsh-web/` 路由（1e7f4f0）、HSTS max-age=0 清除浏览器缓存（6005cbe）。
+- panweidb 客户端 boncuser 连接 28P01 修复（7c30db1）。
+- admin-web `src/api/models.ts` 括号错乱导致 `vite build` 失败（6ea16f3 引入，
+  b5c3bfb 修复）。
+
+### Changed
+
+- TLS 开关抽取到 `.env`，默认关闭（b3bf111）。
+- dsh-runtime-host 升级 dsh 至 `0.2.1-rc.3`（dsh-invariants 按 peer 例外保留
+  `0.2.0-rc.2`，SBOM 单列车）。
+
+## v0.2.2 - 2026-10-16
+
+### Changed
+
+- **离线包增量下载（base-images 五类全部增量）**：按 `pip_wheels_bundle.sh`
+  的同款思路，把剩余离线包改为增量下载，重跑不再全量重下。
+  - `apt_packages_bundle.sh`：`fetch_one` 去掉 per-arch `rm -rf`（改 `mkdir -p`），
+    容器内 `apt-get install` 前把缓存 `.deb` 回灌进 `/var/cache/apt/archives`，
+    让 apt 跳过已下载的 `.deb`（apt 版 `--find-links`）。真实 docker 验证：
+    重跑需要 **0 B / 2204 kB**，下载 0 字节。
+  - `docling_models_bundle.sh`：新增 `base-images/docling-models/` 持久缓存与
+    `fetch` 命令，`docling_version` + `inventory` 版本门禁，`save`/`pack` 按
+    缓存是否 current 跳过。沙箱 10 场景验证通过。
+  - 审计结论：pip-wheels / playwright / images / docling-models / apt 五类
+    均为增量下载（playwright 于 v0.2.1 的 d63da04 已改造，本轮确认）。
+
+### Added
+
+- **027 数据后端迁移 R3（关系扁平化 + 兼容层 §5 改造）**：在 R1/R2 兼容门面之上，
+  对 44 张表做「列 + doc」双形态落库，并让扁平化**真正生效**：
+  - 实体库落地：455 列加列、同名列 + 24 条语义映射回填、44 条索引（含
+    `WHERE deleted_at IS NULL` 部分唯一索引），openGauss 实测 0 错误；
+    产物与审查清单归档于 `specs/027-mongo-to-panweidb-migration/r3-flatten/`。
+  - 兼容层改造：新增 `app/core/column_map.py`（44 表 `{doc_key: column}` 1:1 映射，
+    三服务副本逐字节相同）作为单一数据源；`pg_compat.py` 据此实现**双写**
+    （INSERT/UPDATE/replace_one 同语句写列，CTE 保证原子性）、**读路径列优先**
+    （SELECT 带列，非空覆盖 doc，datetime 序列化回 ISO 保形）、**筛选/索引路由**
+    （命中键走真实列可用 btree）。非平铺表 map 为空，生成 SQL 与改造前一致。
+  - 真库端到端冒烟（`r3-flatten/e2e_smoke.py`）：捕获兼容层真实 SQL 至 openGauss
+    执行，验证 `UPDATE 1` 且列值正确同步（含语义别名 `user_id→owner_user_id`）。
+  - 后续优化（同日落地）：`ORDER BY`（find_one / cursor sort）与 `distinct` 对命中
+    COLUMN_MAP 的顶层键路由到真实列（可用 btree 索引；列值归一化保持 doc 形状：
+    timestamptz→ISO 字符串、Decimal→int/float）；`aggregate` 的 `$match` / `$sort`
+    仅在直接读基表的首阶段路由（CTE 阶段只有 `(id, doc)`，维持 doc 路径）；
+    `$group` 的 `_id` 与累加器仍走 doc 路径。
+- **027 数据后端迁移 R2（兼容层接线）**：在 R1 的门面上补齐**聚合管道**与
+  **`bulk_write`**，使 25 处 `aggregate()` 调用点**仍然零修改**即可在 PanWeiDB 上工作。
+  - 聚合管道编译器 `app/core/pg_compat.py::_AggregationCompiler`：阶段
+    `$match`/`$group`/`$sort`/`$limit`/`$skip`/`$count`/`$project`；累加器
+    `$sum`/`$avg`/`$min`/`$max`/`$push`/`$addToSet`/`$first`/`$last`；表达式
+    `$ifNull`/`$cond`/比较/`$and`/`$or`/`$not`/算术/`$max`/`$min`/`$literal`/`$percentile`。
+    未覆盖的阶段/算子显式抛 `PgCompatUnsupported`。
+  - `bulk_write`：`InsertOne`/`UpdateOne`/`UpdateMany`/`ReplaceOne`/`DeleteOne`/
+    `DeleteMany`，`BulkWriteResult` 字段对齐 pymongo。
+  - 审计库分离：`get_audit_db()` 在 PanWeiDB 下指向独立 **schema**
+    （未配置时回退业务 schema），schema 不存在时由 `CREATE SCHEMA IF NOT EXISTS` 自举。
+  - 新增 `scripts/pg/sync_pg_compat.py`：把「同步三份兼容层副本」固化为脚本
+    （`--check` 可作 CI 漂移检查），守卫测试改为复用它的变换，消除变换规则的第二份来源。
+- 027 数据后端迁移 R1（MongoDB → PanWeiDB）—— 基础设施与兼容层：
+  三个服务新增可选数据后端 **PanWeiDB 3.2.0**（openGauss 内核 / PostgreSQL 兼容线协议），
+  由 `MOGO_DATA_BACKEND` 开关选择，**默认仍为 `mongo` 且行为不变**；回滚只需改环境变量
+  并重启，**不需要回滚代码**。
+  核心是 `app/core/pg_compat.py` 提供的 Motor/PyMongo 形状**兼容门面**：集合映射为单表
+  `(id, tenant_id, doc JSONB, created_at, updated_at)`，字段一律走 JSON 路径表达式，
+  **新增业务字段不需要 DDL 变更**，因此既有 612 处数据访问入口**无需改写**。
+  驱动用 psycopg3（同步 + 异步一套依赖，同时替代 pymongo 与 motor）。
+  新增 `scripts/pg/generate_ddl.py`（集合扫描，支持以源 MongoDB 为权威来源的
+  `--from-mongo` → 幂等 DDL + 连库巡检）与 `scripts/pg/migrate_mongo_to_panweidb.py`
+  （幂等搬迁 + `--prune` 对账 + 计数校验 + 续跑，**只读源库**）。
+  方案与目标库实测事实见 `docs/mongo-to-panweidb-migration-plan.md`；
+  SDD 规约见 `specs/027-mongo-to-panweidb-migration/`。
+  实测：兼容门面在真实 PanWeiDB 上**异步 64/64、同步 26/26** 通过；三服务带哈希锁定
+  文件均通过完整性安装；**真实数据入库**——本机运行中的 `mogo_dev` 库
+  （88 集合 / **17,785 篇文档**）在 5.5s 内搬完，计数校验 **88 个集合全部一致、
+  不一致项 0**，兼容门面回读 **13/13** 通过（含中文字段、空字符串字段、布尔字段、
+  `_id` 归一、深合并更新、未覆盖能力显式失败）。
+
+### Known limitations
+
+- **本库没有 `jsonb ->> text[]` 运算符**：`->` / `->>` 右遇 `'{a,b}'` 字面量只匹配
+  **text 重载**，键名变成字面字符串 `"{a,b}"` → 恒为 NULL（常量即可复现；显式
+  `doc ->> ('{k}'::text[])` 直接报 `operator does not exist`）。**jsonb 路径表达式
+  一律用 `#>` / `#>>`**（只接受 text[]、无歧义）；若误用 `->>'{k}'` 写列同步，
+  真库上列被**静默写 NULL**（doc 完好、`UPDATE 1` 照常返回），测试已固化
+  `"->'" not in sql` 回归断言。
+- **`min()` / `max()` 聚合在 openGauss 上按文本比较 jsonb**（PostgreSQL 按类型序），
+  实测 `$max` 在 `999` 与 `4343` 之间会取到 `"999"`；且其返回类型是 `text` 而非 jsonb。
+  兼容层已改用 `(array_agg(x ORDER BY x))[1]`（jsonb 的**排序运算符本身是正确的**），
+  并有差分测试覆盖。
+- **GIN 索引不可用（openGauss 缺陷）**：`USING GIN (doc jsonb_ops)` 遇到**任何空字符串值**
+  即报 `jsonb_gin.cpp : 519 : The parameter destMax is equal to zero ...`（顶层与嵌套值
+  都触发；空数组 / 空对象 / `null` 正常）。且表里只要已有一行含空串，**连 `CREATE INDEX`
+  本身都会失败**。空串在真实数据里极常见（`email: ""` / `phone: ""`），因此建表 DDL
+  **只建 `tenant_id` btree 索引、不建 GIN**。实测对照：无索引 / `btree (tenant_id)` /
+  `btree ((doc #> '{f}'))` 三者遇空串均可写，只有 GIN 失败。代价可控——GIN 只服务于
+  `@>` / `?`，而兼容层里只有 `$all` 用到 `@>`（全代码库 1 处）。已加守卫测试防止重新引入。
+- PanWeiDB 的 `sql_compatibility` 固定为 `A`（Oracle 模式）且为 `internal` 上下文不可修改，
+  该模式下 `jsonb_build_array` / `jsonb_build_object` / `#-` / `jsonb_strip_nulls` /
+  `jsonb_pretty` / `jsonb_to_record` / `jsonb_object_agg` / `jsonb_path_ops` 不可用。
+  兼容层已在该子集内实现（嵌套删除改用「取父节点 → `-` 删键 → 写回」，
+  `$push` 改用数组字面量），并有守卫测试禁止引入禁用函数。
+- openGauss 的 `jsonb_set` **不创建中间层对象**（PostgreSQL 会），点号路径更新已用逐层
+  回卷实现真深合并，避免静默丢更新。
+- **搬迁不传播删除**：upsert 只保证「源库有的目标库也有」。源库在搬迁期间仍被写入
+  （会话 GC / TTL 清理）时目标库会留残留，`--verify` 会报「目标多于源」。
+  需要收敛时用 `--prune`。
+- **DDL 生成器的静态扫描有漏扫**（实测漏 11 个集合）：集合名若来自大写常量、实例属性、
+  带前缀下标、属性访问或配置项（如 `settings.jobs_collection`），扫描不到。
+  迁移场景**必须加 `--from-mongo`**（以源库实际集合为权威来源）。
+- 聚合与批量写**已在 R2 落地**（见上）。仍未覆盖：`$text` / geo 查询、
+  稀疏/部分索引、`$setWindowFields` / `$geoNear`；调用即抛显式异常（不静默降级）。
+  `$lookup` / `$facet` / `$unwind` / `$unionWith` / `$elemMatch` / `$pull` 在代码中
+  **没有任何实际调用**（只出现在 `nosql_guard.py` 的白名单常量里），因此无需实现。
+- 迁移后主键由对象类型归一为字符串；按对象比较主键的调用点需在 R3 逐点核对。
+
+## v0.2.1 - 2026-10-12
+
+### Added
+
+- **021 unified context address space — production entry**：
+  `POST /api/context/resolve` 与 `GET /api/context/trace/{id}` 暴露 `mogo://`
+  地址空间（memory / resource / skill / session 四根）。此前 router 与四个
+  tenant 适配器仅被测试引用，生产不可达。
+- **009 hook 事件派发**（`app/dsh_runtime/hooks/dispatcher.py`）：`subscribe` /
+  `dispatch` / `dispatch_session_end` 等，闭合 `emit_*` 产出却无人消费的断链；
+  订阅者异常隔离，不影响调用方。
+- **002 会话结束语义**：`SessionPersistenceService.end_session()` +
+  `POST /api/sessions/{id}/end` + `chat_sessions.ended_at` / `end_reason` 字段。
+  会话结束时触发 009 `SessionEnd` → 017 分层记忆沉淀（幂等，账本去重）。
+- **017 契约文档** `contracts/memory-context-contract.md`：两条正交轴、地址语法、
+  可见性委托矩阵、HTTP 契约与沉淀接线图。
+- **Python 3.13 运行时升级 + 依赖哈希锁定（供应链完整性）**：`chat-api` 与
+  `admin-api` 的基础镜像升级到 `python:3.13-slim-bookworm`；两者的
+  `requirements.txt` 全量锁定 sha256（chat-api **2773** 条 / admin-api **1063** 条），
+  安装改为 `pip install --require-hashes` —— 依赖树任何一环被替换都会构建失败。
+  新增 `scripts/generate-hashes.sh` 生成与刷新哈希（走清华源，实测 >5min → ~3min）。
+  **`document-parser` 保持 `python:3.10-slim-bookworm`**：Docling 钉死
+  `numpy==1.26.4`，无 3.13 轮子，故不随迁；该服务的 `requirements.txt` 亦不做
+  哈希锁定（同样受 Docling 约束）。
+- **生产离线发布链路** `deploy/production/`：面向无外网 / 内网 Portainer 的交付。
+  `prepare-release.sh` 九步流水线 —— 确定版本号（默认取 `git rev-parse --short HEAD`）
+  → 前置检查 → 固定 compose 变量 → 收集镜像清单 → 交叉构建 amd64 应用镜像 →
+  校验应用镜像 → 生成基础镜像 amd64 变体 → 打包 → 渲染清单 / 校验 / 出部署单。
+  产出 `01-base.tar`、`02-app-small.tar`、`03-chat-api.tar`、`04-document-parser.tar`
+  （大镜像单独成包，网页上传可单独重传），外加已渲染的
+  `docker-compose.portainer.yml`、自包含的 `DEPLOY.md`（含实测体积与 sha256）与
+  `bundle.json`。配套 `verify_bundle.py` 校验三条硬约束：每条 manifest 条目的
+  `RepoTags` 与预期完全一致、config 的 `architecture/os` 为 `amd64/linux`、
+  `len(Layers) == len(rootfs.diff_ids)`（经典 `docker load` 的硬性前提）；
+  `render_deploy_doc.py` 生成部署单。
+- **跨架构基础镜像导出** `scripts/export_base_images.sh`：`save --platform linux/amd64`
+  借助 Docker 28+ 的 `docker save --platform`，可在 Apple Silicon 上产出 amd64
+  归档。**load 侧默认拒绝跨平台归档**，须显式加 `--allow-platform-mismatch` ——
+  单平台归档会**替换**同 tag 的多平台清单，误 load 会把本机镜像降级为单架构。
+  另有 `--mirror`（解析 Docker Hub 走镜像站）与 `--manifest-only`（只出清单不导出）。
+- **备份 / 恢复 / 回滚演练脚本** `scripts/test_backup_restore_rollback.sh`：
+  把"备份 → 恢复 → 回滚"作为可重复执行的验证，而不是一次性手工步骤。
+
+### Fixed
+
+- **CI 测试门禁必红（P0）**：`pytest-asyncio` 在 strict 模式下拒绝执行裸
+  `async def` 测试，而 `services/chat-api/pyproject.toml` 与 Quality Gate
+  都没有设置 `asyncio_mode`。此前"本机全绿"依赖临时传入 `-o asyncio_mode=auto`；
+  还原为仓库真实配置后全量 **43 failed / exit=1**。现已在 `pyproject.toml`
+  写入 `asyncio_mode = "auto"`，并把 `pytest-asyncio` / `pytest-timeout`
+  显式声明进 dev 依赖。
+- **021 地址层越权：URI 被当成凭证（P0）**：`check_memory_visibility` 从 URI
+  的 `scope` / `owner_id` 段**构造**判定对象，导致 `u2` 可用
+  `mogo://memory/org/u1/m-1/L2` 读到 `u1` 的私密内容。现改为接收**真实存储
+  记录**，缺失即 fail closed；`session` 适配器同步补 `user_id` 查询条件
+  （此前同租户任一成员可读他人会话，含 L2 逐字稿）。
+- **`707c8ea` 机械 sweep 引入的系统性回归（P1）**：该提交为 165 个文件批量
+  改写 `except` 块，引入四类缺陷，已全部恢复并归零：
+  - **8 处 try 体真实语句被删**（`yield _sse(...)`、`return {"healthy": ...}`、
+    `return EffectContract(...)`、`parser.close()`、`raw = resp.json()`、
+    `package = validate_skill_package(archive)` 等）；
+  - **23 处 except 回退值被删** —— 16 处导致 `UnboundLocalError`
+    （含安全函数 `utils/ssrf_guard.py`）、6 处破坏 `-> bool/int/str/List`
+    返回契约、1 处 `ping_loop` 失去早退；
+  - **6 处重复 `except` 子句**（后者不可达，新加的日志永不执行；其中
+    `content/evaluation/streaming.py` 使 SSE 流异常时永久挂起）；
+  - **18 个文件调用未导入的 `log_print`** —— 异常分支自身抛 `NameError`。
+- **021 检索轨迹无租户隔离（P1）**：`_TRACE_RING` 现按 `tenant_id` 分键，
+  跨租户读取返回 404。
+- **`POST /memory` 允许任意角色写 org 作用域（P1，017 FR-4）**：非
+  `ORG_PROMOTION_ROLES` 角色写入 org 作用域现返回 403。
+- **记忆 `HARD_MAX` 按字符而非字节计量（P1，017 FR-16）**：中文内容实际占用
+  3 倍字节，上限可被穿透；改为按 UTF-8 字节计算。
+- **`MEMORY_SUMMARY_REFRESH_DAYS` 为死配置（P1）**：该环境变量从不被读取，
+  刷新周期硬编码 30 天；现由 `_configured_refresh_days()` 统一解析。
+- **`orchestration/store.py` 落库主键为空 + 未导入 `load_orchestration_document`（P1）**：
+  `_document_shape` 读的是 `loaded.definition.id`（真实字段为 `orchestration_id`）。
+- **`revoke_share` 引用未定义变量（P1）**：`tenant_id, _ = await _authorize(...)`
+  丢弃 `user_id` 后仍引用它，端点必 500。
+- **`memory/address.py` 未拒绝超长 URI（P2）**：段数 > 4 现抛 `ValueError`。
+- **017 记忆永不落库（P0）**：`MemoryStore.save` 对 motor 的 `replace_one` 未
+  `await`，协程创建即丢弃，API 返回成功但记录不存在。`save` 改为 `async`，
+  调用链（memory 端点 ×2、sediment ×2、sessions ×1）同步补 `await`。
+- **009→017 闭环语义**（P1）：会话沉淀此前只挂在 `delete_session`，导致会话
+  正常结束不沉淀。现由 `end_session` 驱动，`delete_session` 降级为去重兜底。
+- **021 KG 单节点读取**（P1）：`resource/kg` 适配器此前调用私有
+  `_ensure_loaded()`，为读一个节点拉取租户全图（最多 2000 节点 + 5000 边）。
+  新增公开 `TenantKgStore.get_node_direct()`。
+- **版本一致性**：manifest 版本此前与 CHANGELOG 声明不一致
+  （chat-api/admin-api/admin-web 为 0.1.0、user-web 为 0.0.0，CHANGELOG 为
+  0.2.0）。已统一为 0.2.0，并在 Quality Gate 新增 `version-consistency` job
+  阻断此类漂移。
+- **全仓非静默宽泛 `except Exception` 补日志（R4）**：改用 AST 安全改写器
+  （只增不删 / 不遮蔽变量 / 保留尾注释 / 排除异常已传播 / 绝不碰 `log_print`
+  定义模块），落盘 **95 文件 · 209 条 `log_print` · 66 个 import · 147 行
+  `except` 补 `as exc` 绑定**，**非-except 删除行 = 0**。显式排除 73 处异常已
+  传播（`raise` / re-raise helper）与 38 处有意 `pass`（吞取消异常的关停惯用法、
+  链式尝试的预期失败、以及日志基础设施自身 `emit()` / `_log_stage()`）。
+  与 `707c8ea` 的 165 文件正则 sweep 形成对照：后者一次引入 4 类缺陷。
+- **chat-api 全部上传链路在生产不可用（P0）**：`utils/oss_uploader.py` 的
+  `generate_object_path()` 写成 `datetime.datetime.now(timezone)` —— `timezone`
+  是 `datetime.timezone` **类**而非 tzinfo 实例，必然抛
+  `TypeError: tzinfo argument must be None or of a tzinfo subclass, not type 'type'`。
+  该函数经 `upload_bytes_with_path()` 被约 15 处生产调用点使用（头像、聊天附件、
+  文档解析结果、生成图片、PPTX/PDF/表格导出、技能包、脚本产物、写作引擎产物），
+  即**任何落盘并回传文件的功能都会 500**。由 `3f82068`（QF-445 机械替换
+  `datetime.utcnow()`）引入：同提交另 4 处均正确写作 `now(timezone.utc)`，仅此
+  一处漏了 `.utc`。全仓库检索同类误用（`now(timezone)` / `astimezone(timezone)` /
+  `replace(tzinfo=timezone)`）仅此 1 处。
+- **供应链密钥门禁首跑即红**：`scripts/check-secrets.sh` 与 CI 的
+  `supply-chain-gate` 由 `1634e9b` 引入后**从未通过**——11 处高置信命中 + 12 条
+  低置信提示，逐条核对全部是误报（`token = <函数调用>` 这类变量名、开发/测试
+  固件里的假密钥、锁定文件的 `sha512` 校验和、40+ 字符长变量名）。现补齐两条
+  **不放宽 pattern**（检出能力零损失）的豁免通道：**行级标记**
+  （行尾 `pragma: allowlist secret`，detect-secrets 惯例）与**路径白名单**
+  （新增 `specs/`、`scripts/dev/`、`pnpm-lock.yaml`、`versions.lock`，并把
+  `is_allowlisted()` 由纯前缀匹配改为任意层级匹配，使 `services/*/tests/` 可被
+  豁免）；低置信模式加**值位置**约束以排除 40+ 字符的长变量名。`--all`
+  （2821 文件）现 exit 0、输出仅 `✓ 未发现疑似密钥`。
+- **`dsh-runtime-host` 未纳入 022 US3 容器加固**：compose 模板此前没有
+  `cap_drop: [ALL]` / `no-new-privileges` / 只读根，仅靠 entrypoint 的 gosu 降权。
+  现镜像改以 `USER node` 直接非 root 启动（因此不需要 gosu 的
+  `CAP_SETUID`/`CAP_SETGID`，`cap_drop: ALL` 才成立），entrypoint 的
+  chown/gosu 改为 `id -u` = 0 条件分支，`HOME` 指向数据卷内的
+  `/data/dsh-runtime/home`（DSH anonymous-user-id 落盘），cordis host profile
+  走 tmpfs。七个服务现加固一致。
+
+### Changed
+
+- **对外暴露的 API 版本统一到 `0.2.0`**：chat-api / admin-api / document-parser
+  三个服务的 `FastAPI(version=...)` 从 `0.1.0` 对齐到 `0.2.0`，与
+  `pyproject.toml`、两个前端 `package.json` 及本文件已发布版本一致。
+- **构建文档补充 DSH Runtime Host 的构建方式**：`./mogo build` 默认**不**构建
+  `dsh-runtime-host`（其 Compose 服务带 `profiles: [single-host]`），而池模式的
+  3 个副本复用同一镜像名，裸 `build` 后 `up` 会回退去拉 GHCR 镜像。已在
+  `docs/docker-deployment.md` 新增专节，`README.md` 与 `docs/installation-guide.md`
+  各加指引（含 `--profile` 为全局 flag、须置于子命令之前）。
+  该字段是 `/openapi.json` 的 `info.version`，属**对外可见契约**，下游若按版本
+  做兼容性判断会受影响；此前长期滞后会让排障时出现「代码是 0.2.0 但文档说 0.1.0」
+  的口径冲突。  三处均已加注释说明需与 CHANGELOG 保持同步。
+- **`version-consistency` 门禁覆盖范围扩大**（`.github/workflows/quality-gate.yml`）：
+  原先只校验 4 个清单文件（两个 `pyproject.toml` + 两个前端 `package.json`），
+  **恰不含三个 `main.py`** —— 这正是上一条版本滞后能长期存活的根因（该字段根本不在门禁视野里）。
+  现新增 `check_fastapi`，对三个服务的 `FastAPI(version=...)` 一并校验，共 **7 条**。
+  提取用 `sed -n '/FastAPI(/,/)/p'` 锚定 `FastAPI(...)` 调用块，避免误抓同文件里其他
+  `"version"` 字面量（`/health` 响应体的硬编码 `0.1.0`、MCP `clientInfo`、DSH kernel 版本等）。
+  提取失败（找不到 `FastAPI(` 或抓不到版本号）也会判失败，不会静默放过。
+- **CI 质量门禁扩为五 job**（`.github/workflows/quality-gate.yml`）：
+  `version-consistency`（manifest 版本与 CHANGELOG 声明一致）、`frontend-quality`、
+  `backend-quality`、`dsh-host-e2e`、`security-quality`。
+- **`backend-quality` 内置两道针对"单测全绿但生产零引用"的特殊门禁**：
+  - `services/chat-api/scripts/check_production_wiring.py` —— 校验新增子系统的
+    生产接线（router / 消费方）确实存在，拦住"只有测试在引用"的假落地；
+  - `services/chat-api/scripts/check_module_coverage.py` —— 对新增子系统设
+    **模块级覆盖率下限**：021 `context_space` 85%、017 `memory` 80%、
+    009 `dsh_runtime/hooks` 75%。仓级 `fail_under = 55` 对大型遗留代码是合理的
+    粗门禁，但对新子系统要么形同虚设、要么被遗留代码拖累，故单独设限。
+- 017 文档补齐密度轴用法与地址契约：`specs/017-three-scope-memory/quickstart.md`。
+
+## v0.2.0 - 2026-10-03
+
+### Added
+
+- Platform multi-tenancy (spec 020): a platform super-admin console for tenant
+  lifecycle management (create / list / rename / enable / disable / reset
+  password / archive / restore / purge), a `tenants` registry collection, tenant
+  isolation guards, soft-archive semantics, and staged purge of MongoDB records,
+  vectors and files with a one-month tombstone.
+- Quota "unlimited" now propagates as a flag (`unlimited` / `points_unlimited`),
+  with `remainingPoints: -1` meaning "no limit"; clients must not do arithmetic
+  on `-1`.
+
+### Upgrade notes (required reading)
+
+- **Published container images were renamed: the `movo-` prefix is gone.**
+  `ghcr.io/himovo/movo-chat-api` is now `ghcr.io/himovo/chat-api`, and likewise
+  for `movo-admin-api`, `movo-admin-web`, `movo-user-web`, `movo-gateway` and
+  `movo-dsh-runtime-host` (all 7 images, including `movo-document-parser`). The
+  images are named `<registry>/<service>`; a local source build still uses the
+  bare `service:tag` form (`chat-api:latest`) so local images never collide with
+  the published ones. If your deployment pins the old names in a compose file,
+  a Kubernetes manifest or a pull script, **update it to the new names before
+  upgrading** — otherwise the pull fails, or an unchanged image reference keeps
+  you on the old release while everything else moves ahead.
+  The related `MOVO_IMAGE_PREFIX` environment variable is **no longer
+  supported**: its old meaning was a name prefix (`${MOVO_IMAGE_PREFIX}-chat-api`
+  → `ghcr.io/himovo/movo-chat-api`), which the new `<registry>/<service>` naming
+  cannot express. It is ignored with a warning and the default registry is used,
+  rather than building a non-existent path such as
+  `ghcr.io/himovo/movo/chat-api`. Replace it with `MOVO_IMAGE_REGISTRY`
+  (e.g. `ghcr.io/himovo`), or set the per-service `MOVO_*_IMAGE` variables
+  directly.
+- **Set `ASKAI_ADMIN_PLATFORM_ADMIN_PASSWORD` before the first start after
+  upgrading.** A deployment that already completed the setup wizard will not see
+  the wizard again, so this environment variable is the only way to provision the
+  platform super-admin — without it the platform console is unreachable.
+  `ASKAI_ADMIN_PLATFORM_ADMIN_USERNAME` and
+  `ASKAI_ADMIN_PLATFORM_ADMIN_DISPLAY_NAME` are optional (defaults: `admin` /
+  `平台超级管理员`).
+- Existing tenants are backfilled into the new `tenants` collection on startup
+  (idempotent, reserved identifiers skipped); no data migration is needed.
+- **MongoDB database name changed from `gragentic` to `mogo_dev`.** This is a
+  rename, not a copy: an existing deployment that keeps the old database name
+  will appear to have lost all data, because the services connect to a fresh,
+  empty `mogo_dev`. There is **no automatic migration**. Choose one:
+  - keep existing data — set `ASKAI_ADMIN_MONGODB_DB` (admin-api), `MONGODB_DB`
+    (chat-api) and `MOVO_DOC_PROCESSING_MONGODB_DB` (document-parser) back to
+    `gragentic`; or
+  - adopt the new name — before starting the upgraded stack, migrate the data,
+    e.g. `mongodump --db gragentic` then `mongorestore --nsFrom 'gragentic.*'
+    --nsTo 'mogo_dev.*'`, or rename each collection with
+    `db.adminCommand({renameCollection: "gragentic.<c>", to: "mogo_dev.<c>"})`.
+  Both `docker-compose.yml` and `prod-images-caf21d4/docker-compose.portainer.yml`
+  already default to `mogo_dev`.
+- `ASKAI_ADMIN_BOOTSTRAP_ADMIN_*` was renamed to
+  `ASKAI_ADMIN_TENANT_BOOTSTRAP_ADMIN_*` — update your environment files.
 
 ## v0.1.15 - 2026-09-16
 
@@ -64,7 +768,7 @@ image.
 
 ### Changed
 
-- Use the official GHCR images by default so both `./movo up` and native
+- Use the official GHCR images by default so both `./mogo up` and native
   `docker compose up -d` work without an `.env` file.
 - Pull container images sequentially and keep retrying interrupted downloads
   until they succeed or the user stops the launcher.
@@ -127,3 +831,9 @@ image.
 - Add isolated `movo_*` Docker volumes and first-run setup.
 - Add resumable presentation generation.
 - Add source-build and prebuilt-container deployment modes.
+
+- **插件安装失败修复（2026-11-02）**：
+  - admin-api 转发路径缺少 v1 前缀导致 308 重定向 → 修复为 `/api/v1/dsh-plugins`
+  - Docker seccomp 安全配置过滤 Python 进程环境变量 → 新增 `/tmp/mogo-secrets.env` 文件传递机制
+  - chat-api 安装器使用了不支持的 `startup_timeout_seconds` 参数 → 移除该参数
+  - 验证：`dsh-ops@0.4.4` 插件安装成功

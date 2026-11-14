@@ -1,0 +1,34 @@
+# Validation contract for the financial_analysis_v1 sub-agent.
+#
+# The parent orchestration (competitor_deep_dive) owns the end-to-end acceptance
+# criteria; this file pins the per-node output shape.
+
+skill: financial_analysis_v1
+role: subagent
+parent_skill: competitor_deep_dive
+output_key: financial_analysis_result
+
+required_sections:
+    - Financial Snapshot
+    - Key Ratios
+    - Valuation
+    - Comparables
+
+must_include_fields:
+    - Reporting period
+    - Currency and units
+    - Data source
+
+checks:
+  - id: sub-1
+    criterion: Financial Snapshot
+    test: tests/orchestration/test_competitor_deep_dive.py
+  - id: sub-2
+    criterion: Key Ratios
+    test: tests/orchestration/test_competitor_deep_dive.py
+  - id: sub-3
+    criterion: Valuation
+    test: tests/orchestration/test_competitor_deep_dive.py
+  - id: sub-4
+    criterion: Comparables
+    test: tests/orchestration/test_competitor_deep_dive.py

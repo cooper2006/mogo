@@ -71,8 +71,8 @@ async def attach_environment_status(skills: list[dict[str, Any]]) -> None:
 async def retry_environment(skill: dict[str, Any]) -> str | None:
     if not needs_environment(skill):
         return None
-    url = os.environ.get("MOVO_SANDBOX_MANAGER_URL", "").strip().rstrip("/")
-    token = os.environ.get("MOVO_SANDBOX_MANAGER_TOKEN", "")
+    url = os.environ.get("MOGO_SANDBOX_MANAGER_URL", "").strip().rstrip("/")
+    token = os.environ.get("MOGO_SANDBOX_MANAGER_TOKEN", "")
     if not url or len(token) < 32:
         LOG.warning("Skill dependency retry unavailable: sandbox manager configuration is missing")
         return "unavailable"

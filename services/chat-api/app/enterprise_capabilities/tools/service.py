@@ -1,6 +1,7 @@
-"""Single MOVO policy and execution authority for DSH-managed tool calls."""
+"""Single MOGO policy and execution authority for DSH-managed tool calls."""
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import asyncio
 import re
@@ -13,13 +14,9 @@ from app.dsh_runtime.tool_gateway import ToolGatewayClaims
 from app.dsh_runtime.events.turn_channel import TurnEventRegistry
 from app.services.external_tools import external_tool_service
 from app.governance.position_policy import EmployeePolicyResolver
-from app.product.resource_access import resource_is_allowed
-from app.product.execution_access import execution_is_allowed
 from app.services.presentation.execution import PresentationJobRepository
 
 from app.enterprise_capabilities.runtime import CapabilityExecutionContext, InternalCapabilityService
-from app.execution_isolation.skill_context import invoked_skill_source_id
-from app.dsh_runtime.profile.enterprise_approval_policy import skips_enterprise_approval
 from app.enterprise_capabilities.evidence import ExecutionEvidenceRepository
 from app.enterprise_capabilities.content.invocation_contract import (
     ContentInvocationContractRepository,
@@ -80,7 +77,7 @@ class EnterpriseToolService:
         user_id: str,
         conversation_id: str,
     ) -> int:
-        """Cancel MOVO-owned capability work without waiting for DSH disconnect."""
+        """Cancel MOGO-owned capability work without waiting for DSH disconnect."""
 
         cancelled = await self._presentation_jobs.cancel_conversation(
             tenant_id,
@@ -90,22 +87,15 @@ class EnterpriseToolService:
         return cancelled + self._active_executions.cancel_conversation(conversation_id)
 
     async def request_approval(self, request: ApprovalAskRequest, claims: ToolGatewayClaims) -> str:
-        tool, binding = await self._authorize(request.toolName, request.profileVersion, request.sessionId, claims)
+        tool, binding = await self._authorize(
+            request.toolName, request.profileVersion, request.sessionId, claims, request.arguments
+        )
         if not self._approval_required(tool, request.arguments):
             return "allowed-once"
         scope = approval_scope(tool, request.arguments)
         conversation_id = str(binding["conversation_id"])
         active_turn = dict(binding.get("active_turn") or {})
         message_id = str(active_turn.get("message_id") or "")
-        # Q10/T16: the approval is bound to the TURN'S INITIATOR. Today the
-        # tool-token subject IS the turn's speaker (profile sync at
-        # chat_service.py:187-192 runs before claim_turn at :229; resolver.py
-        # :40-46 issues the token with user_id=subject_user_id). turn_metadata
-        # is server-built (chat_service.py:136-139); todo 14's initiator_user_id
-        # slots in here — prefer it, fall back to the token subject. The decide
-        # gate and list_pending bind to this stamp; no check is widened.
-        turn_metadata = dict(active_turn.get("turn_metadata") or {})
-        initiator_user_id = str(turn_metadata.get("initiator_user_id") or "") or claims.user_id
         grant = await self._repository.active_session_grant(
             tenant_id=claims.tenant_id,
             user_id=claims.user_id,
@@ -125,7 +115,7 @@ class EnterpriseToolService:
         approval = await self._repository.ensure_approval(EnterpriseApproval(
             action_id=request.actionId,
             tenant_id=claims.tenant_id,
-            user_id=initiator_user_id,
+            user_id=claims.user_id,
             conversation_id=conversation_id,
             kernel_session_id=request.sessionId,
             profile_version=request.profileVersion,
@@ -245,7 +235,9 @@ class EnterpriseToolService:
             await sink(event)
 
     async def execute(self, request: ToolExecuteRequest, claims: ToolGatewayClaims) -> EnterpriseActionReceipt:
-        tool, binding = await self._authorize(request.toolName, request.profileVersion, request.sessionId, claims)
+        tool, binding = await self._authorize(
+            request.toolName, request.profileVersion, request.sessionId, claims, request.arguments
+        )
         existing = await self._repository.receipt_by_idempotency(request.idempotencyKey)
         if existing is not None:
             if existing.action_id != request.actionId or existing.tool_name != request.toolName:
@@ -263,7 +255,7 @@ class EnterpriseToolService:
                     scope_key=scope.key,
                 )
                 if grant is None:
-                    raise ToolPolicyDenied("one-shot or session MOVO approval is required")
+                    raise ToolPolicyDenied("one-shot or session MOGO approval is required")
         receipt = EnterpriseActionReceipt(
             action_id=request.actionId,
             idempotency_key=request.idempotencyKey,
@@ -331,14 +323,6 @@ class EnterpriseToolService:
                     **dict(active_turn.get("turn_context") or {}),
                     **dict(active_turn.get("turn_metadata") or {}),
                 }
-                if str(tool.capability_ref or "") == "data.run_script@v1" and request.currentSkillName:
-                    profile = await self._profiles.get(request.profileVersion)
-                    try:
-                        capability_turn_context["selected_skill_id"] = invoked_skill_source_id(
-                            profile, request.currentSkillName,
-                        )
-                    except ValueError as exc:
-                        raise ToolPolicyDenied(str(exc)) from exc
                 if str(tool.capability_ref or "") == "content.produce@v1":
                     profile = await self._profiles.get(request.profileVersion)
                     try:
@@ -404,13 +388,12 @@ class EnterpriseToolService:
                 )
             else:
                 execution = external_tool_service.execute_runtime(
-                    main_id=claims.tenant_id,
+                    tenant_id=claims.tenant_id,
                     external_tool_id=tool.external_tool_id,
                     provider_type=tool.source_type,
                     mcp_tool_name=tool.mcp_tool_name,
                     arguments=request.arguments,
                     actor_user_id=claims.user_id,
-                    language=str(dict(active_turn.get("turn_metadata") or {}).get("language") or dict(active_turn.get("turn_context") or {}).get("language") or "zh"),
                 )
             result = await execute_with_timeout(
                 execution,
@@ -477,6 +460,7 @@ class EnterpriseToolService:
             await self._repository.finish_receipt(request.actionId, status="cancelled", error="tool execution cancelled")
             raise
         except Exception as exc:
+            log_print(f"[enterprise_capabilities.tools.service.execute] suppressed {type(exc).__name__}: {exc}", flush=True)
             receipt = await self._repository.finish_receipt(
                 request.actionId, status="failed", error=self._safe_error(exc)
             )
@@ -489,37 +473,40 @@ class EnterpriseToolService:
         return receipt
 
     async def _authorize(
-        self, tool_name: str, profile_version: str, session_id: str, claims: ToolGatewayClaims
+        self,
+        tool_name: str,
+        profile_version: str,
+        session_id: str,
+        claims: ToolGatewayClaims,
+        arguments: dict[str, Any] | None = None,
     ) -> tuple[ToolProfileDefinition, dict[str, Any]]:
         if profile_version != claims.profile_version or tool_name not in claims.tool_names:
             raise ToolPolicyDenied("tool is outside the signed Runtime Profile scope")
+        # 009 PreToolUse：声明式 deny/require 规则必须在**真实工具调用点**求值——只有这
+        # 里同时有真实工具名与真实参数。此前只在 turn 级求值（且 tool 硬编码 dsh_turn），
+        # 按工具名配置的规则永不命中；require_field 又因 payload 恒空而恒拒绝
+        # （001 审计，2026-10-03）。
+        await self._enforce_pre_tool_use(
+            tool_name=tool_name,
+            session_id=session_id,
+            claims=claims,
+            arguments=dict(arguments or {}),
+        )
         profile = await self._profiles.get(profile_version)
         if profile.tenant_id != claims.tenant_id or profile.subject_user_id != claims.user_id:
             raise ToolPolicyDenied("Runtime Profile subject mismatch")
         tool = next((item for item in profile.tools if item.name == tool_name), None)
         if tool is None or not set(tool.required_scopes).issubset(claims.scopes):
             raise ToolPolicyDenied("required tool scope is missing")
-        if not await execution_is_allowed(
-            main_id=claims.tenant_id, user_id=claims.user_id,
-            capability=str(tool.capability_ref or "") if tool.source_type == "internal" else "external.tool",
-        ):
-            await self._repository.audit(
-                tenant_id=claims.tenant_id, user_id=claims.user_id,
-                action_id="policy-denied", event="capability.denied",
-                details={"tool_name": tool.name, "reason": "execution_access"},
-            )
-            raise ToolPolicyDenied("Execution is disabled by organization policy")
+        # 038 出站白名单：与 PreToolUse 同处真实工具调用点（L489-494），外部 HTTP /
+        # MCP 工具一律先过 outbound allowlist（fail-closed），未命中即拒绝并审计。
+        await self._enforce_tool_egress(tool=tool, arguments=dict(arguments or {}), claims=claims)
         if self._employee_policy is not None:
             current_policy = await self._employee_policy.resolve(claims.tenant_id, claims.user_id)
             allowed = (
                 current_policy.allows_internal(str(tool.capability_ref or ""))
                 if tool.source_type == "internal"
-                else await resource_is_allowed(
-                    "tool",
-                    main_id=claims.tenant_id,
-                    user_id=claims.user_id,
-                    resource_id=str(tool.external_tool_id or ""),
-                )
+                else current_policy.allows_external_tool(str(tool.external_tool_id or ""))
             )
             if not allowed:
                 await self._repository.audit(
@@ -527,7 +514,7 @@ class EnterpriseToolService:
                     user_id=claims.user_id,
                     action_id="policy-denied",
                     event="capability.denied",
-                    details={"tool_name": tool.name, "reason": "resource_access"},
+                    details={"tool_name": tool.name, "reason": "position_role"},
                 )
                 raise ToolPolicyDenied("当前岗位未开通该能力，本次任务未执行")
         binding = await self._repository.session_binding(session_id)
@@ -537,7 +524,110 @@ class EnterpriseToolService:
             str(binding.get("profile_version")) != profile_version,
         )):
             raise ToolPolicyDenied("Kernel Session scope mismatch")
+        # 051 FR-002：员工边界与 001/006 取交集——员工白名单外工具拒绝（任一拒绝
+        # 即拒绝；不实现为「员工白名单绕过门禁」）。经 binding.conversation_id 读取
+        # 会话内员工档案快照（热路径零额外员工表查询）。
+        from app.employees.boundary import enforce_employee_tool_boundary
+
+        employee_ok = await enforce_employee_tool_boundary(
+            tenant_id=claims.tenant_id,
+            user_id=claims.user_id,
+            session_id=str(binding.get("conversation_id") or ""),
+            tool_name=tool_name,
+            capability_ref=str(tool.capability_ref or ""),
+            external_tool_id=str(tool.external_tool_id or ""),
+        )
+        if not employee_ok:
+            await self._repository.audit(
+                tenant_id=claims.tenant_id,
+                user_id=claims.user_id,
+                action_id="employee-denied",
+                event="employee.denied",
+                details={"tool_name": tool.name, "reason": "employee_whitelist"},
+            )
+            raise ToolPolicyDenied("该员工未开通此工具能力，本次任务未执行")
         return tool, binding
+
+    async def _enforce_pre_tool_use(
+        self,
+        *,
+        tool_name: str,
+        session_id: str,
+        claims: ToolGatewayClaims,
+        arguments: dict[str, Any],
+    ) -> None:
+        """009 T009: evaluate declarative PreToolUse rules at the real tool call.
+
+        ``run_pre_tool_use`` loads the in-scope rules, evaluates them (fail-closed),
+        and audits the hook execution; a denial is additionally recorded in this
+        repository's audit trail and surfaced as a 403 at the gateway.
+        """
+        from app.dsh_runtime.turn_admission import run_pre_tool_use
+
+        gate = await run_pre_tool_use(
+            tenant_id=claims.tenant_id,
+            user_id=claims.user_id,
+            tool=tool_name,
+            request=arguments,
+            session_id=session_id,
+        )
+        if gate is not None:
+            await self._repository.audit(
+                tenant_id=claims.tenant_id,
+                user_id=claims.user_id,
+                action_id="hook-denied",
+                event="hook.denied",
+                details={
+                    "tool_name": tool_name,
+                    "reason": gate.denied_reason,
+                    "rule_type": gate.denied_rule_type,
+                    "scope": gate.denied_scope,
+                },
+            )
+            raise ToolPolicyDenied(f"钩子规则拒绝工具调用：{gate.denied_reason}")
+
+    async def _enforce_tool_egress(
+        self,
+        *,
+        tool: ToolProfileDefinition,
+        arguments: dict[str, Any],
+        claims: ToolGatewayClaims,
+    ) -> None:
+        """038: outbound allowlist enforcement for external HTTP / MCP tools.
+
+        Internal capabilities have no external egress and are skipped. External
+        tools resolve their outbound URL(s) (``url`` / ``endpoint`` /
+        ``gatewayUrl``) and every candidate must match the three-layer allowlist
+        (tool > tenant > platform); otherwise the call is rejected here — before
+        ``execute_runtime`` issues a single HTTP request — and the outcome is
+        audited into the existing tool audit channel.
+        """
+        from .egress_guard import egress_guard, resolve_tool_outbound_urls
+
+        if tool.source_type == "internal":
+            return
+        document = await external_tool_service.get(
+            tool.external_tool_id or "", claims.tenant_id, scope="any"
+        )
+        if document is None:
+            # Fail-closed: an unresolvable tool connection has no allowlisted
+            # target, so it is not permitted to run.
+            raise ToolPolicyDenied("工具连接不存在")
+        tool_id = tool.external_tool_id or ""
+        urls = resolve_tool_outbound_urls(document, arguments)
+        decision = await egress_guard.decide_urls(
+            urls, tenant_id=claims.tenant_id, tool_id=tool_id
+        )
+        await egress_guard.audit(
+            decision,
+            tenant_id=claims.tenant_id,
+            user_id=claims.user_id,
+            action_id="egress-allowed" if decision.allowed else "egress-denied",
+            tool_or_capability=f"tool.{tool.name}",
+        )
+        if not decision.allowed:
+            detail = decision.domain or decision.reason
+            raise ToolPolicyDenied(f"出站白名单拒绝访问目标域：{detail}")
 
     @staticmethod
     def _approval_outcome(status: str) -> str:
@@ -545,8 +635,6 @@ class EnterpriseToolService:
 
     @staticmethod
     def _approval_required(tool: ToolProfileDefinition, arguments: dict[str, Any]) -> bool:
-        if skips_enterprise_approval(source_type=tool.source_type, capability_ref=tool.capability_ref):
-            return False
         if tool.approval_required:
             return True
         if not tool.approval_argument or not tool.approval_values:

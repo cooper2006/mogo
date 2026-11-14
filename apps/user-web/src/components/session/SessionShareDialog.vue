@@ -232,18 +232,18 @@ async function removeMember(member: SessionShareMember) {
 
 <style scoped>
 .share-content { display: grid; gap: 20px; }
-.section-label { margin-bottom: 8px; color: #344054; font-size: 13px; font-weight: 700; }
-.hint { margin: 7px 0 0; color: #7a8699; font-size: 12px; line-height: 1.55; }
-.scope-note { margin: 0 0 12px; padding: 8px 10px; border: 1px solid #d7e5ff; border-radius: 8px; background: #f4f8ff; color: #315bb5; font-size: 12px; line-height: 1.5; }
+.section-label { margin-bottom: 8px; color: var(--mg-text-1); font-size: 13px; font-weight: 700; }
+.hint { margin: 7px 0 0; color: var(--mg-text-3); font-size: 12px; line-height: 1.55; }
+.scope-note { margin: 0 0 12px; padding: 8px 10px; border: 1px solid var(--mg-info-border); border-radius: 8px; background: var(--mg-info-bg); color: var(--mg-info-text); font-size: 12px; line-height: 1.5; }
 .link-settings { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .link-settings :deep(.n-select) { width: 150px; }
 .revoke-link { margin-top: 8px; }
 .member-list { display: grid; gap: 8px; }
-.member-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid #e9edf5; border-radius: 10px; background: #f8faff; }
+.member-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--mg-border); border-radius: 10px; background: var(--mg-bg-surface-hover); }
 .member-info { min-width: 0; display: grid; gap: 2px; }
-.member-info strong { color: #18233b; font-size: 14px; }
-.member-info span { color: #667085; font-size: 12px; }
+.member-info strong { color: var(--mg-text-1); font-size: 14px; }
+.member-info span { color: var(--mg-text-3); font-size: 12px; }
 .member-actions { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
-.member-role { color: #667085; font-size: 12px; }
-.member-role.is-owner { color: #2459e8; font-weight: 600; }
+.member-role { color: var(--mg-text-3); font-size: 12px; }
+.member-role.is-owner { color: var(--mg-brand); font-weight: 600; }
 </style>

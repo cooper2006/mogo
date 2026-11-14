@@ -4,6 +4,7 @@ Icon library for the presentation pipeline.  The underlying
 Tabler icon SVG assets are shared (backend/app/assets/tabler-icons/).
 """
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 import re
@@ -343,6 +344,6 @@ async def choose_icons_with_llm(
         resolved = [resolve_icon_name(str(name or ""), fallback="") for name in chosen]
         if len(resolved) == len(sanitized_items) and all(resolved):
             return resolved
-    except Exception:
-        pass
+    except Exception as exc:
+        log_print(f"[icon_library] LLM icon selection failed: {exc}", flush=True)
     return []

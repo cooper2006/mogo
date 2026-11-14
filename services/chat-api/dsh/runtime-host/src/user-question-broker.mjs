@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-/** Bridges DSH's scoped human-question waterfall to the MOVO client. */
+/** Bridges DSH's scoped human-question waterfall to the MOGO client. */
 export class UserQuestionBroker {
   #pending = new Map()
   #answered = new Map()
@@ -13,7 +13,6 @@ export class UserQuestionBroker {
       const questionId = String(request.wait?.callId ?? randomUUID())
       const key = JSON.stringify([sessionId, questionId])
       if (this.#pending.has(key)) throw new Error('duplicate user question call')
-      console.info('MOVO user question registered', { sessionId, questionId })
       return new Promise((resolve, reject) => {
         const abort = () => {
           request.signal?.removeEventListener('abort', abort)
@@ -36,7 +35,7 @@ export class UserQuestionBroker {
         request.signal?.addEventListener('abort', abort, { once: true })
         if (request.signal?.aborted) abort()
       })
-    }, { global: true, prepend: true })
+    }, { global: true })
   }
 
   list(sessionId) {

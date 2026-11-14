@@ -21,7 +21,7 @@ function tool(name) {
     source_type: 'mcp',
     external_tool_id: name,
     mcp_tool_name: name,
-    description: `MOVO governed ${name}`,
+    description: `MOGO governed ${name}`,
     input_schema: { type: 'object', properties: {}, additionalProperties: false },
     output_schema: {},
     output_validation: 'none',
@@ -32,7 +32,7 @@ function tool(name) {
   }
 }
 
-test('runtime exposes every MOVO-governed tool through the stable capability contract', async () => {
+test('runtime exposes every MOGO-governed tool through the stable capability contract', async () => {
   const root = await mkdtemp(join(tmpdir(), 'askai-runtime-tools-admission-'))
   const profile = modelProfile('http://127.0.0.1:9/model', {
     toolProfile: {
@@ -59,7 +59,7 @@ test('runtime exposes every MOVO-governed tool through the stable capability con
   }
 })
 
-test('runtime discovers and loads a Skill installed in the MOVO workspace', async () => {
+test('runtime discovers and loads a Skill installed in the MOGO workspace', async () => {
   const root = await mkdtemp(join(tmpdir(), 'askai-runtime-skill-admission-'))
   await mkdir(join(root, '.agents', 'skills', 'installed-audit'), { recursive: true })
   await writeFile(

@@ -1,0 +1,33 @@
+# 镜像分层数与体积基线（024 T017）
+#
+# baseline-check.sh 读取本文件比对各镜像的 RootFS.Layers 与 Size；
+# 超出阈值记 FAIL（FR-003：分层数与总体积 MUST 有基线记录，超出 MUST 告警）。
+# QF-819 blocked → 建基线：此前无基线可对照，体积增长无法被发现。
+#
+# 阈值口径：当前实测值 + 15% 余量，避免正常重建抖动误报；
+# 若主动优化镜像（如多阶段构建、剔除 torch 冗余包）使实际值显著下降，
+# 可在 rebuild 后收紧本基线。
+#
+# 单位：max_size_mb 为 MiB（docker inspect .Size / 1048576）。
+images:
+  chat-api:
+    max_layers: 23      # 实测 20
+    max_size_mb: 6100   # 实测 5298
+  admin-api:
+    max_layers: 16      # 实测 14
+    max_size_mb: 620    # 实测 534
+  document-parser:
+    max_layers: 25      # 实测 22
+    max_size_mb: 9900   # 实测 8557
+  gateway:
+    max_layers: 14      # 实测 12
+    max_size_mb: 35     # 实测 29
+  admin-web:
+    max_layers: 15      # 实测 13
+    max_size_mb: 50     # 实测 42
+  user-web:
+    max_layers: 15      # 实测 13
+    max_size_mb: 50     # 实测 44
+  dsh-runtime-host:
+    max_layers: 16      # 实测 14
+    max_size_mb: 1450   # 实测 1244

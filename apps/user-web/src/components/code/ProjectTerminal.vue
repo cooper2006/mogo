@@ -38,5 +38,5 @@ onBeforeUnmount(() => {
 </script>
 
 <template><div ref="host" class="project-terminal" aria-label="Project terminal"></div></template>
-<style scoped>.project-terminal{box-sizing:border-box;width:100%;height:100%;overflow:hidden;background:#0b1220;padding:8px}:deep(.xterm){height:100%}:deep(.xterm-viewport){border-radius:6px}</style>
+<style scoped>.project-terminal{box-sizing:border-box;width:100%;height:100%;overflow:hidden;background: var(--mg-bg-app);padding:8px}:deep(.xterm){height:100%}:deep(.xterm-viewport){border-radius:6px}</style>
 

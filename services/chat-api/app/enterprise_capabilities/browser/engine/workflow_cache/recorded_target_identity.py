@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import html
 import re
@@ -137,7 +138,12 @@ def _normalized_written_value(value: Any) -> str:
     try:
         parser.feed(raw)
         parser.close()
-    except Exception:
+    except Exception as exc:
+        log_print(
+            "[enterprise_capabilities.browser.engine.workflow_cache.recorded_target_identity] "
+            f"html parse failed: {exc}",
+            flush=True,
+        )
         return _normalized_text(raw)
     return _normalized_text(" ".join(parser.parts))
 

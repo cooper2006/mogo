@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.core.tenant_identity import PLATFORM_TENANT_ID
 from app.repositories.directory_repository import ensure_indexes
 from app.core.db import get_db
 from app.position_roles.repository import PositionRoleRepository
@@ -12,12 +13,17 @@ async def bootstrap_directory() -> None:
     await repository.ensure_indexes()
     db = get_db()
     await repair_employee_tenant_identities(db)
-    tenant_ids = await db.admin_accounts.distinct("main_id", {"main_id": {"$nin": [None, "", "default"]}})
-    for main_id in tenant_ids:
-        role = await repository.ensure_full_access_role(str(main_id))
-        setup = await db.system_bootstrap.find_one({"main_id": str(main_id)})
+    tenant_ids = [
+        row["tenant_id"]
+        async for row in db["tenants"].find(
+            {"status": "active", "tenant_id": {"$nin": [None, "", PLATFORM_TENANT_ID]}}
+        )
+    ]
+    for tenant_id in tenant_ids:
+        role = await repository.ensure_full_access_role(str(tenant_id))
+        setup = await db.system_bootstrap.find_one({"tenant_id": str(tenant_id)})
         employee_login = str((setup or {}).get("employee_username") or "")
         if employee_login:
-            employee = await db.end_users.find_one({"main_id": str(main_id), "login_name": employee_login})
+            employee = await db.end_users.find_one({"tenant_id": str(tenant_id), "login_name": employee_login})
             if employee:
-                await repository.assign_role(str(main_id), str(employee["_id"]), str(role["_id"]), primary=True, actor="system-bootstrap")
+                await repository.assign_role(str(tenant_id), str(employee["_id"]), str(role["_id"]), primary=True, actor="system-bootstrap")

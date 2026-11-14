@@ -16,35 +16,24 @@ def is_fixed_npm_source(spec: str) -> bool:
     return bool(_NPM_VERSION.fullmatch(spec.strip()))
 
 
-def is_supported_plugin_source(spec: str) -> bool:
+def is_safe_personal_source(spec: str) -> bool:
     value = spec.strip()
     if not value or any(ch.isspace() for ch in value) or value.startswith(_UNSAFE_PREFIXES):
         return False
     if _WINDOWS_PATH.match(value) or "\\" in value:
         return False
+    if value.startswith("github:"):
+        return bool(re.fullmatch(r"github:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:#[A-Za-z0-9_.-]+)?", value))
     if "://" not in value:
         return is_fixed_npm_source(value)
-    parsed = urlsplit(value)
-    return bool(
-        parsed.scheme == "https"
-        and parsed.hostname
-        and not parsed.username
-        and not parsed.password
-        and not parsed.query
-        and not parsed.fragment
-        and parsed.path.lower().endswith((".tgz", ".tar.gz"))
-    )
-
-
-def is_safe_personal_source(spec: str) -> bool:
-    if not is_supported_plugin_source(spec):
+    parsed = urlsplit(value.removeprefix("git+"))
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query:
         return False
-    if is_fixed_npm_source(spec):
-        return True
-    parsed = urlsplit(spec.strip())
     host = parsed.hostname.lower()
     if host == "localhost" or host.endswith((".localhost", ".local", ".internal")):
         return False
+    # fail-open-exempt: 解析失败表示 host 是域名而非 IP 字面量，是正常的允许路径，
+    # 不是异常兜底放行；上方已拒绝 localhost/.local/.internal、内嵌凭据/query 且强制 https。
     try:
         address = ipaddress.ip_address(host)
     except ValueError:

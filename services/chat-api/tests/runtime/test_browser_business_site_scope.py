@@ -92,7 +92,7 @@ def test_identity_uses_resolved_business_site_when_node_scope_is_missing() -> No
     )
     identity = build_workflow_identity(
         user_id="u1",
-        main_id="m1",
+        tenant_id="m1",
         node=_node("新建并保存文章草稿"),
         input_context=BrowserInputContext(original_request=request, candidates=[]),
     )

@@ -11,7 +11,7 @@ def test_explicit_entry_replaces_an_unrelated_page_for_a_new_run() -> None:
     assert initial_entry_url(
         step=1,
         candidates=[{"url": "https://www.baidu.com", "source": "user_request"}],
-        current_url="https://www.himovo.com/",
+        current_url="https://www.mogo.example/",
         resuming=False,
     ) == "https://www.baidu.com"
 
@@ -20,14 +20,14 @@ def test_resolved_site_scope_replaces_the_previous_tasks_page() -> None:
     assert initial_entry_url(
         step=1,
         candidates=[{"url": "https://baidu.com/", "source": "site_scope"}],
-        current_url="https://www.himovo.com/",
+        current_url="https://www.mogo.example/",
         resuming=False,
     ) == "https://baidu.com/"
 
 
 def test_named_site_resolution_without_a_literal_url_still_forces_entry() -> None:
     candidates = extract_candidate_entries(
-        "打开百度搜索 MOVO 官网",
+        "打开百度搜索 MOGO 官网",
         [],
         expected_site="baidu.com",
     )
@@ -39,7 +39,7 @@ def test_named_site_resolution_without_a_literal_url_still_forces_entry() -> Non
     assert initial_entry_url(
         step=1,
         candidates=candidates,
-        current_url="https://www.himovo.com/",
+        current_url="https://www.mogo.example/",
         resuming=False,
     ) == "https://baidu.com/"
 

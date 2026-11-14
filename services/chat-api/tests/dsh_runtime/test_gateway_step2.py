@@ -34,6 +34,11 @@ class FakeHostTransport:
         *,
         json: Mapping[str, Any] | None = None,
         params: Mapping[str, Any] | None = None,
+        # Accepted for KernelHostTransport compatibility: multi-replica routing
+        # passes the runtime's isolation key as the sticky key.
+        session_id: str | None = None,
+        sticky_key: str | None = None,
+        **_kwargs: Any,
     ) -> dict[str, Any]:
         if method == "POST" and path == "/v1/runtimes":
             return {
@@ -63,7 +68,16 @@ class FakeHostTransport:
             return {"disposed": True, "accepted": True, "status": "idle", "sessionId": self.session_id}
         raise AssertionError((method, path, json, params))
 
-    async def stream(self, method: str, path: str, *, params=None):
+    async def stream(
+        self,
+        method: str,
+        path: str,
+        *,
+        params=None,
+        session_id: str | None = None,
+        sticky_key: str | None = None,
+        **_kwargs: Any,
+    ):
         assert method == "GET"
         assert path.endswith("/event-stream")
         if self.fail_events:

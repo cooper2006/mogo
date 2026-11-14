@@ -57,8 +57,8 @@ class VisionService:
                         encoded = base64.b64encode(data).decode("ascii")
                         return f"data:{mime};base64,{encoded}"
                 return uploader.sign_url(str(object_path))
-            except Exception:
-                pass
+            except Exception as exc:
+                log_print(f"[vision] image URL resolve failed: {exc}", flush=True)
         url = image.get("url")
         return str(url) if url else None
 

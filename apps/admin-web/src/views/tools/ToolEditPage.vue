@@ -1,11 +1,429 @@
-<template src="./ToolEditPageTemplate.html"></template>
+<template>
+  <div class="tool-edit-page">
+    <div class="edit-layout">
+      <div class="edit-main">
+        <n-card :bordered="false" class="step-overview shell-card">
+          <n-steps class="clickable-steps" :current="activeStep" size="small" @update:current="handleStepChange">
+            <n-step v-for="step in steps" :key="step.key" :title="step.title" :description="step.description" />
+          </n-steps>
+        </n-card>
+
+        <n-card :bordered="false" class="content-card shell-card">
+          <template #header>
+            <div class="content-card-header">
+              <div>
+                <div class="content-title">{{ currentStep?.title }}</div>
+                <div class="section-muted">{{ currentStep?.description }}</div>
+              </div>
+              <n-space :size="8" align="center">
+                <n-tag :type="form.type === 'mcp' ? 'info' : 'success'" round>
+                  {{ form.type === 'mcp' ? t('MCP 服务') : t('HTTP 工具') }}
+                </n-tag>
+                <n-tag round>
+                  {{ t('第 {step} / {total} 步', { step: activeStep, total: steps.length }) }}
+                </n-tag>
+              </n-space>
+            </div>
+          </template>
+
+          <template #footer>
+            <div class="step-actions">
+              <n-button secondary @click="backToList">
+                <template #icon><ToolIcon name="back" /></template>
+                {{ t('返回') }}
+              </n-button>
+              <n-button v-if="activeStep > 1" @click="goPrevStep">
+                <template #icon><ToolIcon name="back" /></template>
+                {{ t('上一步') }}
+              </n-button>
+              <n-button v-if="activeStep < steps.length" type="primary" @click="goNextStep">
+                <template #icon><ToolIcon name="next" /></template>
+                {{ t('下一步') }}
+              </n-button>
+              <n-button secondary :loading="saving" @click="saveDraft">
+                <template #icon><ToolIcon name="save" /></template>
+                {{ t('保存草稿') }}
+              </n-button>
+              <n-button v-if="activeStep === steps.length" type="primary" :loading="saving" @click="saveTool">
+                <template #icon><ToolIcon name="check" /></template>
+                {{ t('完成并保存') }}
+              </n-button>
+            </div>
+          </template>
+
+          <div v-if="loading" class="loading-placeholder">
+            <n-skeleton text :repeat="6" />
+          </div>
+          <template v-else>
+            <n-form ref="formRef" :model="form" :rules="rules" label-placement="top">
+              <section v-if="activeKey === 'base'" class="step-panel">
+                <n-form-item v-if="isCreate" :label="t('连接类型')" path="type">
+                  <n-radio-group v-model:value="form.type" @update:value="changeType">
+                    <n-radio-button value="http">{{ t('HTTP 接口工具') }}</n-radio-button>
+                    <n-radio-button value="mcp">{{ t('远程 MCP 服务') }}</n-radio-button>
+                  </n-radio-group>
+                </n-form-item>
+
+                <n-grid :cols="2" :x-gap="18">
+                  <n-form-item-gi :label="t('名称')" path="name">
+                    <n-input v-model:value="form.name" :placeholder="t('例如：CRM 客户查询')" />
+                  </n-form-item-gi>
+                  <n-form-item-gi :label="t('启用状态')">
+                    <n-switch v-model:value="enabledSwitch">
+                      <template #checked>{{ t('启用') }}</template>
+                      <template #unchecked>{{ t('停用') }}</template>
+                    </n-switch>
+                  </n-form-item-gi>
+                </n-grid>
+
+                <n-form-item :label="t('工具说明')" path="description">
+                  <div class="description-input-wrap">
+                    <n-button class="generate-desc-button" quaternary circle :loading="generatingDescription" @click="generateDescriptionFromName" :title="t('AI 生成描述')">
+                      <ToolIcon v-if="!generatingDescription" name="sparkles" />
+                    </n-button>
+                    <n-input v-model:value="form.description" type="textarea" :autosize="{ minRows: 3, maxRows: 5 }" :placeholder="t('说明这个工具能做什么。')" />
+                  </div>
+                </n-form-item>
+                <n-form-item :label="t('标签')">
+                  <n-dynamic-tags v-model:value="form.tags" />
+                </n-form-item>
+              </section>
+
+              <section v-if="activeKey === 'request'" class="step-panel">
+                <template v-if="form.type === 'http'">
+                  <n-grid :cols="4" :x-gap="18">
+                    <n-form-item-gi :span="3" :label="t('请求地址')" path="config.url">
+                      <n-input v-model:value="form.config.url" :placeholder="t('https://api.example.com/customers/{customerId}')" />
+                    </n-form-item-gi>
+                    <n-form-item-gi :label="t('请求方法')">
+                      <n-select v-model:value="form.config.method" :options="methodOptions" />
+                    </n-form-item-gi>
+                  </n-grid>
+                </template>
+                <template v-else>
+                  <n-form-item :label="t('MCP 服务地址')" path="config.endpoint">
+                    <n-input v-model:value="form.config.endpoint" :placeholder="t('https://mcp.example.com/mcp')" />
+                  </n-form-item>
+                </template>
+
+                <n-grid :cols="3" :x-gap="18">
+                  <n-form-item-gi :label="t('鉴权方式')">
+                    <n-select v-model:value="form.config.authType" :options="authOptions" />
+                  </n-form-item-gi>
+                  <n-form-item-gi v-if="form.config.authType === 'api_key'" :label="t('Header 名称')" path="config.apiKeyHeader" required>
+                    <n-input v-model:value="form.config.apiKeyHeader" :placeholder="t('X-API-Key')" />
+                  </n-form-item-gi>
+                  <n-form-item-gi v-if="form.config.authType !== 'none'" :span="form.config.authType === 'api_key' ? 1 : 2" :label="t('Token / Key')" path="config.authToken" required>
+                    <n-input v-model:value="form.config.authToken" type="password" show-password-on="click" />
+                  </n-form-item-gi>
+                </n-grid>
+
+                <n-grid :cols="3" :x-gap="18">
+                  <n-form-item-gi :label="t('超时时间')">
+                    <n-input-number v-model:value="form.config.timeoutSeconds" :min="1" :max="120" />
+                  </n-form-item-gi>
+                </n-grid>
+
+                <div class="section-head">
+                  <div>
+                    <div class="section-title">{{ t('固定 Headers') }}</div>
+                    <div class="section-muted">{{ t('用于租户、渠道或内部鉴权等固定头信息。') }}</div>
+                  </div>
+                  <n-button size="small" @click="addHeader">
+                    <template #icon><ToolIcon name="add" /></template>
+                    {{ t('添加 Header') }}
+                  </n-button>
+                </div>
+                <div class="compact-table">
+                  <div class="compact-row compact-head header-grid">
+                    <span>{{ t('Header 名称') }}</span>
+                    <span>{{ t('值') }}</span>
+                    <span></span>
+                  </div>
+                  <div v-for="item in headerRows" :key="item.id" class="compact-row header-grid">
+                    <n-input v-model:value="item.name" placeholder="X-Tenant" />
+                    <n-input v-model:value="item.value" placeholder="default" />
+                    <n-button quaternary type="error" @click="removeHeader(item.id)">
+                      <template #icon><ToolIcon name="trash" /></template>
+                      {{ t('删除') }}
+                    </n-button>
+                  </div>
+                  <n-empty v-if="headerRows.length === 0" :description="t('无固定 Header')" size="small" />
+                </div>
+
+                <!-- 038 T025：工具级出站例外（三层白名单的 tool 层最小入口） -->
+                <div class="section-head">
+                  <div>
+                    <div class="section-title">{{ t('出站访问控制（工具级例外）') }}</div>
+                    <div class="section-muted">{{ t('仅本工具可访问的域名，与平台/租户白名单取并集；未命中任何一层的请求会被拒绝。') }}</div>
+                  </div>
+                </div>
+                <template v-if="toolId">
+                  <div class="compact-table">
+                    <div class="compact-row compact-head egress-grid">
+                      <span>{{ t('域名') }}</span>
+                      <span>{{ t('路径前缀') }}</span>
+                      <span>{{ t('备注') }}</span>
+                      <span></span>
+                    </div>
+                    <div v-for="rule in toolEgressRules" :key="rule.entry_id" class="compact-row egress-grid">
+                      <span class="egress-text">{{ rule.match_domain }}</span>
+                      <span class="egress-text">{{ rule.path_prefix || '—' }}</span>
+                      <span class="egress-text">{{ rule.note || '—' }}</span>
+                      <n-button
+                        quaternary
+                        type="error"
+                        :loading="removingEgressId === rule.entry_id"
+                        @click="removeToolEgressRule(rule.entry_id)"
+                      >
+                        <template #icon><ToolIcon name="trash" /></template>
+                        {{ t('删除') }}
+                      </n-button>
+                    </div>
+                    <div class="compact-row egress-grid">
+                      <n-input v-model:value="egressForm.matchDomain" placeholder="api.example.com" />
+                      <n-input v-model:value="egressForm.pathPrefix" placeholder="/v1" />
+                      <n-input v-model:value="egressForm.note" :placeholder="t('可选')" />
+                      <n-button type="primary" secondary :loading="savingEgress" @click="addToolEgressRule">
+                        <template #icon><ToolIcon name="add" /></template>
+                        {{ t('添加例外') }}
+                      </n-button>
+                    </div>
+                    <n-empty v-if="toolEgressRules.length === 0" :description="t('暂无工具级例外')" size="small" />
+                  </div>
+                </template>
+                <n-alert v-else type="info" :bordered="false">
+                  {{ t('保存工具后即可配置工具级出站例外。') }}
+                </n-alert>
+              </section>
+
+              <section v-if="activeKey === 'input'" class="step-panel flex-panel">
+                <div class="section-head">
+                  <div></div>
+                  <n-button type="primary" ghost @click="addInputNode()">
+                    <template #icon><ToolIcon name="add" /></template>
+                    {{ t('添加参数') }}
+                  </n-button>
+                </div>
+                <SchemaEditor
+                  mode="input"
+                  :nodes="inputSchema"
+                  @add-child="addInputNode"
+                  @remove="removeInputNode"
+                />
+              </section>
+
+              <section v-if="activeKey === 'output'" class="step-panel flex-panel">
+                <div class="section-head">
+                  <div></div>
+                  <n-space :size="8">
+                    <n-button :disabled="!canInferOutputSchema" @click="inferOutputSchemaFromTest">
+                      <template #icon><ToolIcon name="schema" /></template>
+                      {{ t('从响应生成出参') }}
+                    </n-button>
+                    <n-button type="primary" ghost @click="addOutputNode()">
+                      <template #icon><ToolIcon name="add" /></template>
+                      {{ t('添加字段') }}
+                    </n-button>
+                  </n-space>
+                </div>
+                <SchemaEditor
+                  mode="output"
+                  :nodes="outputSchema"
+                  @add-child="addOutputNode"
+                  @remove="removeOutputNode"
+                />
+              </section>
+
+              <section v-if="activeKey === 'mcpTools'" class="step-panel">
+                <div class="section-head">
+                  <div>
+                    <div class="section-title">{{ t('发现 MCP 工具') }}</div>
+                    <div class="section-muted">{{ t('保存连接后发现远程服务暴露的工具，并选择允许 Agent 使用的项。') }}</div>
+                  </div>
+                  <n-button type="primary" :loading="discovering" :disabled="!toolId" @click="discoverTools">
+                    <template #icon><ToolIcon name="search" /></template>
+                    {{ t('发现工具') }}
+                  </n-button>
+                </div>
+
+                <n-alert v-if="!toolId" type="warning" :bordered="false">{{ t('请先保存 MCP 服务，再发现远程工具。') }}</n-alert>
+                <div v-else class="mcp-tool-list">
+                  <div v-for="tool in discoveredTools" :key="tool.name" class="mcp-tool-card">
+                    <div class="mcp-tool-main">
+                      <n-checkbox :checked="enabledToolNames.includes(tool.name)" @update:checked="(checked: boolean) => toggleMcpTool(tool.name, checked)" />
+                      <div>
+                        <div class="mcp-tool-name">{{ tool.name }}</div>
+                        <div class="section-muted">{{ tool.description || t('无描述') }}</div>
+                      </div>
+                    </div>
+                    <n-collapse>
+                      <n-collapse-item :title="t('入参 Schema')" :name="tool.name">
+                        <n-code :code="JSON.stringify(tool.inputSchema || {}, null, 2)" language="json" word-wrap />
+                      </n-collapse-item>
+                    </n-collapse>
+                  </div>
+                  <n-empty v-if="discoveredTools.length === 0" :description="t('还没有发现 MCP 工具')" />
+                </div>
+              </section>
+
+              <section v-if="activeKey === 'debug'" class="step-panel">
+                <div class="debug-grid">
+                  <div class="debug-left">
+                    <div class="section-head">
+                      <div>
+                        <div class="section-title">{{ t('测试输入') }}</div>
+                        <div class="section-muted">{{ t('根据入参定义填写一次真实调用。') }}</div>
+                      </div>
+                      <n-button type="primary" :loading="testing" :disabled="!toolId" @click="runDebug">
+                        <template #icon><ToolIcon name="play" /></template>
+                        {{ t('运行测试') }}
+                      </n-button>
+                    </div>
+                    <n-alert v-if="!toolId" type="warning" :bordered="false">{{ t('请先保存工具，再执行测试。') }}</n-alert>
+
+                    <template v-if="form.type === 'http'">
+                      <div v-for="node in flatInputNodes" :key="node.id" class="debug-param-row">
+                        <label>
+                          {{ node.name || t('未命名参数') }}
+                          <span v-if="node.required">*</span>
+                        </label>
+                        <n-input v-model:value="debugValues[node.id]" :placeholder="node.description || node.type" />
+                      </div>
+                      <n-empty v-if="flatInputNodes.length === 0" :description="t('请先在入参定义里添加参数')" size="small" />
+                    </template>
+                    <template v-else>
+                      <n-form-item :label="t('MCP 工具')">
+                        <n-select v-model:value="debugMcpToolName" :options="mcpToolOptions" filterable />
+                      </n-form-item>
+                      <n-form-item :label="t('参数 JSON')">
+                        <n-input v-model:value="debugMcpArguments" type="textarea" :autosize="{ minRows: 8, maxRows: 14 }" :placeholder="t('mcp_placeholder')" />
+                      </n-form-item>
+                    </template>
+                  </div>
+
+                  <div class="debug-right">
+                    <div class="result-panel">
+                      <div class="result-title">{{ t('请求体') }}</div>
+                      <n-code :code="JSON.stringify(lastRequest, null, 2)" language="json" word-wrap />
+                    </div>
+                    <div class="result-panel">
+                      <div class="result-title result-title-row">
+                        <span>{{ t('响应体') }}</span>
+                        <n-button v-if="canInferOutputSchema" size="tiny" secondary @click="inferOutputSchemaFromTest">
+                          <template #icon><ToolIcon name="schema" /></template>
+                          {{ t('生成出参') }}
+                        </n-button>
+                      </div>
+                      <n-code :code="JSON.stringify(testResult || {}, null, 2)" language="json" word-wrap />
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </n-form>
+          </template>
+        </n-card>
+      </div>
+
+      <n-card :bordered="false" class="aside-card shell-card">
+        <div class="debug-aside">
+          <div class="debug-workspace">
+            <div class="aside-title-row">
+              <div>
+                <div class="aside-title">{{ t('调试测试') }}</div>
+                <div class="aside-desc">{{ testStatusText }}</div>
+              </div>
+              <n-tag :type="testStatusTagType" round>{{ testStatusLabel }}</n-tag>
+            </div>
+
+            <div class="debug-overview">
+              <span>{{ form.type === 'mcp' ? 'MCP' : String(form.config.method || 'GET') }}</span>
+              <strong>{{ debugEndpointText }}</strong>
+            </div>
+
+            <div class="aside-subtitle compact-title">{{ t('测试输入') }}</div>
+            <template v-if="form.type === 'http'">
+              <div v-for="group in groupedDebugNodes" :key="group.location" class="debug-param-group">
+                <div v-if="group.nodes.length" class="debug-group-title">{{ group.label }}</div>
+                <div v-for="node in group.nodes" :key="node.id" class="debug-param-row compact">
+                  <label>
+                    {{ node.name || t('未命名参数') }}
+                    <span v-if="node.required">*</span>
+                  </label>
+                  <n-input v-model:value="debugValues[node.id]" size="small" :placeholder="node.description || node.type" />
+                </div>
+              </div>
+              <n-empty v-if="flatInputNodes.length === 0" :description="t('暂无入参')" size="small" />
+            </template>
+            <template v-else>
+              <n-form-item :label="t('MCP 工具')">
+                <n-select v-model:value="debugMcpToolName" :options="mcpToolOptions" filterable size="small" />
+              </n-form-item>
+              <n-form-item :label="t('参数 JSON')">
+                <n-input v-model:value="debugMcpArguments" type="textarea" :autosize="{ minRows: 4, maxRows: 8 }" :placeholder="t('mcp_placeholder')" />
+              </n-form-item>
+            </template>
+
+            <n-button block type="primary" :loading="testing" @click="runDebug">
+              <template #icon><ToolIcon name="play" /></template>
+              {{ t('运行测试') }}
+            </n-button>
+
+            <div v-if="testResult" class="test-summary">
+              <div class="test-metrics-row">
+                <div>
+                  <span>{{ t('状态') }}</span>
+                  <strong :class="testResult.success ? 'success-text' : 'error-text'">{{ testResult.message || '-' }}</strong>
+                </div>
+                <div>
+                  <span>{{ t('耗时') }}</span>
+                  <strong>{{ testResult.durationMs ?? '-' }} ms</strong>
+                </div>
+              </div>
+              <div class="response-summary">{{ String(testResult.responseSummary || testResult.message || '') }}</div>
+              <n-button v-if="canInferOutputSchema" block secondary size="small" @click="inferOutputSchemaFromTest">
+                <template #icon><ToolIcon name="schema" /></template>
+                {{ t('从响应生成出参定义') }}
+              </n-button>
+            </div>
+
+            <div v-if="testResult || Object.keys(lastRequest).length" class="debug-json-scroll">
+              <n-collapse class="debug-collapse" accordion>
+                <n-collapse-item name="request">
+                  <template #header>
+                    <div class="json-panel-header">
+                      <span>{{ t('调用预览') }}</span>
+                      <n-button quaternary circle size="tiny" :title="t('复制调用预览')" @click.stop="copyJson(debugRequestPreview, t('调用预览已复制'))">
+                        <ToolIcon name="copy" />
+                      </n-button>
+                    </div>
+                  </template>
+                  <pre class="json-pre-panel"><code class="json-code-panel">{{ JSON.stringify(debugRequestPreview, null, 2) }}</code></pre>
+                </n-collapse-item>
+                <n-collapse-item v-if="testResult" name="response">
+                  <template #header>
+                    <div class="json-panel-header">
+                      <span>{{ t('响应体') }}</span>
+                      <n-button quaternary circle size="tiny" :title="t('复制响应体')" @click.stop="copyJson(testResult, t('响应体已复制'))">
+                        <ToolIcon name="copy" />
+                      </n-button>
+                    </div>
+                  </template>
+                  <pre class="json-pre-panel"><code class="json-code-panel">{{ JSON.stringify(testResult, null, 2) }}</code></pre>
+                </n-collapse-item>
+              </n-collapse>
+            </div>
+          </div>
+        </div>
+      </n-card>
+    </div>
+  </div>
+</template>
 
 <script setup lang="ts">
-import { createToolSchemaInference, type SchemaNode, type FlatInputNode, type SchemaType, type ParamLocation, type ResponseMode } from './toolSchemaInference';
 import { computed, defineComponent, h, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { t, useLocale } from '@/composables/i18n';
-import { isLegacyGeneratedDescription, timeoutMessagePattern } from '@/locales/legacyRecognitionValues';
+import { t } from '@/composables/i18n';
 import type { FormInst, FormRules } from 'naive-ui';
 import {
   NAlert,
@@ -45,12 +463,37 @@ import {
   type ToolPayload,
   type ToolType,
 } from '@/api/tools';
+import {
+  createEgressRule,
+  deleteEgressRule,
+  fetchEgressAllowlist,
+  type EgressRule,
+} from '@/api/egress';
 import { mcpActivationError, nextMcpToolSelection, toolStatusConfirmText } from '@/utils/toolActivation';
+
+type SchemaType = 'String' | 'Integer' | 'Number' | 'Boolean' | 'Object' | 'Array' | 'ArrayObject';
+type ParamLocation = 'Header' | 'Query' | 'Body' | 'Path';
+type ResponseMode = 'summarized' | 'original' | 'answer';
 
 interface HeaderRow {
   id: string;
   name: string;
   value: string;
+}
+
+interface SchemaNode {
+  id: string;
+  name: string;
+  description: string;
+  type: SchemaType;
+  location?: ParamLocation;
+  required?: boolean;
+  responseMode?: ResponseMode;
+  children?: SchemaNode[];
+}
+
+interface FlatInputNode extends SchemaNode {
+  depth: number;
 }
 
 type ToolIconName = 'add' | 'back' | 'check' | 'copy' | 'next' | 'play' | 'save' | 'schema' | 'search' | 'sparkles' | 'trash';
@@ -111,9 +554,9 @@ const SchemaEditor = defineComponent({
     ].map((value) => ({ label: value, value }));
     const locationOptions = ['Header', 'Query', 'Body', 'Path'].map((value) => ({ label: value, value }));
     const responseModeOptions = computed(() => [
-      { label: t('legacy.llm_summary'), value: 'summarized' },
-      { label: t('legacy.original_response'), value: 'original' },
-      { label: t('legacy.main_answer'), value: 'answer' },
+      { label: t('大模型总结'), value: 'summarized' },
+      { label: t('原始返回'), value: 'original' },
+      { label: t('主要答案'), value: 'answer' },
     ]);
 
     function flatten(nodes: SchemaNode[], depth = 0): Array<{ node: SchemaNode; depth: number }> {
@@ -126,22 +569,22 @@ const SchemaEditor = defineComponent({
     return () => {
       const flat = flatten(props.nodes);
       if (!flat.length) {
-        return h(NEmpty, { description: props.mode === 'input' ? t('legacy.no_input_parameters_defined_yet') : t('legacy.no_output_parameters_defined_yet') });
+        return h(NEmpty, { description: props.mode === 'input' ? t('还没有定义入参') : t('还没有定义出参') });
       }
       return h('div', { class: 'schema-editor' }, [
         h('div', { class: ['schema-grid', 'schema-head', props.mode === 'input' ? 'input-grid' : 'output-grid'] }, props.mode === 'input'
-          ? [t('legacy.parameter_name'), t('legacy.description_463de98'), t('legacy.type'), t('legacy.location'), t('legacy.required'), t('legacy.actions')].map((text) => h('span', text))
-          : [t('legacy.field_name'), t('legacy.description_805453d'), t('legacy.type'), t('legacy.usage_mode'), t('legacy.actions')].map((text) => h('span', text))),
+          ? [t('参数名称'), t('参数描述'), t('类型'), t('传入位置'), t('必填'), t('操作')].map((text) => h('span', text))
+          : [t('字段名称'), t('字段描述'), t('类型'), t('使用方式'), t('操作')].map((text) => h('span', text))),
         flat.map(({ node, depth }) => h('div', { key: node.id, class: ['schema-grid', props.mode === 'input' ? 'input-grid' : 'output-grid'] }, [
           h(NInput, {
             value: node.name,
-            placeholder: depth > 0 && node.type === 'Array' ? '[Array Item]' : t('legacy.please_enter'),
+            placeholder: depth > 0 && node.type === 'Array' ? '[Array Item]' : t('请输入'),
             style: { marginLeft: `${depth * 24}px`, width: `calc(100% - ${depth * 24}px)` },
             'onUpdate:value': (value: string) => { node.name = value.replace(/[^a-zA-Z0-9_]/g, ''); },
           }),
           h(NInput, {
             value: node.description,
-            placeholder: props.mode === 'input' ? t('legacy.help_agent_understand_how_to_extract_parameter') : t('legacy.help_agent_understand_return_field'),
+            placeholder: props.mode === 'input' ? t('帮助 agent 理解如何提取参数') : t('帮助 agent 理解返回字段'),
             'onUpdate:value': (value: string) => { node.description = value; },
           }),
           h(NSelect, {
@@ -177,8 +620,8 @@ const SchemaEditor = defineComponent({
               quaternary: true,
               disabled: !['Object', 'Array', 'ArrayObject'].includes(node.type),
               onClick: () => emit('add-child', node.id),
-            }, { icon: () => h(ToolIcon, { name: 'add' }), default: () => t('legacy.child') }),
-            h(NButton, { size: 'small', quaternary: true, type: 'error', onClick: () => emit('remove', node.id) }, { icon: () => h(ToolIcon, { name: 'trash' }), default: () => t('legacy.delete') }),
+            }, { icon: () => h(ToolIcon, { name: 'add' }), default: () => t('子项') }),
+            h(NButton, { size: 'small', quaternary: true, type: 'error', onClick: () => emit('remove', node.id) }, { icon: () => h(ToolIcon, { name: 'trash' }), default: () => t('删除') }),
           ]),
         ])),
       ]);
@@ -198,6 +641,12 @@ const testing = ref(false);
 const generatingDescription = ref(false);
 const activeStep = ref(1);
 const toolId = ref('');
+
+// 038 T025：工具级出站例外（scope=tool，绑当前 tool_id）
+const toolEgressRules = ref<EgressRule[]>([]);
+const savingEgress = ref(false);
+const removingEgressId = ref('');
+const egressForm = reactive({ matchDomain: '', pathPrefix: '', note: '' });
 
 const headerRows = ref<HeaderRow[]>([]);
 const inputSchema = ref<SchemaNode[]>([]);
@@ -222,34 +671,34 @@ const form = reactive<ToolPayload>({
 });
 
 const rules: FormRules = {
-  name: { required: true, message: t('legacy.please_enter_tool_name'), trigger: 'blur' },
-  type: { required: true, message: t('legacy.please_select_tool_type'), trigger: 'change' },
-  description: { required: true, message: t('legacy.please_enter_tool_description'), trigger: 'blur' },
+  name: { required: true, message: t('请输入工具名称'), trigger: 'blur' },
+  type: { required: true, message: t('请选择工具类型'), trigger: 'change' },
+  description: { required: true, message: t('请填写工具说明'), trigger: 'blur' },
   'config.url': {
     validator: (_rule, value) => {
       if (form.type !== 'http') return true;
-      return String(value || '').trim() ? true : new Error(t('legacy.please_enter_request_url'));
+      return String(value || '').trim() ? true : new Error(t('请填写请求地址'));
     },
     trigger: ['blur', 'change'],
   },
   'config.endpoint': {
     validator: (_rule, value) => {
       if (form.type !== 'mcp') return true;
-      return String(value || '').trim() ? true : new Error(t('legacy.please_enter_mcp_endpoint'));
+      return String(value || '').trim() ? true : new Error(t('请填写 MCP 服务地址'));
     },
     trigger: ['blur', 'change'],
   },
   'config.apiKeyHeader': {
     validator: () => {
       if (form.config.authType !== 'api_key') return true;
-      return String(form.config.apiKeyHeader || '').trim() ? true : new Error(t('legacy.please_enter_the_header_name'));
+      return String(form.config.apiKeyHeader || '').trim() ? true : new Error(t('请填写 Header 名称'));
     },
     trigger: ['blur', 'change'],
   },
   'config.authToken': {
     validator: () => {
       if (form.config.authType === 'none') return true;
-      return String(form.config.authToken || '').trim() ? true : new Error(t('legacy.please_enter_the_token_key'));
+      return String(form.config.authToken || '').trim() ? true : new Error(t('请填写 Token / Key'));
     },
     trigger: ['blur', 'change'],
   },
@@ -257,9 +706,9 @@ const rules: FormRules = {
 
 const methodOptions = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((value) => ({ label: value, value }));
 const authOptions = computed(() => [
-  { label: t('legacy.none'), value: 'none' },
-  { label: t('legacy.bearer_token'), value: 'bearer' },
-  { label: t('legacy.api_key_header'), value: 'api_key' },
+  { label: t('无'), value: 'none' },
+  { label: t('Bearer Token（令牌）'), value: 'bearer' },
+  { label: t('API Key Header（请求头）'), value: 'api_key' },
 ]);
 
 const isCreate = computed(() => !route.params.id);
@@ -280,16 +729,16 @@ const enabledSwitch = computed({
 const steps = computed(() => {
   if (form.type === 'mcp') {
     return [
-      { key: 'base', title: t('legacy.basic_info'), description: t('legacy.name_description') },
-      { key: 'request', title: t('legacy.connection_config'), description: t('legacy.url_auth_headers') },
-      { key: 'mcpTools', title: t('legacy.discover_tools'), description: t('legacy.fetch_remote_mcp_tool_schema') },
+      { key: 'base', title: t('基础信息'), description: t('名称与说明') },
+      { key: 'request', title: t('连接配置'), description: t('地址、鉴权和 Headers') },
+      { key: 'mcpTools', title: t('发现工具'), description: t('读取远程 MCP 工具 Schema') },
     ];
   }
   return [
-    { key: 'base', title: t('legacy.basic_info'), description: t('legacy.name_description') },
-    { key: 'request', title: t('legacy.request_config'), description: t('legacy.url_method_auth_headers') },
-    { key: 'input', title: t('legacy.input_definition'), description: t('legacy.parameters_agent_needs_to_pass') },
-    { key: 'output', title: t('legacy.output_definition'), description: t('legacy.meaning_usage_of_response_fields') },
+    { key: 'base', title: t('基础信息'), description: t('名称与说明') },
+    { key: 'request', title: t('请求配置'), description: t('URL、请求方法、鉴权和 Headers') },
+    { key: 'input', title: t('入参定义'), description: t('Agent 调用时需要填写的参数') },
+    { key: 'output', title: t('出参定义'), description: t('响应字段含义和使用方式') },
   ];
 });
 const activeKey = computed(() => steps.value[activeStep.value - 1]?.key || 'base');
@@ -311,7 +760,7 @@ const groupedDebugNodes = computed(() => {
 });
 const debugEndpointText = computed(() => {
   const value = form.type === 'mcp' ? form.config.endpoint : form.config.url;
-  return String(value || t('legacy.no_endpoint_configured'));
+  return String(value || t('未配置地址'));
 });
 const debugRequestPreview = computed(() => {
   if (!Object.keys(lastRequest.value).length) return {};
@@ -330,13 +779,13 @@ const currentConfigSignature = computed(() => JSON.stringify(buildPayload()));
 const canInferOutputSchema = computed(() => form.type === 'http' && Boolean(extractTestResponseBody()));
 const testConfigDirty = computed(() => Boolean(testResult.value) && lastTestConfigSignature.value !== currentConfigSignature.value);
 const testStatusLabel = computed(() => {
-  if (testConfigDirty.value) return t('legacy.retest_needed');
-  if (!testResult.value) return t('legacy.untested');
-  return testResult.value.success ? t('legacy.passed_4b3c965') : t('legacy.failed');
+  if (testConfigDirty.value) return t('需重测');
+  if (!testResult.value) return t('未测试');
+  return testResult.value.success ? t('已通过') : t('失败');
 });
 const testStatusText = computed(() => {
-  if (testConfigDirty.value) return t('legacy.config_changed');
-  if (!testResult.value) return t('legacy.ready_to_test_current_draft');
+  if (testConfigDirty.value) return t('配置已变更');
+  if (!testResult.value) return t('可直接测试当前草稿');
   return String(testResult.value.message || '');
 });
 const testStatusTagType = computed(() => {
@@ -355,7 +804,7 @@ async function copyJson(value: unknown, successText: string) {
     await navigator.clipboard.writeText(text);
     message.success(successText);
   } catch {
-    message.error(t('legacy.copy_failed'));
+    message.error(t('复制失败'));
   }
 }
 
@@ -420,10 +869,240 @@ function normalizeNodes(nodes: any[]): SchemaNode[] {
   }));
 }
 
+function normalizeType(value: unknown): SchemaType {
+  return ['String', 'Integer', 'Number', 'Boolean', 'Object', 'Array', 'ArrayObject'].includes(String(value))
+    ? String(value) as SchemaType
+    : 'String';
+}
+
+function normalizeLocation(value: unknown): ParamLocation {
+  return ['Header', 'Query', 'Body', 'Path'].includes(String(value)) ? String(value) as ParamLocation : 'Query';
+}
+
+function normalizeResponseMode(value: unknown): ResponseMode {
+  return ['summarized', 'original', 'answer'].includes(String(value)) ? String(value) as ResponseMode : 'summarized';
+}
+
+function inferSchemaType(value: unknown): SchemaType {
+  if (Array.isArray(value)) return 'Array';
+  if (value === null || value === undefined) return 'String';
+  if (typeof value === 'boolean') return 'Boolean';
+  if (typeof value === 'number') return Number.isInteger(value) ? 'Integer' : 'Number';
+  if (typeof value === 'object') return 'Object';
+  return 'String';
+}
+
+function readableType(type: SchemaType) {
+  const labels: Record<SchemaType, string> = {
+    String: t('类型文本'),
+    Integer: t('类型整数'),
+    Number: t('类型数值'),
+    Boolean: t('类型布尔值'),
+    Object: t('类型对象'),
+    Array: t('类型数组'),
+    ArrayObject: t('类型对象数组'),
+  };
+  return labels[type] || type;
+}
+
+function splitFieldTokens(value: string) {
+  return String(value || '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .split(/[^a-zA-Z0-9]+/)
+    .map((part) => part.toLowerCase())
+    .filter(Boolean);
+}
+
+/** 字段语义推断的关键词规则表：命中任一关键词即返回对应含义文案。 */
+interface FieldMeaningRule {
+  tokens: string[];
+  label: string;
+}
+
+const FIELD_MEANING_RULES: FieldMeaningRule[] = [
+  { tokens: ['name'], label: t('字段含义名称') },
+  { tokens: ['title'], label: t('字段含义标题') },
+  { tokens: ['status', 'state'], label: t('字段含义状态') },
+  { tokens: ['type', 'category'], label: t('字段含义类型') },
+  { tokens: ['count', 'total', 'num', 'quantity'], label: t('字段含义数量') },
+  { tokens: ['amount', 'price', 'cost', 'fee'], label: t('字段含义金额') },
+  { tokens: ['date', 'time', 'created', 'updated'], label: t('字段含义时间') },
+  { tokens: ['url', 'link', 'uri'], label: t('字段含义链接') },
+  { tokens: ['desc', 'description', 'summary'], label: t('字段含义描述') },
+  { tokens: ['content', 'text'], label: t('字段含义正文') },
+  { tokens: ['message', 'msg'], label: t('字段含义消息') },
+  { tokens: ['code'], label: t('字段含义编码') },
+  { tokens: ['score', 'rate', 'ratio'], label: t('字段含义分值') },
+];
+
+function commonFieldMeaning(name: string, path: string) {
+  const tokens = splitFieldTokens(`${path}_${name}`);
+  const tokenSet = new Set(tokens);
+  const joined = tokens.join('_');
+  // 主键类字段优先按 id / *_id 识别，再逐条走关键词表。
+  if (tokenSet.has('id') || joined.endsWith('_id')) return t('字段含义标识');
+  for (const token of tokens) {
+    const rule = FIELD_MEANING_RULES.find((item) => item.tokens.includes(token));
+    if (rule) return rule.label;
+  }
+  return '';
+}
+
+function childFieldSummary(value: unknown) {
+  let record: Record<string, unknown> | null = null;
+  if (Array.isArray(value)) {
+    const sample = sampleArrayItem(value);
+    if (sample && typeof sample === 'object' && !Array.isArray(sample)) {
+      record = sample as Record<string, unknown>;
+    }
+  } else if (value && typeof value === 'object') {
+    record = value as Record<string, unknown>;
+  }
+  if (!record) return '';
+  const keys = Object.keys(record).filter(Boolean).slice(0, 6);
+  if (!keys.length) return '';
+  return `，包含 ${keys.join('、')}${Object.keys(record).length > keys.length ? ' 等' : ''} 子字段`;
+}
+
+function schemaDescriptionForValue(name: string, value: unknown, path = name) {
+  const type = inferSchemaType(value);
+  const fieldPath = path || name;
+  const meaning = commonFieldMeaning(name, fieldPath);
+  if (Array.isArray(value)) {
+    return `数组字段 \`${fieldPath}\`${childFieldSummary(value)}，用于描述列表型响应数据`;
+  }
+  if (value && typeof value === 'object') {
+    return `对象字段 \`${fieldPath}\`${childFieldSummary(value)}，用于承载结构化响应数据`;
+  }
+  return `响应字段 \`${fieldPath}\`，类型为${readableType(type)}${meaning ? `，${meaning}` : ''}`;
+}
+
+function isAutoGeneratedDescription(value: unknown) {
+  const text = String(value || '').trim();
+  if (!text) return true;
+  return (
+    text === '测试响应字段'
+    || text === '测试响应中的对象字段'
+    || text === '测试响应中的数组字段'
+    || text === '测试响应中的数组字段，子项结构来自样例数据'
+    || text.startsWith('响应字段 `')
+    || text.startsWith('对象字段 `')
+    || text.startsWith('数组字段 `')
+    || text.startsWith('Response field `')
+    || text.startsWith('Object field `')
+    || text.startsWith('Array field `')
+    || text === '主要结果路径中的对象字段'
+    || text === 'Object field in the primary result path'
+  );
+}
+
+function sampleArrayItem(values: unknown[]): unknown {
+  const objectItems = values.filter((item) => item && typeof item === 'object' && !Array.isArray(item));
+  if (!objectItems.length) return values.find((item) => item !== null && item !== undefined);
+  return objectItems.slice(0, 10).reduce<Record<string, unknown>>((merged, item) => {
+    Object.assign(merged, item as Record<string, unknown>);
+    return merged;
+  }, {});
+}
+
+function inferNodesFromRecord(record: Record<string, unknown>, prefix = ''): SchemaNode[] {
+  return Object.entries(record)
+    .filter(([name]) => String(name || '').trim())
+    .map(([name, value]) => inferNodeFromValue(name, value, prefix ? `${prefix}.${name}` : name));
+}
+
+function inferNodeFromValue(name: string, value: unknown, path = name): SchemaNode {
+  const type = inferSchemaType(value);
+  const node = newSchemaNode({
+    name,
+    type,
+    location: undefined,
+    required: false,
+    responseMode: type === 'Object' || type === 'Array' ? 'summarized' : 'original',
+    description: schemaDescriptionForValue(name, value, path),
+    children: [],
+  });
+  if (type === 'Object' && value && typeof value === 'object' && !Array.isArray(value)) {
+    node.children = inferNodesFromRecord(value as Record<string, unknown>, path);
+  } else if (type === 'Array' && Array.isArray(value)) {
+    const sample = sampleArrayItem(value);
+    if (sample && typeof sample === 'object' && !Array.isArray(sample)) {
+      node.children = inferNodesFromRecord(sample as Record<string, unknown>, `${path}[]`);
+    }
+  }
+  return node;
+}
+
+function parseResultPath(path: string): string[] {
+  return String(path || '')
+    .replace(/\[(\d+)\]/g, '.$1')
+    .split('.')
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function resolvePath(value: unknown, path: string): unknown {
+  let current = value;
+  for (const part of parseResultPath(path)) {
+    if (Array.isArray(current)) {
+      const index = Number(part);
+      if (!Number.isInteger(index) || index < 0 || index >= current.length) return undefined;
+      current = current[index];
+    } else if (current && typeof current === 'object') {
+      const record = current as Record<string, unknown>;
+      if (!(part in record)) return undefined;
+      current = record[part];
+    } else {
+      return undefined;
+    }
+  }
+  return current;
+}
+
+function wrapNodesWithResultPath(nodes: SchemaNode[], value: unknown, path: string): SchemaNode[] {
+  const parts = parseResultPath(path).filter((part) => !/^\d+$/.test(part));
+  if (!parts.length) return nodes;
+  let childNodes = nodes;
+  let childValue = value;
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    const isLeaf = index === parts.length - 1;
+    const nodeValue = isLeaf ? childValue : {};
+    childNodes = [
+      newSchemaNode({
+        name: parts[index],
+        type: isLeaf ? inferSchemaType(nodeValue) : 'Object',
+        location: undefined,
+        required: false,
+        responseMode: 'summarized',
+        description: isLeaf
+          ? schemaDescriptionForValue(parts[index], nodeValue, parts.slice(0, index + 1).join('.'))
+          : `对象字段 \`${parts.slice(0, index + 1).join('.')}\`，主要结果路径中的结构化响应数据`,
+        children: childNodes,
+      }),
+    ];
+  }
+  return childNodes;
+}
+
 function extractTestResponseBody(): unknown {
   if (!testResult.value) return undefined;
   if ('raw' in testResult.value) return testResult.value.raw;
   return undefined;
+}
+
+/** 把数组/对象/标量三类响应值转换成 schema 节点列表。 */
+function resolveSelectedNodes(selected: unknown, resultPath: string): SchemaNode[] {
+  if (Array.isArray(selected)) {
+    const sample = sampleArrayItem(selected);
+    if (sample && typeof sample === 'object' && !Array.isArray(sample)) {
+      return inferNodesFromRecord(sample as Record<string, unknown>, resultPath ? `${resultPath}[]` : '');
+    }
+    return [inferNodeFromValue('items', selected, resultPath || 'items')];
+  }
+  if (selected && typeof selected === 'object') {
+    return inferNodesFromRecord(selected as Record<string, unknown>, resultPath);
+  }
+  return [inferNodeFromValue('value', selected, resultPath || 'value')];
 }
 
 function schemaFromTestResponse(): SchemaNode[] {
@@ -432,19 +1111,7 @@ function schemaFromTestResponse(): SchemaNode[] {
   const resultPath = String(form.config.resultPath || '').trim();
   const selected = resultPath ? resolvePath(raw, resultPath) : raw;
   if (selected === undefined || selected === null) return [];
-  let nodes: SchemaNode[];
-  if (Array.isArray(selected)) {
-    const sample = sampleArrayItem(selected);
-    if (sample && typeof sample === 'object' && !Array.isArray(sample)) {
-      nodes = inferNodesFromRecord(sample as Record<string, unknown>, resultPath ? `${resultPath}[]` : '');
-    } else {
-      nodes = [inferNodeFromValue('items', selected, resultPath || 'items')];
-    }
-  } else if (selected && typeof selected === 'object') {
-    nodes = inferNodesFromRecord(selected as Record<string, unknown>, resultPath);
-  } else {
-    nodes = [inferNodeFromValue('value', selected, resultPath || 'value')];
-  }
+  const nodes = resolveSelectedNodes(selected, resultPath);
   return resultPath ? wrapNodesWithResultPath(nodes, selected, resultPath) : nodes;
 }
 
@@ -476,14 +1143,14 @@ function mergeSchemaNodes(target: SchemaNode[], incoming: SchemaNode[]): number 
 function inferOutputSchemaFromTest() {
   const inferred = schemaFromTestResponse();
   if (!inferred.length) {
-    message.warning(t('legacy.current_test_response_cannot_generate_output_definition'));
+    message.warning(t('当前测试响应无法生成出参定义'));
     return;
   }
   const added = mergeSchemaNodes(outputSchema.value, inferred);
   if (added > 0) {
-    message.success(t('legacy.added_output_fields', { count: added }));
+    message.success(t('已添加 {count} 个出参字段', { count: added }));
   } else {
-    message.info(t('legacy.output_definition_already_contains_response_fields'));
+    message.info(t('出参定义已包含响应中的字段'));
   }
 }
 
@@ -525,8 +1192,6 @@ function newSchemaNode(partial: Partial<SchemaNode> = {}): SchemaNode {
     ...partial,
   };
 }
-
-const { readableType, normalizeType, normalizeLocation, normalizeResponseMode, inferSchemaType, splitFieldTokens, commonFieldMeaning, childFieldSummary, schemaDescriptionForValue, isAutoGeneratedDescription, sampleArrayItem, inferNodesFromRecord, inferNodeFromValue, parseResultPath, resolvePath, wrapNodesWithResultPath } = createToolSchemaInference(newSchemaNode);
 
 function addInputNode(parentId?: string) {
   if (!parentId) {
@@ -606,15 +1271,15 @@ async function saveTool() {
     const payload = buildPayload();
     if (toolId.value) {
       await updateTool(toolId.value, payload);
-      message.success(t('legacy.tool_config_saved'));
+      message.success(t('工具配置已保存'));
     } else {
       const created = await createTool(payload);
       toolId.value = created.id;
-      message.success(t('legacy.tool_config_created'));
+      message.success(t('工具配置已创建'));
       router.replace(`/tools/${created.id}/edit`);
     }
   } catch (error: any) {
-    message.error(error?.response?.data?.detail || error?.message || t('legacy.failed_to_save'));
+    message.error(error?.response?.data?.detail || error?.message || t('保存失败'));
   } finally {
     saving.value = false;
   }
@@ -632,15 +1297,15 @@ async function saveDraft() {
     const payload = buildPayload();
     if (toolId.value) {
       await updateTool(toolId.value, payload);
-      message.success(t('legacy.draft_saved'));
+      message.success(t('草稿已保存'));
     } else {
       const created = await createTool(payload);
       toolId.value = created.id;
-      message.success(t('legacy.draft_created'));
+      message.success(t('草稿已创建'));
       router.replace(`/tools/${created.id}/edit`);
     }
   } catch (error: any) {
-    message.error(error?.response?.data?.detail || error?.message || t('legacy.failed_to_save_draft'));
+    message.error(error?.response?.data?.detail || error?.message || t('草稿保存失败'));
   } finally {
     saving.value = false;
   }
@@ -649,7 +1314,7 @@ async function saveDraft() {
 async function generateDescriptionFromName() {
   const toolName = form.name.trim();
   if (!toolName) {
-    message.warning(t('legacy.please_enter_tool_name_first'));
+    message.warning(t('请先填写工具名称'));
     return;
   }
   generatingDescription.value = true;
@@ -661,13 +1326,13 @@ async function generateDescriptionFromName() {
     });
     const generated = String(result?.description || '').trim();
     if (!generated) {
-      message.warning(t('legacy.failed_to_generate_description_please_try_again'));
+      message.warning(t('未生成有效描述，请重试'));
       return;
     }
     form.description = generated;
-    message.success(t('legacy.tool_description_generated'));
+    message.success(t('已生成工具说明'));
   } catch (error: any) {
-    message.error(error?.response?.data?.detail || t('legacy.failed_to_generate'));
+    message.error(error?.response?.data?.detail || t('生成失败'));
   } finally {
     generatingDescription.value = false;
   }
@@ -675,11 +1340,11 @@ async function generateDescriptionFromName() {
 
 function validateBaseStep() {
   if (!form.name.trim()) {
-    message.warning(t('legacy.please_enter_tool_name_first'));
+    message.warning(t('请先填写工具名称'));
     return false;
   }
   if (!form.description.trim()) {
-    message.warning(t('legacy.please_enter_tool_description_first'));
+    message.warning(t('请先填写工具说明'));
     return false;
   }
   return true;
@@ -687,19 +1352,19 @@ function validateBaseStep() {
 
 function validateRequestStep() {
   if (form.type === 'http' && !String(form.config.url || '').trim()) {
-    message.warning(t('legacy.please_enter_request_url_first'));
+    message.warning(t('请先填写请求地址'));
     return false;
   }
   if (form.type === 'mcp' && !String(form.config.endpoint || '').trim()) {
-    message.warning(t('legacy.please_enter_mcp_endpoint_first'));
+    message.warning(t('请先填写 MCP 服务地址'));
     return false;
   }
   if (form.config.authType === 'api_key' && !String(form.config.apiKeyHeader || '').trim()) {
-    message.warning(t('legacy.please_enter_the_header_name_first'));
+    message.warning(t('请先填写 Header 名称'));
     return false;
   }
   if (form.config.authType !== 'none' && !String(form.config.authToken || '').trim()) {
-    message.warning(t('legacy.please_enter_the_token_key_first'));
+    message.warning(t('请先填写 Token / Key'));
     return false;
   }
   return true;
@@ -766,9 +1431,9 @@ async function discoverTools() {
     if (mcpActivationError(buildPayload())) {
       form.status = 'disabled';
     }
-    message.success(result.message || t('legacy.mcp_tool_discovery_completed'));
+    message.success(result.message || t('MCP 工具发现完成'));
   } catch (error: any) {
-    message.error(error?.response?.data?.detail || t('legacy.mcp_tool_discovery_failed'));
+    message.error(error?.response?.data?.detail || t('MCP 工具发现失败'));
   } finally {
     discovering.value = false;
   }
@@ -813,41 +1478,71 @@ function buildHttpTestInput() {
   return { query, body, headers, path };
 }
 
+/** 构造调试输入：MCP 工具解析 arguments JSON，HTTP 工具按节点位置分桶。 */
+function buildDebugInput() {
+  if (form.type === 'mcp') {
+    return {
+      toolName: debugMcpToolName.value,
+      arguments: JSON.parse(debugMcpArguments.value || '{}'),
+    };
+  }
+  return buildHttpTestInput();
+}
+
+/** 读取超时秒数（缺失时回退默认 15 秒）。 */
+function timeoutSecondsOf(value: unknown) {
+  return Number(value || 15);
+}
+
+/** 从异常对象中取出可读的错误文案（后端 detail 优先，其次异常 message）。 */
+function readErrorDetail(error: unknown): string {
+  if (!error || typeof error !== 'object') return '';
+  const record = error as { response?: { data?: { detail?: unknown } }; message?: unknown };
+  const detail = record.response && record.response.data && record.response.data.detail;
+  const message = typeof record.message === 'string' ? record.message : '';
+  return String(detail || message || '').trim();
+}
+
+/** 判断异常是否为请求超时（axios ECONNABORTED 或文案命中超时关键词）。 */
+function isTimeoutError(error: unknown, rawMessage: string): boolean {
+  if (error && typeof error === 'object' && (error as { code?: unknown }).code === 'ECONNABORTED') return true;
+  return /timeout|timed out|超时/i.test(rawMessage);
+}
+
+/** 组装测试失败结果：超时与一般失败使用不同错误码与文案。 */
+function buildFailureResult(error: unknown, startedAt: number) {
+  const timeout = isTimeoutError(error, readErrorDetail(error));
+  const errorMessage = timeout
+    ? t('请求超时', { seconds: timeoutSecondsOf(form.config.timeoutSeconds) })
+    : (readErrorDetail(error) || t('测试失败'));
+  return {
+    success: false,
+    status: 'failed',
+    errorCode: timeout ? 'timeout' : 'request_failed',
+    message: errorMessage,
+    responseSummary: errorMessage,
+    durationMs: Math.round(performance.now() - startedAt),
+  };
+}
+
 async function runDebug() {
   if (!toolId.value) {
-    message.warning(t('legacy.please_save_the_tool_first_before_running_test'));
+    message.warning(t('请先保存工具，再执行测试。'));
     return;
   }
   testing.value = true;
   const startedAt = performance.now();
   try {
-    const input = form.type === 'mcp'
-      ? {
-        toolName: debugMcpToolName.value,
-        arguments: JSON.parse(debugMcpArguments.value || '{}'),
-      }
-      : buildHttpTestInput();
+    const input = buildDebugInput();
     lastRequest.value = input;
     const payload = buildPayload();
     await updateTool(toolId.value, payload);
-    testResult.value = await testTool(toolId.value, input, Number(payload.config.timeoutSeconds || 15));
+    testResult.value = await testTool(toolId.value, input, timeoutSecondsOf(payload.config.timeoutSeconds));
     lastTestConfigSignature.value = JSON.stringify(payload);
-  } catch (error: any) {
-    const configuredTimeout = Number(form.config.timeoutSeconds || 15);
-    const rawMessage = String(error?.response?.data?.detail || error?.message || '').trim();
-    const isTimeout = error?.code === 'ECONNABORTED' || timeoutMessagePattern.test(rawMessage);
-    const errorMessage = isTimeout
-      ? t('legacy.request_timed_out_no_response_after_seconds', { seconds: configuredTimeout })
-      : (rawMessage || t('legacy.test_failed'));
-    testResult.value = {
-      success: false,
-      status: 'failed',
-      errorCode: isTimeout ? 'timeout' : 'request_failed',
-      message: errorMessage,
-      responseSummary: errorMessage,
-      durationMs: Math.round(performance.now() - startedAt),
-    };
-    message.error(errorMessage);
+  } catch (error) {
+    const failure = buildFailureResult(error, startedAt);
+    testResult.value = failure;
+    message.error(failure.message);
   } finally {
     testing.value = false;
   }
@@ -917,6 +1612,63 @@ function applyLoadedTool(tool: ExternalToolItem) {
     : [];
 }
 
+async function loadToolEgressRules() {
+  if (!toolId.value) {
+    toolEgressRules.value = [];
+    return;
+  }
+  try {
+    // 列表端点只支持按 scope 过滤，工具维度在前端按 tool_id 再筛一层。
+    const page = await fetchEgressAllowlist({ scope: 'tool' });
+    toolEgressRules.value = page.items.filter((rule) => rule.tool_id === toolId.value);
+  } catch {
+    // 白名单读取失败不阻塞工具编辑：置空并保持页面其它能力可用。
+    toolEgressRules.value = [];
+  }
+}
+
+async function addToolEgressRule() {
+  const matchDomain = egressForm.matchDomain.trim();
+  if (!matchDomain) {
+    message.warning(t('请填写域名'));
+    return;
+  }
+  if (!toolId.value) return;
+  savingEgress.value = true;
+  try {
+    await createEgressRule({
+      scope: 'tool',
+      tool_id: toolId.value,
+      match_domain: matchDomain,
+      path_prefix: egressForm.pathPrefix.trim(),
+      note: egressForm.note.trim(),
+      enabled: true,
+    });
+    egressForm.matchDomain = '';
+    egressForm.pathPrefix = '';
+    egressForm.note = '';
+    message.success(t('已添加工具级例外'));
+    await loadToolEgressRules();
+  } catch (error: any) {
+    message.error(error?.response?.data?.detail || t('添加出站例外失败'));
+  } finally {
+    savingEgress.value = false;
+  }
+}
+
+async function removeToolEgressRule(entryId: string) {
+  removingEgressId.value = entryId;
+  try {
+    await deleteEgressRule(entryId);
+    message.success(t('已删除'));
+    await loadToolEgressRules();
+  } catch (error: any) {
+    message.error(error?.response?.data?.detail || t('删除出站例外失败'));
+  } finally {
+    removingEgressId.value = '';
+  }
+}
+
 async function loadTool() {
   const id = String(route.params.id || '');
   if (!id) {
@@ -928,8 +1680,9 @@ async function loadTool() {
   try {
     const tool = await fetchTool(id);
     applyLoadedTool(tool);
+    await loadToolEgressRules();
   } catch (error: any) {
-    message.error(error?.response?.data?.detail || t('legacy.failed_to_load_tool_configuration'));
+    message.error(error?.response?.data?.detail || t('加载工具配置失败'));
   } finally {
     loading.value = false;
   }
@@ -945,5 +1698,604 @@ watch(
 );
 </script>
 
-<style scoped src="./ToolEditPageStyles1.css"></style>
-<style scoped src="./ToolEditPageStyles2.css"></style>
+<style scoped>
+.tool-edit-page {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  padding: var(--mg-page-padding-y) var(--mg-page-padding-x);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.shell-card {
+  border-radius: 14px;
+  border: 1px solid var(--mg-border);
+  background: var(--mg-bg-surface);
+  box-shadow: 0 6px 20px rgba(16, 38, 84, 0.05);
+}
+
+.step-overview {
+  width: 100%;
+  margin: 0 auto;
+}
+
+.step-overview :deep(.n-card__content) {
+  padding: 16px 20px;
+}
+
+.clickable-steps :deep(.n-step) {
+  cursor: pointer;
+}
+
+.clickable-steps :deep(.n-step-content-header__title),
+.clickable-steps :deep(.n-step-content-header__description) {
+  transition: color 0.18s ease;
+}
+
+.clickable-steps :deep(.n-step:hover .n-step-content-header__title) {
+  color: var(--mg-brand);
+}
+
+.edit-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 460px;
+  gap: 16px;
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  margin: 0 auto;
+  box-sizing: border-box;
+  align-items: stretch;
+}
+
+.edit-main {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.content-card {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.content-card :deep(.n-card__content) {
+  padding-left: 28px;
+  padding-right: 28px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.content-card :deep(.n-card__header),
+.content-card :deep(.n-card__footer) {
+  padding-left: 28px;
+  padding-right: 28px;
+}
+
+.content-card :deep(.n-form) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.loading-placeholder {
+  padding: 8px 4px 14px;
+}
+
+.content-card-header,
+.section-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.section-head > div:first-child {
+  flex: 1;
+  min-width: 0;
+  margin-right: 16px;
+}
+
+.section-head > .n-button,
+.section-head > .n-space {
+  flex-shrink: 0;
+}
+
+.section-muted {
+  color: var(--mg-text-2);
+  font-size: 13px;
+  line-height: 1.5;
+  margin-top: 4px;
+  max-width: 520px;
+}
+
+.content-title,
+.section-title {
+  color: var(--mg-text-1);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.description-input-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.description-input-wrap :deep(.n-input__textarea-el),
+.description-input-wrap :deep(.n-input__placeholder) {
+  padding-right: 54px !important;
+}
+
+.generate-desc-button {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  z-index: 2;
+  color: var(--mg-brand);
+  background: rgba(47, 97, 255, 0.12);
+  border: 1px solid rgba(47, 97, 255, 0.28);
+}
+
+.generate-desc-button:hover {
+  color: var(--mg-brand);
+  background: rgba(47, 97, 255, 0.2);
+  border-color: rgba(47, 97, 255, 0.42);
+}
+
+.generate-desc-button:deep(.n-base-loading) {
+  margin: 0 !important;
+}
+
+.generate-desc-button:deep(.n-base-loading__container) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.generate-desc-button:deep(.n-button__content) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+:deep(.tool-icon),
+.tool-icon {
+  display: block;
+  width: 1em;
+  height: 1em;
+}
+
+.generate-desc-button:deep(.n-button__state-border),
+.generate-desc-button:deep(.n-button__state-icon) {
+  pointer-events: none;
+}
+
+.step-panel {
+  /* max-width: 1080px; */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.step-panel.flex-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.compact-table,
+.mcp-tool-list {
+  border: 1px solid var(--mg-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+:deep(.schema-editor) {
+  border: 1px solid var(--mg-border);
+  border-radius: 8px;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.compact-row,
+:deep(.schema-grid) {
+  align-items: center;
+  border-bottom: 1px solid var(--mg-border);
+  display: grid;
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.compact-row:last-child,
+:deep(.schema-grid:last-child) {
+  border-bottom: 0;
+}
+
+.compact-head,
+:deep(.schema-head) {
+  background: var(--mg-brand-soft);
+  color: var(--mg-text-2);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.header-grid {
+  grid-template-columns: minmax(180px, 1fr) minmax(260px, 2fr) 90px;
+}
+
+/* 038 T025：工具级出站例外表（域名 / 路径前缀 / 备注 / 操作） */
+.egress-grid {
+  grid-template-columns: minmax(180px, 1.4fr) minmax(120px, 1fr) minmax(140px, 1.2fr) 100px;
+}
+
+.egress-text {
+  color: var(--mg-text-1);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:deep(.input-grid) {
+  grid-template-columns: minmax(120px, 1.1fr) minmax(150px, 1.4fr) 100px 100px 60px 110px;
+}
+
+:deep(.output-grid) {
+  grid-template-columns: minmax(120px, 1.1fr) minmax(180px, 1.6fr) 100px 110px 110px;
+}
+
+:deep(.schema-actions) {
+  display: flex;
+  gap: 4px;
+}
+
+.step-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+}
+
+.debug-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(320px, 0.9fr) minmax(420px, 1.1fr);
+}
+
+.debug-left,
+.debug-right {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.debug-param-row {
+  display: grid;
+  gap: 8px;
+}
+
+.debug-param-row label {
+  color: var(--mg-text-1);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.debug-param-row span {
+  color: var(--mg-danger-text);
+}
+
+.result-panel {
+  border: 1px solid var(--mg-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.result-title {
+  background: var(--mg-brand-soft);
+  color: var(--mg-text-1);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 10px 12px;
+}
+
+.result-title-row {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.mcp-tool-card {
+  border-bottom: 1px solid var(--mg-border);
+  padding: 14px;
+}
+
+.mcp-tool-card:last-child {
+  border-bottom: 0;
+}
+
+.mcp-tool-main {
+  align-items: flex-start;
+  display: flex;
+  gap: 10px;
+}
+
+.mcp-tool-name {
+  color: var(--mg-text-1);
+  font-weight: 700;
+}
+
+.aside-card {
+  height: 100%;
+  min-height: 0;
+  position: sticky;
+  top: 12px;
+}
+
+.aside-card :deep(.n-card__content) {
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.debug-aside {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.debug-workspace {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.aside-title-row {
+  align-items: flex-start;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.aside-title {
+  color: var(--mg-text-1);
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.aside-subtitle {
+  margin-top: 14px;
+  color: var(--mg-text-1);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.aside-subtitle.compact-title {
+  margin-top: 2px;
+}
+
+.aside-desc {
+  margin-top: 4px;
+  color: var(--mg-text-2);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.debug-overview {
+  border: 1px solid var(--mg-border);
+  border-radius: 10px;
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+}
+
+.debug-overview span {
+  color: var(--mg-text-2);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.debug-overview strong {
+  color: var(--mg-text-1);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.debug-param-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.debug-group-title {
+  color: var(--mg-text-2);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.debug-param-row.compact {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 96px minmax(0, 1fr);
+}
+
+.debug-param-row.compact label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.test-summary {
+  background: var(--mg-bg-subtle);
+  border: 1px solid var(--mg-border);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+}
+
+.test-summary-row {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--mg-text-2);
+  font-size: 12px;
+}
+
+.test-summary-row strong {
+  color: var(--mg-text-1);
+  font-weight: 700;
+}
+
+.test-metrics-row {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.test-metrics-row div {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.test-metrics-row div:last-child {
+  justify-content: flex-end;
+}
+
+.test-metrics-row span {
+  color: var(--mg-text-2);
+  font-size: 12px;
+  flex: none;
+}
+
+.test-metrics-row strong {
+  color: var(--mg-text-1);
+  font-size: 12px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.success-text {
+  color: var(--mg-success-text) !important;
+}
+
+.error-text {
+  color: var(--mg-danger-text) !important;
+}
+
+.response-summary {
+  color: var(--mg-text-1);
+  font-size: 12px;
+  line-height: 1.45;
+  max-height: 58px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+
+.debug-json-scroll {
+  border-top: 1px solid var(--mg-border);
+  flex: 1;
+  min-height: 120px;
+  overflow: auto;
+  padding-top: 2px;
+}
+
+.debug-collapse {
+  min-width: 0;
+}
+
+.json-panel-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.json-panel-header span {
+  color: var(--mg-text-1);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.json-pre-panel {
+  background:
+    linear-gradient(90deg, rgba(64, 109, 246, 0.1) 0, rgba(64, 109, 246, 0.1) 3px, transparent 3px),
+    #0f172a;
+  border: 1px solid var(--mg-brand-soft-border);
+  border-radius: 8px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  margin: 0;
+  max-height: 210px;
+  overflow: auto;
+  padding: 10px 12px 10px 14px;
+}
+
+.json-code-panel {
+  color: var(--mg-brand-text);
+  display: block;
+  font-family: "SFMono-Regular", "Menlo", "Consolas", "Liberation Mono", monospace;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.55;
+  tab-size: 2;
+  white-space: pre;
+  word-break: normal;
+}
+
+@media (max-width: 1280px) {
+  .edit-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .debug-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .tool-edit-page {
+    padding: 0 12px 16px;
+    gap: 12px;
+  }
+
+  .content-card :deep(.n-card__content),
+  .content-card :deep(.n-card__header),
+  .content-card :deep(.n-card__footer) {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+}
+</style>

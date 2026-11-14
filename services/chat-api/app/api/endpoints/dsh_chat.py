@@ -1,44 +1,22 @@
 """Formal Chat API backed exclusively by the DSH runtime application."""
 
-# allow: SIZE_OK — pre-existing oversized endpoint module (466 pure LOC before
-# todo 7); the session-sharing plan pins it as the single-file seam by line
-# number for todos 7/15/17, so a split is a later todo's decision, not T07's.
-
 from __future__ import annotations
-
-from app.knowledge_references.models import KnowledgeReference
 
 import os
 from typing import Any, Literal
 
-from bson import ObjectId
 from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.endpoints.auth import _resolve_session_user
-from app.api.dsh_access_messages import code_capability_denied
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.quota_policy import QuotaExceededError, assert_quota_available
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 from app.dsh_runtime.application import dsh_runtime_application
-from app.dsh_runtime.chat_service import ConversationBusyError, STREAM_HEARTBEAT_SECONDS
-from app.dsh_runtime.conversation import ConversationRepository
-from app.dsh_runtime.conversation.participants_repository import (
-    SessionParticipantsRepository,
-)
-from app.dsh_runtime.conversation.repository import (
-    MessageSequenceConflict,
-    UserMessageIdConflict,
-)
+from app.dsh_runtime.chat_service import ConversationBusyError
 from app.dsh_runtime.errors import DshRuntimeError
-from app.dsh_runtime.session_live import MESSAGE_ID_RE
-from app.dsh_runtime.turn_cancellation import (
-    CancelNotAllowedError,
-    assert_run_initiator,
-    member_conversation,
-)
 from app.utils.oss_uploader import AliyunOSSUploader
 from app.utils.uploads import read_upload_with_limit
 from app.dsh_runtime.desktop_binding import DesktopSessionIdentity
@@ -51,7 +29,7 @@ from app.governance.topic_admission import TopicAdmissionDenied
 router = APIRouter(tags=["dsh-chat"])
 
 
-async def _require_code_capability(tenant_id: str, user_id: str, accept_language: str | None = None) -> None:
+async def _require_code_capability(tenant_id: str, user_id: str) -> None:
     policy = await MongoEmployeePolicyResolver().resolve(tenant_id, user_id)
     if not policy.allows_capability("code_generation"):
         await record_position_policy_event(
@@ -59,8 +37,29 @@ async def _require_code_capability(tenant_id: str, user_id: str, accept_language
         )
         raise HTTPException(
             status_code=403,
-            detail={"code": "position_role_denied", "message": code_capability_denied(accept_language)},
+            detail={"code": "position_role_denied", "message": "当前岗位未开通代码生成能力，本次任务未执行"},
         )
+
+
+async def _require_topic_admission(*, tenant_id: str, user_id: str, text: str) -> None:
+    """Enforce the organization's topic policy before any turn is claimed.
+
+    桌面端与实时语音等旁路入口必须和服务端回合共用同一道闸门，否则组织
+    在管理端配置的 allowlist/denylist 只在一条路径上生效。
+    """
+    gate = dsh_runtime_application.topic_admission
+    if gate is None:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "topic_admission_not_configured", "message": "话题准入未装配，本次任务未执行"},
+        )
+    try:
+        await gate.require(tenant_id=tenant_id, user_id=user_id, text=text)
+    except TopicAdmissionDenied as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "topic_admission_denied", "message": str(exc)},
+        ) from exc
 
 
 class Attachment(BaseModel):
@@ -77,7 +76,6 @@ class Message(BaseModel):
     content: str
     images: list[Attachment] | None = None
     documents: list[Attachment] | None = None
-    knowledge_references: list[KnowledgeReference] = Field(default_factory=list, max_length=20)
 
 
 class ChatRequest(BaseModel):
@@ -103,7 +101,6 @@ class CancelRequest(BaseModel):
 
 class DesktopRuntimeProfileRequest(BaseModel):
     model_id: str | None = Field(default=None, alias="modelId")
-    profile_version: str | None = Field(default=None, alias="profileVersion", max_length=128)
 
 
 class DesktopSessionCommitRequest(BaseModel):
@@ -175,32 +172,15 @@ def _latest_user(request: ChatRequest) -> Message:
 async def _identity(authorization: str | None) -> tuple[str, str, dict[str, Any]]:
     resolved = await _resolve_session_user(authorization if isinstance(authorization, str) else None)
     user = resolved["user"]
-    return resolve_main_id(resolved["main_id"]), str(user.get("_id") or ""), user
-
-
-def _accepted_user_message_id(candidate: str | None) -> str | None:
-    """Parse the optional client turn identity at the request boundary.
-
-    Session-sharing realtime plan todo 4: a missing, overlong, or unsafe
-    ``X-User-Message-Id`` is ignored - never a 4xx by itself - so the turn
-    falls back to the server-minted id and authoritative reconciliation.
-    """
-    if not isinstance(candidate, str) or not MESSAGE_ID_RE.fullmatch(candidate):
-        return None
-    return candidate
+    return resolve_tenant_id(resolved["tenant_id"]), str(user.get("_id") or ""), user
 
 
 @router.post("/chat/completions")
 async def chat_completions(
     request: ChatRequest,
     authorization: str | None = Header(default=None),
-    x_user_message_id: str | None = Header(default=None),
 ):
-    return await _start_chat_completions(
-        request,
-        authorization,
-        user_message_id=_accepted_user_message_id(x_user_message_id),
-    )
+    return await _start_chat_completions(request, authorization)
 
 
 async def _start_chat_completions(
@@ -208,7 +188,6 @@ async def _start_chat_completions(
     authorization: str | None,
     *,
     trusted_turn_context: dict[str, Any] | None = None,
-    user_message_id: str | None = None,
 ):
     """Internal start helper; trusted context is never part of ChatRequest."""
     tenant_id, user_id, user = await _identity(authorization)
@@ -222,70 +201,101 @@ async def _start_chat_completions(
         raise HTTPException(status_code=400, detail="A non-empty text message is required")
     output_spec = dict(request.output_spec or {})
     selected_skill_id = str(output_spec.get("selected_skill_id") or output_spec.get("selectedSkillId") or "").strip()
+    # 009 T009：把该轮的请求上下文交给 PreToolUse 钩子。`request` 必须传真实数据，
+    # 否则 require_field 规则对空 payload 恒判"缺字段"→ 配了该规则就全量封锁
+    # （001 审计发现并修掉，2026-10-03）。
+    # 注意：这里是 **turn 级** 钩子——本轮尚未选定工具，`tool` 为轮次动作 dsh_turn。
+    # **工具级**拦截在真实工具调用点执行：`EnterpriseToolService._authorize` 经
+    # `run_pre_tool_use` 用真实 toolName/arguments 求值同一套规则（按工具名配置的
+    # deny_tool/require_field 在那里才真正命中，2026-10-03 009 修复）。
     try:
         skill_selection = await admit_skill_selection(
             tenant_id=tenant_id,
             user_id=user_id,
             selected_skill_id=selected_skill_id,
+            tool="dsh_turn",
+            request={
+                "text": text,
+                "selected_skill_id": selected_skill_id,
+                "output_spec": output_spec,
+                "conversation_id": str(output_spec.get("task_id") or output_spec.get("session_id") or ""),
+                # 019: per-request harness mode (thick/thin). Falls back to the
+                # HARNESS_MODE setting when the caller does not specify one.
+                "harness_mode": str(output_spec.get("harness_mode") or get_settings().HARNESS_MODE or "thick"),
+            },
+            session_id=str(output_spec.get("task_id") or output_spec.get("session_id") or ""),
         )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except (LookupError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if skill_selection.selected_command_id and (
-        latest.images or latest.documents or latest.knowledge_references
-    ):
-        raise HTTPException(status_code=400, detail="plugin_command_attachments_not_supported")
     conversation_id = str(output_spec.get("task_id") or output_spec.get("session_id") or "").strip() or None
-    # F2 re-admission (no new client contract): the stable claim token is
-    # derived from the already-validated, already-echoed X-User-Message-Id —
-    # a retry of the same client message re-admits the same turn
-    # (claim_turn_authorized's same-token fallback), a different message mints
-    # a different token and still fast-409s. The claim: prefix keeps the token
-    # domain separate from raw ids. Absent id ⇒ None (fresh mint, as today).
-    claim_token = f"claim:{user_message_id}" if user_message_id else None
+    # 051 FR-003：员工档案注入（知识库挂载 / 模型配置）在会话级生效——从会话快照读取，
+    # 与调用方显式参数取并集（知识库）或优先员工模型配置（模型）。未声明员工路径不变。
+    employee_kb_ids: list[str] = []
+    employee_model_id: str | None = None
+    if conversation_id:
+        try:
+            from app.employees.injection import employee_profile_from_session
+            from app.core.ids import to_backend_id
+
+            session_row = await get_db().chat_sessions.find_one(
+                {"_id": to_backend_id(conversation_id), "user_id": str(user_id)},
+                {"employee_profile": 1},
+            )
+            emp_profile = employee_profile_from_session(session_row or {})
+            if emp_profile is not None:
+                employee_kb_ids = list(dict.fromkeys(str(x) for x in (emp_profile.knowledge_base_ids or []) if str(x)))
+                model_cfg = dict(emp_profile.model_config or {})
+                if str(model_cfg.get("model_instance_id") or ""):
+                    employee_model_id = str(model_cfg["model_instance_id"])
+                # 051 FR-006 / T017：员工维度成本经 035 agent_id 链路承接。
+                # employee_id 作为 agent 归属链路，仅在无显式 agent_id（能力级
+                # 归因优先）时注入，不新建计量体系。
+                output_spec.setdefault("agent_id", emp_profile.employee_id or "")
+        except Exception:
+            employee_kb_ids = []
+            employee_model_id = None
+    effective_kb_ids = list(dict.fromkeys(
+        [str(x) for x in (request.knowledge_base_ids or []) if str(x)] + employee_kb_ids
+    ))
+    effective_model_id = employee_model_id or str(request.model_id or output_spec.get("model_id") or "").strip() or None
+    # 会话归属项目（工作区）：新建会话时写入 session.project_id；未指定保持
+    # 'default'（repository.create 默认值）。桌面端 Code 会话不走此字段。
+    project_id = str(output_spec.get("project_id") or "").strip() or "default"
+    # 001 FR-7：001 脱敏层已对 turn 级请求做 PII 脱敏，必须用脱敏后的原文替换明文，
+    # 否则脱敏产物无消费方、明文 PII 进入对话后端（2026-10-03 修复）。
+    redacted_request = getattr(skill_selection, "redacted_request", None)
+    safe_text = text
+    if isinstance(redacted_request, dict) and isinstance(redacted_request.get("text"), str):
+        safe_text = redacted_request["text"]
     try:
         turn = await dsh_runtime_application.require_chat().prepare_turn(
             tenant_id=tenant_id,
             user_id=user_id,
             conversation_id=conversation_id,
-            text=text,
-            model_instance_id=str(request.model_id or output_spec.get("model_id") or "").strip() or None,
+            text=safe_text,
+            model_instance_id=effective_model_id,
             timezone_name=request.timezone,
             images=[item.model_dump(mode="json") for item in list(latest.images or [])],
             documents=[item.model_dump(mode="json") for item in list(latest.documents or [])],
-            knowledge_references=[item.model_dump() for item in latest.knowledge_references],
             knowledge_qa_enabled=request.knowledge_qa_enabled,
-            knowledge_base_ids=request.knowledge_base_ids,
+            knowledge_base_ids=effective_kb_ids,
             trusted_turn_context=trusted_turn_context,
-            claim_token=claim_token,
             language_name=str(output_spec.get("language") or output_spec.get("locale") or "") or None,
             selected_writing_skill_id=skill_selection.selected_writing_skill_id,
             selected_skill_id=skill_selection.selected_skill_id,
-            selected_command_id=skill_selection.selected_command_id,
-            user_message_id=user_message_id,
+            project_id=project_id,
         )
+    except TopicAdmissionDenied as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "topic_admission_denied", "message": str(exc)},
+        ) from exc
     except ConversationBusyError as exc:
         raise HTTPException(
             status_code=409,
             detail={"code": "session_already_running", "message": str(exc), "session_id": conversation_id},
-        ) from exc
-    except TopicAdmissionDenied as exc:
-        raise HTTPException(status_code=403, detail={"code": "topic_admission_denied", "message": str(exc)}) from exc
-    except PermissionError as exc:
-        raise HTTPException(
-            status_code=403,
-            detail={"code": "model_access_denied", "message": str(exc)},
-        ) from exc
-    except MessageSequenceConflict as exc:
-        raise HTTPException(
-            status_code=409,
-            detail={"code": exc.code, "message": str(exc), "session_id": exc.conversation_id},
-        ) from exc
-    except UserMessageIdConflict as exc:
-        raise HTTPException(
-            status_code=409,
-            detail={"code": exc.code, "message": str(exc), "session_id": exc.conversation_id},
         ) from exc
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -300,12 +310,8 @@ async def _start_chat_completions(
         dsh_runtime_application.require_chat().stream(turn, tenant_id=tenant_id, user_id=user_id),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache, no-transform",
-            "X-Accel-Buffering": "no",
-            "X-Chat-Heartbeat-Seconds": str(STREAM_HEARTBEAT_SECONDS),
             "X-Session-Id": turn.conversation_id,
             "X-Message-Id": turn.message_id,
-            "X-User-Message-Id": turn.user_message_id,
             "X-Execution-Protocol": "3",
             "X-Agent-Kernel": "dsh",
         },
@@ -324,11 +330,10 @@ async def chat_entry(
 async def desktop_runtime_profile(
     payload: DesktopRuntimeProfileRequest,
     authorization: str | None = Header(default=None),
-    accept_language: str | None = Header(default=None),
 ) -> ApiResponse:
     """Issue an authenticated, short-lived Runtime Profile for Electron main only."""
     tenant_id, user_id, user = await _identity(authorization)
-    await _require_code_capability(tenant_id, user_id, accept_language)
+    await _require_code_capability(tenant_id, user_id)
     await record_position_policy_event(
         tenant_id=tenant_id, user_id=user_id, action="capability.used", target="code_generation",
     )
@@ -338,13 +343,7 @@ async def desktop_runtime_profile(
             tenant_id=tenant_id,
             user_id=user_id,
             model_instance_id=str(payload.model_id or "").strip() or None,
-            requested_profile_version=str(payload.profile_version or "").strip() or None,
         )
-    except PermissionError as exc:
-        raise HTTPException(
-            status_code=403,
-            detail={"code": "model_access_denied", "message": str(exc)},
-        ) from exc
     except (LookupError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return ApiResponse(code=0, message="ok", data={
@@ -357,10 +356,9 @@ async def desktop_runtime_profile(
 @router.post("/desktop/dsh/capability-check", response_model=ApiResponse)
 async def desktop_code_capability_check(
     authorization: str | None = Header(default=None),
-    accept_language: str | None = Header(default=None),
 ) -> ApiResponse:
     tenant_id, user_id, _ = await _identity(authorization)
-    await _require_code_capability(tenant_id, user_id, accept_language)
+    await _require_code_capability(tenant_id, user_id)
     return ApiResponse(code=0, message="ok", data={"allowed": True})
 
 
@@ -368,10 +366,9 @@ async def desktop_code_capability_check(
 async def desktop_session_commit(
     payload: DesktopSessionCommitRequest,
     authorization: str | None = Header(default=None),
-    accept_language: str | None = Header(default=None),
 ) -> ApiResponse:
     tenant_id, user_id, _ = await _identity(authorization)
-    await _require_code_capability(tenant_id, user_id, accept_language)
+    await _require_code_capability(tenant_id, user_id)
     try:
         binding = await dsh_runtime_application.require_desktop_bindings().commit(
             tenant_id=tenant_id,
@@ -431,16 +428,10 @@ async def desktop_turn_start(
     kernel_session_id: str,
     payload: DesktopTurnStartRequest,
     authorization: str | None = Header(default=None),
-    accept_language: str | None = Header(default=None),
 ) -> ApiResponse:
     tenant_id, user_id, _ = await _identity(authorization)
-    await _require_code_capability(tenant_id, user_id, accept_language)
-    try:
-        await dsh_runtime_application.require_topic_admission().require(
-            main_id=tenant_id, user_id=user_id, text=payload.text,
-        )
-    except TopicAdmissionDenied as exc:
-        raise HTTPException(status_code=403, detail={"code": "topic_admission_denied", "message": str(exc)}) from exc
+    await _require_code_capability(tenant_id, user_id)
+    await _require_topic_admission(tenant_id=tenant_id, user_id=user_id, text=payload.text)
     try:
         data = await dsh_runtime_application.require_desktop_bindings().start_turn(
             tenant_id=tenant_id, user_id=user_id, device_id=payload.device_id,
@@ -493,19 +484,6 @@ async def desktop_conversation_runtime_rebind(
     authorization: str | None = Header(default=None),
 ) -> ApiResponse:
     tenant_id, user_id, _ = await _identity(authorization)
-    if await SessionParticipantsRepository(get_db()).list(conversation_id, tenant_id=tenant_id):
-        # Session-sharing plan todo 17: rebinding to a desktop Runtime while
-        # the conversation has an active participant would strand them - their
-        # turns fail the non-server rejection (ValueError -> 400) and revoke
-        # does not remove existing participants. Refuse (409) instead of the
-        # rejected auto-revoke alternative.
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "session_shared_rebind_blocked",
-                "message": "This conversation has active participants and cannot be rebound to a desktop Runtime",
-            },
-        )
     try:
         await dsh_runtime_application.require_desktop_bindings().rebind_runtime(
             tenant_id=tenant_id, user_id=user_id, device_id=payload.device_id,
@@ -524,10 +502,9 @@ async def desktop_turn_events(
     kernel_session_id: str,
     payload: DesktopTurnEventsRequest,
     authorization: str | None = Header(default=None),
-    accept_language: str | None = Header(default=None),
 ) -> ApiResponse:
     tenant_id, user_id, _ = await _identity(authorization)
-    await _require_code_capability(tenant_id, user_id, accept_language)
+    await _require_code_capability(tenant_id, user_id)
     try:
         data = await dsh_runtime_application.require_desktop_bindings().project_events(
             tenant_id=tenant_id, user_id=user_id, device_id=payload.device_id,
@@ -560,38 +537,6 @@ async def desktop_turn_cancel(
     return ApiResponse(code=0, message="ok", data=data)
 
 
-async def _member_message(*, tenant_id: str, user_id: str, message_id: str) -> dict[str, Any] | None:
-    """Resolve the polled message when the viewer is a conversation member.
-
-    Membership = the conversation owner OR an active participant row
-    (session-sharing plan todo 7; the owner never gets a participant row).
-    Any other viewer - non-member, removed member, cross-tenant - cannot see
-    the message at all, so every denial is a 404 at the caller (existence
-    disclosure avoidance, pinned by todo 4's status matrix).
-    """
-    db = get_db()
-    message = await ConversationRepository(db).message(
-        message_id, tenant_id=tenant_id, user_id=user_id
-    )
-    if message is None:
-        return None
-    conversation_id = str(message.get("session_id") or "")
-    if not ObjectId.is_valid(conversation_id):
-        return None
-    session = await db.chat_sessions.find_one(
-        {"_id": ObjectId(conversation_id), "main_id": tenant_id}
-    )
-    if session is None:
-        return None
-    if str(session.get("user_id") or "") == user_id:
-        return message
-    if await SessionParticipantsRepository(db).is_member(
-        conversation_id, tenant_id=tenant_id, user_id=user_id
-    ):
-        return message
-    return None
-
-
 @router.get("/chat/messages/{message_id}/events", response_model=ApiResponse)
 async def chat_message_events(
     message_id: str,
@@ -601,8 +546,6 @@ async def chat_message_events(
 ) -> ApiResponse:
     tenant_id, user_id, _ = await _identity(authorization)
     cursor = max(0, int(after if after_cursor is None else after_cursor))
-    if await _member_message(tenant_id=tenant_id, user_id=user_id, message_id=message_id) is None:
-        raise HTTPException(status_code=404, detail="message_not_found")
     try:
         data = await dsh_runtime_application.require_chat().snapshot(
             message_id,
@@ -615,48 +558,12 @@ async def chat_message_events(
     return ApiResponse(code=0, message="ok", data=data)
 
 
-async def _require_cancel_initiator(*, tenant_id: str, user_id: str, conversation_id: str) -> None:
-    """Session-sharing plan todo 15: cancel is initiator-only, enforced
-    server-side BEFORE the approval-clearing call - require_tools()
-    .cancel_conversation's ActiveCapabilityExecutions bridge cancels every
-    in-flight execution for the conversation regardless of user, so a
-    non-initiator member (the session owner included) must never reach it.
-    Denials: 404 = cannot see (non-member, unknown/malformed id,
-    cross-tenant - the todo-4 status matrix); 403 = can see but is not the
-    run's initiator (a removed member included; a run with no recorded
-    initiator fails closed).
-    """
-    db = get_db()
-    try:
-        conversation = await member_conversation(
-            db,
-            SessionParticipantsRepository(db),
-            conversation_id,
-            tenant_id=tenant_id,
-            user_id=user_id,
-        )
-        assert_run_initiator(conversation, conversation_id=conversation_id, user_id=user_id)
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail="session_not_found") from exc
-    except CancelNotAllowedError as exc:
-        raise HTTPException(
-            status_code=403,
-            detail={"code": exc.code, "message": str(exc), "session_id": exc.conversation_id},
-        ) from exc
-
-
 @router.post("/chat/cancel", response_model=ApiResponse)
 async def chat_cancel(
     payload: CancelRequest,
     authorization: str | None = Header(default=None),
 ) -> ApiResponse:
     tenant_id, user_id, _ = await _identity(authorization)
-    # Session-sharing plan todo 15 (guard-before-try, T17's convention): the
-    # initiator-only gate fires before the approval-clearing call, so a
-    # non-initiator never reaches it.
-    await _require_cancel_initiator(
-        tenant_id=tenant_id, user_id=user_id, conversation_id=payload.session_id
-    )
     try:
         await dsh_runtime_application.require_tools().cancel_conversation(
             tenant_id=tenant_id,
@@ -670,13 +577,6 @@ async def chat_cancel(
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail="session_not_found") from exc
-    except CancelNotAllowedError as exc:
-        # Defense in depth: the coordinator enforces the same initiator-only
-        # gate; a state change between the two checks surfaces here.
-        raise HTTPException(
-            status_code=403,
-            detail={"code": exc.code, "message": str(exc), "session_id": exc.conversation_id},
-        ) from exc
     except DshRuntimeError as exc:
         raise HTTPException(
             status_code=503,
@@ -719,10 +619,10 @@ async def upload_chat_document(
     file: UploadFile = File(...),
     authorization: str | None = Header(default=None),
 ) -> ApiResponse:
-    tenant_id, authenticated_user_id, _ = await _identity(authorization)
+    _, authenticated_user_id, _ = await _identity(authorization)
     filename = str(file.filename or "chat_document.bin").strip() or "chat_document.bin"
     ext = os.path.splitext(filename)[1].lower()
-    allowed_exts = {".pdf", ".doc", ".docx", ".ppt", ".pptx", ".txt", ".md", ".html", ".htm", ".xlsx", ".xlsm", ".csv", ".tsv", ".xls"}
+    allowed_exts = {".pdf", ".doc", ".docx", ".ppt", ".pptx", ".txt", ".md", ".xlsx", ".xlsm", ".csv", ".tsv", ".xls"}
     if ext not in allowed_exts:
         raise HTTPException(status_code=400, detail="Unsupported document type")
     settings = get_settings()
@@ -733,11 +633,6 @@ async def upload_chat_document(
         user_id=authenticated_user_id,
         file_name=filename,
         content_type=file.content_type,
-    )
-    await get_db().chat_uploads.update_one(
-        {"_id": object_path},
-        {"$set": {"user_id": authenticated_user_id, "main_id": tenant_id, "filename": filename}},
-        upsert=True,
     )
     return ApiResponse(code=0, message="success", data={
         "object_path": object_path,

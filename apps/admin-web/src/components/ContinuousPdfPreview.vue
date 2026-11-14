@@ -142,7 +142,7 @@ function setCanvasRef(page: number, element: any) {
 async function renderPage(pageNumber: number) {
   const canvas = canvases.get(pageNumber);
   if (!pdfDocument || !canvas || !viewportRef.value) return;
-  try { renderTasks.get(pageNumber)?.cancel?.(); } catch {}
+  try { renderTasks.get(pageNumber)?.cancel?.(); } catch { /* 尽力取消旧渲染任务，失败忽略 */ }
   const page = await pdfDocument.getPage(pageNumber);
   const base = page.getViewport({ scale: 1 });
   const fit = Math.min(1, Math.max(.5, (viewportRef.value.clientWidth - 56) / base.width));
@@ -208,14 +208,14 @@ function readError(error: any) {
 }
 
 async function destroyDocument() {
-  for (const task of renderTasks.values()) { try { task?.cancel?.(); } catch {} }
+  for (const task of renderTasks.values()) { try { task?.cancel?.(); } catch { /* 尽力取消，失败忽略 */ } }
   renderTasks.clear();
   const task = loadingTask;
   const document = pdfDocument;
   loadingTask = null;
   pdfDocument = null;
-  try { await task?.destroy?.(); } catch {}
-  try { await document?.destroy?.(); } catch {}
+  try { await task?.destroy?.(); } catch { /* 尽力销毁加载任务，失败忽略 */ }
+  try { await document?.destroy?.(); } catch { /* 尽力销毁文档，失败忽略 */ }
 }
 
 watch(() => [props.url, props.httpHeaders?.Authorization], () => void loadDocument());
@@ -250,5 +250,5 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.continuous-pdf{display:flex;height:100%;min-height:0;flex-direction:column;background:#eef1f5}.pdf-toolbar{display:flex;min-height:42px;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid #dfe4eb;background:#fff;color:#4b5565;font-size:12px}.load-hint{color:#98a2b3}.toolbar-spacer{flex:1}.pdf-toolbar button{display:grid;width:30px;height:30px;padding:0;border:0;border-radius:6px;background:transparent;color:#364152;cursor:pointer;font-size:20px;place-items:center}.pdf-toolbar button:hover:not(:disabled){background:#f1f4f8}.pdf-toolbar button:disabled{cursor:not-allowed;opacity:.35}.zoom-value{min-width:38px;text-align:center}.pdf-viewport{position:relative;flex:1;overflow:auto;padding:16px}.pdf-page{position:relative;width:max-content;margin:0 auto 16px}.pdf-page canvas{display:block;background:#fff;box-shadow:0 2px 10px rgba(31,42,68,.12)}.pdf-page>span{position:absolute;right:8px;bottom:8px;padding:2px 7px;border-radius:10px;background:rgba(25,33,48,.65);color:#fff;font-size:11px}.load-more{display:flex;min-height:52px;align-items:center;justify-content:center;color:#7b8798;font-size:12px}.viewer-state{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:12px;background:rgba(247,249,252,.9);color:#667085}.viewer-error{flex-direction:column}.viewer-error button{padding:6px 12px;border:1px solid #d7deea;border-radius:6px;background:#fff;color:#315fce;cursor:pointer}
+.continuous-pdf{display:flex;height:100%;min-height:0;flex-direction:column;background:var(--mg-bg-app)}.pdf-toolbar{display:flex;min-height:42px;align-items:center;gap:10px;padding:0 12px;border-bottom: 1px solid var(--mg-border);background: var(--mg-bg-surface);color: var(--mg-text-2);font-size:12px}.load-hint{color:var(--mg-text-3)}.toolbar-spacer{flex:1}.pdf-toolbar button{display:grid;width:30px;height:30px;padding:0;border: 0;border-radius: 6px;background: transparent;color: var(--mg-text-2);cursor:pointer;font-size:20px;place-items:center}.pdf-toolbar button:hover:not(:disabled){background:var(--mg-bg-subtle)}.pdf-toolbar button:disabled{cursor:not-allowed;opacity:.35}.zoom-value{min-width:38px;text-align:center}.pdf-viewport{position:relative;flex:1;overflow:auto;padding:16px}.pdf-page{position:relative;width:max-content;margin:0 auto 16px}.pdf-page canvas{display:block;background: var(--mg-bg-surface);box-shadow:0 2px 10px rgba(31,42,68,.12)}.pdf-page>span{position:absolute;right:8px;bottom:8px;padding:2px 7px;border-radius: 10px;background: rgba(25,33,48,.65);color: #fff;font-size:11px}.load-more{display:flex;min-height:52px;align-items:center;justify-content:center;color: var(--mg-text-3);font-size:12px}.viewer-state{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:12px;background: var(--mg-bg-surface);color:var(--mg-text-2)}.viewer-error{flex-direction:column}.viewer-error button{padding:6px 12px;border: 1px solid #d7deea;border-radius: 6px;background: var(--mg-bg-surface);color: var(--mg-brand-text);cursor:pointer}
 </style>

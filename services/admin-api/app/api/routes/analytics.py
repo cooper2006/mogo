@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
 from typing import Any
 
-from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from app.core.ids import is_valid_backend_id, to_backend_id
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.deps import get_current_admin_user
 from app.core.db import get_db
@@ -16,27 +15,60 @@ from app.services.token_usage_analytics_helpers import (
     load_execution_statuses,
     load_user_request_texts,
 )
-from app.services.token_usage_chat_history import load_visible_turn
 from app.services.token_usage_status import REQUEST_STATUS_VALUES, normalize_request_status
-from app.services.model_pricing import calculate_cost, load_model_prices, serialize_costs
-from app.services.directory_scope import department_user_ids
 
 router = APIRouter()
+
+# 007 pricing table（058 T015 收敛为单一来源，见 app.common.shared_constants）。
+from app.common.shared_constants import MODEL_PRICES, DEFAULT_PRICE
+
+
+def _cost_usd(row: dict[str, Any]) -> float:
+    """Single-row cost in USD, 6 decimals (035 T013).
+
+    Prefers the instrumented ``cost_estimate_usd`` (written by chat-api's 007
+    pricing) and falls back to MODEL_PRICES x token count for historical rows
+    that predate the estimate — the same arithmetic the summary uses, so the
+    drilldown and the total stay on one source.
+    """
+    model_name = str(row.get("model_name") or "").strip()
+    in_price, out_price = MODEL_PRICES.get(model_name, DEFAULT_PRICE)
+    try:
+        estimate = float(row.get("cost_estimate_usd") or 0.0)
+    except (TypeError, ValueError):
+        estimate = 0.0
+    if estimate > 0:
+        return round(estimate, 6)
+    prompt = int(row.get("prompt_tokens") or 0)
+    completion = int(row.get("completion_tokens") or 0)
+    return round((prompt * in_price + completion * out_price) / 1_000_000.0, 6)
 
 
 def _escape_regex(text: str) -> dict[str, str]:
     return {"$regex": re.escape(text), "$options": "i"}
 
 
-def _resolve_main_scope(current_user: dict[str, Any], requested_main_id: str) -> tuple[dict[str, Any], str]:
-    own_main_id = str(current_user.get("main_id") or "default")
-    request_main_id = str(requested_main_id or "").strip()
+def _to_ms(value: Any) -> int:
+    """start_time/end_time may be epoch int or BSON datetime; normalize to ms."""
+    if value is None:
+        return 0
+    if isinstance(value, datetime):
+        return int(value.timestamp() * 1000)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
-    # Scope token statistics to the signed-in organization.
-    if request_main_id and request_main_id != own_main_id:
+
+def _resolve_main_scope(current_user: dict[str, Any], requested_tenant_id: str) -> tuple[dict[str, Any], str]:
+    own_tenant_id = str(current_user.get("tenant_id") or "default")
+    request_tenant_id = str(requested_tenant_id or "").strip()
+
+    # Token 统计固定按当前登录企业隔离，禁止跨企业读取。
+    if request_tenant_id and request_tenant_id != own_tenant_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权限查看其他企业数据")
 
-    return {"main_id": own_main_id}, own_main_id
+    return {"tenant_id": own_tenant_id}, own_tenant_id
 
 
 def _summary_defaults() -> dict[str, Any]:
@@ -72,9 +104,8 @@ def _format_utc_datetime(value: Any) -> str | None:
 @router.get("/token-usage")
 async def list_token_usage(
     current_user: dict[str, Any] = Depends(get_current_admin_user),
-    mainId: str = Query(default=""),
+    tenantId: str = Query(default=""),
     departmentId: str = Query(default=""),
-    userId: str = Query(default=""),
     modelName: str = Query(default=""),
     stage: str = Query(default=""),
     statusText: str = Query(default="", alias="status"),
@@ -91,13 +122,11 @@ async def list_token_usage(
     user_org_rel_coll = db[USER_ORG_REL_COLLECTION]
     dept_coll = db[DEPARTMENT_COLLECTION]
 
-    scope_match, resolved_main_id = _resolve_main_scope(current_user, mainId)
+    scope_match, resolved_tenant_id = _resolve_main_scope(current_user, tenantId)
 
     match: dict[str, Any] = dict(scope_match)
     if modelName.strip():
         match["model_name"] = modelName.strip()
-    if userId.strip():
-        match["user_id"] = userId.strip()
     if stage.strip():
         match["stage"] = stage.strip()
     requested_status = statusText.strip()
@@ -111,8 +140,31 @@ async def list_token_usage(
 
     department_id = departmentId.strip()
     if department_id:
-        allowed_user_ids = await department_user_ids(db, resolved_main_id, department_id)
-        match["user_id"] = {"$in": [userId.strip()] if userId.strip() in allowed_user_ids else []} if userId.strip() else {"$in": allowed_user_ids}
+        rel_match: dict[str, Any] = {"org_id": department_id}
+        if resolved_tenant_id:
+            rel_match["tenant_id"] = resolved_tenant_id
+        elif scope_match.get("tenant_id"):
+            rel_match["tenant_id"] = scope_match["tenant_id"]
+
+        rel_rows = await user_org_rel_coll.find(rel_match, {"user_id": 1}).to_list(length=50000)
+        allowed_user_ids = [str(row.get("user_id") or "") for row in rel_rows if str(row.get("user_id") or "").strip()]
+        if not allowed_user_ids:
+            return {
+                "summary": _summary_defaults(),
+                "items": [],
+                "offset": offset,
+                "limit": limit,
+                "total": 0,
+                "hasMore": False,
+                "filterOptions": {
+                    "enterprises": [],
+                    "departments": [],
+                    "models": [],
+                    "stages": [],
+                    "statuses": [],
+                },
+            }
+        match["user_id"] = {"$in": allowed_user_ids}
 
     keyword = q.strip()
     if keyword:
@@ -143,7 +195,7 @@ async def list_token_usage(
                 "else": "$user_request_id"
             }
         }
-        # 1. Count grouped rows.
+        # 1. 统计分组后的总条数
         count_pipeline = [
             {"$match": match},
             {"$group": {"_id": group_id_expr}},
@@ -152,7 +204,7 @@ async def list_token_usage(
         count_res = await usage_coll.aggregate(count_pipeline).to_list(length=1)
         total = count_res[0]["count"] if count_res else 0
 
-        # 2. Fetch the requested page.
+        # 2. 查询分页数据
         data_pipeline = [
             {"$match": match},
             {"$sort": {"created_at": 1}},
@@ -162,7 +214,7 @@ async def list_token_usage(
                 "user_request_id": {"$first": "$user_request_id"},
                 "trace_id": {"$first": "$trace_id"},
                 "request_id": {"$first": "$request_id"},
-                "main_id": {"$first": "$main_id"},
+                "tenant_id": {"$first": "$tenant_id"},
                 "user_id": {"$first": "$user_id"},
                 "stage": {"$first": "$stage"},
                 "intent": {"$first": "$intent"},
@@ -170,7 +222,6 @@ async def list_token_usage(
                 "failed_count": {"$sum": {"$cond": [{"$eq": ["$status", "failed"]}, 1, 0]}},
                 "error_text": {"$first": {"$ifNull": ["$response_payload.error", "$push_error"]}},
                 "model_name": {"$first": "$model_name"},
-                "usage_parts": {"$push": {"model_id": "$model_id", "model_name": "$model_name", "prompt_tokens": "$prompt_tokens", "completion_tokens": "$completion_tokens"}},
                 "request_title_zh": {"$first": "$request_title_zh"},
                 "request_title_en": {"$first": "$request_title_en"},
                 "prompt": {"$first": "$prompt"},
@@ -186,7 +237,7 @@ async def list_token_usage(
             {"$sort": {"created_at": -1}},
         ]
         rows = await usage_coll.aggregate(data_pipeline).to_list(length=50000)
-        execution_statuses = await load_execution_statuses(rows, resolved_main_id)
+        execution_statuses = await load_execution_statuses(rows, resolved_tenant_id)
         for row in rows:
             group_key = str(row.get("_id") or "").strip()
             row["status"] = normalize_request_status(
@@ -201,14 +252,19 @@ async def list_token_usage(
         rows = filtered_rows[offset : offset + limit]
     else:
         total = int(await usage_coll.count_documents(match))
-        cursor = usage_coll.find(match).sort([("end_time", -1), ("created_at", -1)]).skip(offset).limit(limit)
+        cursor = (
+            usage_coll.find(match)
+            .sort([("end_time", -1), ("created_at", -1)])
+            .skip(offset)
+            .limit(limit)
+        )
         rows = await cursor.to_list(length=limit)
         for row in rows:
             row["calls"] = 1
         filtered_rows = rows
 
     user_ids = list({str(row.get("user_id") or "").strip() for row in rows if str(row.get("user_id") or "").strip()})
-    user_oid_map = {uid: ObjectId(uid) for uid in user_ids if ObjectId.is_valid(uid)}
+    user_oid_map = {uid: to_backend_id(uid) for uid in user_ids if is_valid_backend_id(uid)}
     user_docs = []
     if user_oid_map:
         user_docs = await user_coll.find({"_id": {"$in": list(user_oid_map.values())}}).to_list(length=20000)
@@ -219,27 +275,27 @@ async def list_token_usage(
     dept_ids = set[str]()
     for rel in rel_rows:
         rel_user_id = str(rel.get("user_id") or "")
-        rel_main_id = str(rel.get("main_id") or "")
+        rel_tenant_id = str(rel.get("tenant_id") or "")
         rel_org_id = str(rel.get("org_id") or "")
         if not rel_user_id or not rel_org_id:
             continue
         dept_ids.add(rel_org_id)
-        key = (rel_user_id, rel_main_id)
+        key = (rel_user_id, rel_tenant_id)
         if key not in rel_map:
             rel_map[key] = rel_org_id
 
-    dept_oid_map = {dept_id: ObjectId(dept_id) for dept_id in dept_ids if ObjectId.is_valid(dept_id)}
+    dept_oid_map = {dept_id: to_backend_id(dept_id) for dept_id in dept_ids if is_valid_backend_id(dept_id)}
     dept_docs = []
     if dept_oid_map:
         dept_docs = await dept_coll.find({"_id": {"$in": list(dept_oid_map.values())}}, {"name": 1}).to_list(length=50000)
     dept_map = {str(doc.get("_id")): str(doc.get("name") or "") for doc in dept_docs}
 
-    request_texts = await load_user_request_texts(rows, resolved_main_id)
+    request_texts = await load_user_request_texts(rows, resolved_tenant_id)
 
     items: list[dict[str, Any]] = []
     for row in rows:
         row_user_id = str(row.get("user_id") or "")
-        row_main_id = str(row.get("main_id") or "")
+        row_tenant_id = str(row.get("tenant_id") or "")
         user_doc = user_map.get(row_user_id, {})
         user_name = (
             str(user_doc.get("name") or "")
@@ -247,11 +303,11 @@ async def list_token_usage(
             or str(user_doc.get("mobile") or "")
             or f"用户 {row_user_id[-6:]}" if row_user_id else "未知用户"
         )
-        dept_id = rel_map.get((row_user_id, row_main_id), "")
+        dept_id = rel_map.get((row_user_id, row_tenant_id), "")
         dept_name = dept_map.get(dept_id, "未分配部门") if dept_id else "未分配部门"
         created_at = row.get("created_at")
-        start_time = int(row.get("start_time") or 0)
-        end_time = int(row.get("end_time") or 0)
+        start_time = _to_ms(row.get("start_time"))
+        end_time = _to_ms(row.get("end_time"))
         duration_ms = max(0, end_time - start_time) if start_time and end_time else 0
         title_zh = str(row.get("request_title_zh") or "").strip()
         title_en = str(row.get("request_title_en") or "").strip()
@@ -271,8 +327,8 @@ async def list_token_usage(
             {
                 "requestId": str(row.get("request_id") or ""),
                 "userRequestId": user_request_id,
-                "mainId": row_main_id,
-                "mainName": row_main_id or "默认企业",
+                "tenantId": row_tenant_id,
+                "mainName": row_tenant_id or "默认企业",
                 "userName": user_name,
                 "departmentName": dept_name,
                 "modelName": str(row.get("model_name") or ""),
@@ -283,6 +339,7 @@ async def list_token_usage(
                 "totalTokens": int(row.get("total_tokens") or 0),
                 "promptTokens": int(row.get("prompt_tokens") or 0),
                 "completionTokens": int(row.get("completion_tokens") or 0),
+                "costUsd": _cost_usd(row),
                 "createdAt": _format_utc_datetime(created_at),
                 "durationMs": duration_ms,
                 "calls": int(row.get("calls") or 1),
@@ -290,26 +347,25 @@ async def list_token_usage(
             }
         )
 
-    prices = await load_model_prices(db, resolved_main_id)
     total_calls = 0
     total_tokens = 0
     prompt_tokens = 0
     completion_tokens = 0
-    costs = {"CNY": Decimal(0), "USD": Decimal(0)}
-    recent_costs = {"CNY": Decimal(0), "USD": Decimal(0)}
-    priced_calls = {"CNY": 0, "USD": 0}
-    unpriced_calls = 0
+    total_cost = 0.0
     last_called_at = None
     all_active_users = set()
     all_active_user_requests = set()
     recent_calls = 0
     recent_tokens = 0
+    recent_cost = 0.0
     now = datetime.now(timezone.utc)
     recent_threshold = now - timedelta(days=1)
 
     for row in filtered_rows:
         row_prompt = int(row.get("prompt_tokens") or 0)
         row_comp = int(row.get("completion_tokens") or 0)
+        # 035 T013: the summary and each drilldown row share one cost source.
+        row_cost = _cost_usd(row)
         row_total = int(row.get("total_tokens") or 0)
         row_calls = int(row.get("calls") or 1)
 
@@ -317,16 +373,7 @@ async def list_token_usage(
         total_tokens += row_total
         prompt_tokens += row_prompt
         completion_tokens += row_comp
-        for part in row.get("usage_parts") or [row]:
-            price_result = calculate_cost(part, prices)
-            if price_result is None:
-                unpriced_calls += 1
-                continue
-            currency, amount = price_result
-            costs[currency] += amount
-            priced_calls[currency] += 1
-            if _normalize_utc_datetime(row.get("created_at")) and _normalize_utc_datetime(row.get("created_at")) >= recent_threshold:
-                recent_costs[currency] += amount
+        total_cost += row_cost
 
         row_last = _normalize_utc_datetime(row.get("created_at"))
         if row_last:
@@ -342,20 +389,23 @@ async def list_token_usage(
         if isinstance(row_last, datetime) and row_last >= recent_threshold:
             recent_calls += row_calls
             recent_tokens += row_total
+            recent_cost += row_cost
 
     active_user_ids = list(all_active_users)
     active_dept_count = 0
     if active_user_ids:
         dept_match: dict[str, Any] = {"user_id": {"$in": active_user_ids}}
-        if resolved_main_id:
-            dept_match["main_id"] = resolved_main_id
+        if resolved_tenant_id:
+            dept_match["tenant_id"] = resolved_tenant_id
         distinct_depts = await user_org_rel_coll.distinct("org_id", dept_match)
         active_dept_count = len([dept_id for dept_id in distinct_depts if str(dept_id or "").strip()])
 
     request_count = len(all_active_user_requests)
     avg_tokens = 0.0
+    avg_cost = 0.0
     if request_count > 0:
         avg_tokens = float(total_tokens) / request_count
+        avg_cost = total_cost / request_count
 
     summary = {
         "totalCalls": total_calls,
@@ -368,20 +418,24 @@ async def list_token_usage(
         "last24hTokens": recent_tokens,
         "activeUsers": len(active_user_ids),
         "activeDepartments": int(active_dept_count),
-        "costsByCurrency": serialize_costs(costs),
-        "pricedCallsByCurrency": priced_calls,
-        "avgCostsByCurrency": serialize_costs({key: value / request_count if request_count else Decimal(0) for key, value in costs.items()}),
-        "last24hCostsByCurrency": serialize_costs(recent_costs),
-        "unpricedCalls": unpriced_calls,
+        "totalCost": round(total_cost, 4),
+        "avgCost": round(avg_cost, 4),
+        "last24hCost": round(recent_cost, 4),
     }
 
     enterprise_scope_match = dict(scope_match)
-    enterprises = sorted([str(item or "") for item in await usage_coll.distinct("main_id", enterprise_scope_match) if str(item or "").strip()])
+    enterprises = sorted([str(item or "") for item in await usage_coll.distinct("tenant_id", enterprise_scope_match) if str(item or "").strip()])
     model_scope_match = dict(scope_match)
-    if resolved_main_id:
-        model_scope_match["main_id"] = resolved_main_id
+    if resolved_tenant_id:
+        model_scope_match["tenant_id"] = resolved_tenant_id
     models = sorted([str(item or "") for item in await usage_coll.distinct("model_name", model_scope_match) if str(item or "").strip()])[:200]
     statuses = ["completed", "user_cancelled", "runtime_error", "network_error"]
+
+    department_options: list[dict[str, str]] = []
+    if resolved_tenant_id:
+        dept_cursor = dept_coll.find({"tenant_id": resolved_tenant_id}, {"name": 1}).sort("created_at", 1)
+        dept_rows = await dept_cursor.to_list(length=5000)
+        department_options = [{"label": str(row.get("name") or ""), "value": str(row.get("_id"))} for row in dept_rows if str(row.get("name") or "").strip()]
 
     return {
         "summary": summary,
@@ -392,8 +446,7 @@ async def list_token_usage(
         "hasMore": offset + len(items) < total,
         "filterOptions": {
             "enterprises": [{"label": item, "value": item} for item in enterprises],
-            "departments": [],
-            "users": [],
+            "departments": department_options,
             "models": [{"label": item, "value": item} for item in models],
             "stages": [],
             "statuses": [{"label": item, "value": item} for item in statuses],
@@ -409,38 +462,143 @@ async def get_token_usage_detail(
     db = get_db()
     usage_coll = db.token_usage_logs
 
-    own_main_id = str(current_user.get("main_id") or "default")
+    own_tenant_id = str(current_user.get("tenant_id") or "default")
 
     row = await usage_coll.find_one({"request_id": request_id})
     if not row:
         raise HTTPException(status_code=404, detail="未找到对应的调用记录")
 
-    if str(row.get("main_id") or "default") != own_main_id:
+    if str(row.get("tenant_id") or "default") != own_tenant_id:
         raise HTTPException(status_code=403, detail="无权查看该记录")
 
+    # 035 T024/T025: expose the single-call cost and its attribution dimensions so
+    # the drilldown and the 043 trace viewer read the same data source.
     return {
         "requestId": str(row.get("request_id") or ""),
         "prompt": str(row.get("prompt") or ""),
         "requestPayload": row.get("request_payload") or {},
         "responsePayload": row.get("response_payload") or {},
+        "modelName": str(row.get("model_name") or ""),
+        "totalTokens": int(row.get("total_tokens") or 0),
+        "promptTokens": int(row.get("prompt_tokens") or 0),
+        "completionTokens": int(row.get("completion_tokens") or 0),
+        "costUsd": _cost_usd(row),
+        "agentId": str(row.get("agent_id") or row.get("node_id") or ""),
+        "skillId": str(row.get("skill_id") or ""),
+        "projectId": str(row.get("project_id") or row.get("workspace_id") or ""),
     }
 
 
 @router.get("/token-usage/{request_id}/chat-history")
 async def get_session_chat_history(
     request_id: str,
-    request: Request,
+    sessionId: str = Query(default=""),
+    userRequestId: str = Query(default=""),
     current_user: dict[str, Any] = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
     db = get_db()
-    own_main_id = str(current_user.get("main_id") or "default")
-    row = await db.token_usage_logs.find_one({"request_id": request_id})
-    if not row:
-        raise HTTPException(status_code=404, detail="未找到对应的调用记录")
-    if str(row.get("main_id") or "default") != own_main_id:
-        raise HTTPException(status_code=403, detail="无权查看该记录")
+    own_tenant_id = str(current_user.get("tenant_id") or "default")
+    
+    # 1. 优先按一次用户请求定位当前 assistant 消息，并补上它前一条 user 消息。
+    session_id_val = sessionId.strip()
+    user_request_id_val = userRequestId.strip()
+    messages = []
+    session_title = ""
 
-    # Resolve messages only from this authorized usage record.
-    return await load_visible_turn(
-        db, row, own_main_id, language=request.headers.get("accept-language") or "zh",
-    )
+    def _message_payload(msg: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": str(msg.get("_id")),
+            "role": str(msg.get("role") or ""),
+            "content": str(msg.get("content") or ""),
+            "plan": msg.get("plan") or None,
+            "progress": msg.get("progress") or None,
+            "documents": msg.get("documents") or [],
+            "images": msg.get("images") or [],
+            "createdAt": _format_utc_datetime(msg.get("created_at")),
+        }
+
+    if user_request_id_val:
+        assistant_msg = await db.chat_messages.find_one(
+            {
+                "tenant_id": own_tenant_id,
+                "message_id": user_request_id_val,
+                "message_type": {"$ne": "context_summary"},
+            }
+        )
+        if assistant_msg:
+            session_oid = assistant_msg.get("session_id")
+            session_doc = await db.chat_sessions.find_one({"_id": session_oid, "tenant_id": own_tenant_id}) if session_oid else None
+            session_title = str(session_doc.get("title") or "单次请求详情") if session_doc else "单次请求详情"
+            prev_user_msg = await db.chat_messages.find_one(
+                {
+                    "tenant_id": own_tenant_id,
+                    "session_id": session_oid,
+                    "role": "user",
+                    "message_type": {"$ne": "context_summary"},
+                    "seq": {"$lt": int(assistant_msg.get("seq") or 0)},
+                },
+                sort=[("seq", -1)],
+            ) if session_oid else None
+            if prev_user_msg:
+                messages.append(_message_payload(prev_user_msg))
+            messages.append(_message_payload(assistant_msg))
+
+    # 2. 如果没有查到会话历史，则根据 request_id 进行平滑降级（只组装当前单次请求的内容）
+    if not messages:
+        row = await db.token_usage_logs.find_one({"request_id": request_id})
+        if not row:
+            raise HTTPException(status_code=404, detail="未找到对应的调用或会话记录")
+        
+        row_tenant_id = str(row.get("tenant_id") or "default")
+        if row_tenant_id != own_tenant_id:
+            raise HTTPException(status_code=403, detail="无权查看该记录")
+        
+        # 提取回复内容
+        reply_content = ""
+        response_payload = row.get("response_payload")
+        if response_payload and isinstance(response_payload, dict):
+            choices = response_payload.get("choices")
+            if choices and isinstance(choices, list) and len(choices) > 0:
+                msg_body = choices[0].get("message")
+                if msg_body and isinstance(msg_body, dict):
+                    reply_content = msg_body.get("content") or ""
+            if not reply_content:
+                reply_content = response_payload.get("output") or ""
+        
+        if not reply_content:
+            reply_content = "暂无回复内容或回复格式无法解析"
+
+        session_title = str(row.get("request_title_zh") or row.get("intent") or "单次调用详情")
+        
+        # 封装为单轮对话消息流
+        created_at_val = _format_utc_datetime(row.get("created_at"))
+        
+        # 提问消息
+        messages.append({
+            "id": f"msg_user_{request_id}",
+            "role": "user",
+            "content": str(row.get("prompt") or ""),
+            "plan": None,
+            "progress": None,
+            "documents": [],
+            "images": [],
+            "createdAt": created_at_val,
+        })
+        
+        # 回复消息
+        messages.append({
+            "id": f"msg_ai_{request_id}",
+            "role": "assistant",
+            "content": reply_content,
+            "plan": None,
+            "progress": None,
+            "documents": [],
+            "images": [],
+            "createdAt": created_at_val,
+        })
+
+    return {
+        "sessionId": session_id_val,
+        "title": session_title,
+        "messages": messages,
+    }

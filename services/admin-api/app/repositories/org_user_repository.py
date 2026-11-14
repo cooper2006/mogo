@@ -4,9 +4,11 @@ import logging
 import re
 from datetime import datetime, timezone
 
-from bson import ObjectId
+from app.core.ids import to_backend_id
 from pymongo import ReturnDocument
 from pymongo.errors import OperationFailure
+
+from app.core.nosql_guard import sanitize_query_filter
 
 from app.core.db import get_db
 from app.core.security import hash_password
@@ -34,65 +36,75 @@ async def ensure_indexes() -> None:
             pass
 
         await db[GROUP_COLLECTION].create_index(
-            [("main_id", 1), ("code", 1)],
+            [("tenant_id", 1), ("code", 1)],
             unique=True,
-            name="main_id_code_unique",
+            name="tenant_id_code_unique",
         )
-        await db[GROUP_COLLECTION].create_index([("main_id", 1), ("status", 1)], name="group_main_id_status")
+        await db[GROUP_COLLECTION].create_index([("tenant_id", 1), ("status", 1)], name="group_tenant_id_status")
         await db[ACCOUNT_COLLECTION].create_index(
-            [("main_id", 1), ("username", 1)],
+            [("tenant_id", 1), ("username", 1)],
             unique=True,
-            name="main_id_username_unique",
+            name="tenant_id_username_unique",
         )
         await db[ACCOUNT_COLLECTION].create_index(
-            [("main_id", 1), ("group_code", 1)],
-            name="account_main_id_group_code",
+            [("tenant_id", 1), ("group_code", 1)],
+            name="account_tenant_id_group_code",
         )
         await db[ACCOUNT_COLLECTION].create_index(
-            [("main_id", 1), ("status", 1)],
-            name="account_main_id_status",
+            [("tenant_id", 1), ("status", 1)],
+            name="account_tenant_id_status",
         )
     except OperationFailure as exc:
         logger.warning("org user index creation skipped: %s", exc)
 
 
-async def backfill_main_id(default_main_id: str) -> None:
+async def backfill_tenant_id(default_tenant_id: str) -> None:
+    """Ensure every account/group row carries a tenant_id.
+
+    Rows that never had any tenant key fall back to the default tenant; rows
+    that predate the rename already carry ``tenant_id`` after the Phase 2
+    backfill, so no legacy-field mirroring is needed any more.
+    """
     db = get_db()
     now = utcnow()
     await db[GROUP_COLLECTION].update_many(
-        {"main_id": {"$exists": False}},
-        {"$set": {"main_id": default_main_id, "updated_at": now}},
+        {"tenant_id": {"$exists": False}},
+        {"$set": {"tenant_id": default_tenant_id, "updated_at": now}},
     )
     await db[ACCOUNT_COLLECTION].update_many(
-        {"main_id": {"$exists": False}},
-        {"$set": {"main_id": default_main_id, "updated_at": now}},
+        {"tenant_id": {"$exists": False}},
+        {"$set": {"tenant_id": default_tenant_id, "updated_at": now}},
     )
 
 
-async def list_account_groups(main_id: str) -> list[dict]:
+async def list_account_groups(tenant_id: str) -> list[dict]:
     db = get_db()
-    cursor = db[GROUP_COLLECTION].find({"main_id": main_id}).sort("updated_at", -1)
+    filter_q = sanitize_query_filter({"tenant_id": tenant_id})
+    cursor = db[GROUP_COLLECTION].find(filter_q).sort("updated_at", -1)
     return await cursor.to_list(length=200)
 
 
-async def find_group_by_code(code: str, main_id: str) -> dict | None:
+async def find_group_by_code(code: str, tenant_id: str) -> dict | None:
     db = get_db()
-    return await db[GROUP_COLLECTION].find_one({"code": code, "main_id": main_id})
+    filter_q = sanitize_query_filter({"code": code, "tenant_id": tenant_id})
+    return await db[GROUP_COLLECTION].find_one(filter_q)
 
 
-async def find_group_by_id(group_id: str, main_id: str) -> dict | None:
+async def find_group_by_id(group_id: str, tenant_id: str) -> dict | None:
     db = get_db()
-    return await db[GROUP_COLLECTION].find_one({"_id": ObjectId(group_id), "main_id": main_id})
+    filter_q = sanitize_query_filter({"_id": to_backend_id(group_id), "tenant_id": tenant_id})
+    return await db[GROUP_COLLECTION].find_one(filter_q)
 
 
 async def create_account_group(payload: dict) -> dict:
     db = get_db()
     now = utcnow()
-    main_id = payload["main_id"]
+    tenant_id = payload["tenant_id"]
     base_code = _normalize_group_code(payload["name"])
-    code = await _next_available_group_code(base_code, main_id)
+    code = await _next_available_group_code(base_code, tenant_id)
     doc = {
-        "main_id": main_id,
+        # Phase 1 dual-write: canonical tenant_id + legacy tenant_id (same value).
+        "tenant_id": tenant_id,
         "name": payload["name"],
         "code": code,
         "description": payload.get("description") or "",
@@ -108,7 +120,7 @@ async def create_account_group(payload: dict) -> dict:
 async def update_account_group(group_id: str, payload: dict) -> bool:
     db = get_db()
     result = await db[GROUP_COLLECTION].update_one(
-        {"_id": ObjectId(group_id), "main_id": payload["main_id"]},
+        {"_id": to_backend_id(group_id), "tenant_id": payload["tenant_id"]},
         {
             "$set": {
                 "name": payload["name"],
@@ -121,37 +133,41 @@ async def update_account_group(group_id: str, payload: dict) -> bool:
     return result.matched_count > 0
 
 
-async def delete_account_group(group_id: str, main_id: str) -> bool:
+async def delete_account_group(group_id: str, tenant_id: str) -> bool:
     db = get_db()
-    group = await db[GROUP_COLLECTION].find_one({"_id": ObjectId(group_id), "main_id": main_id})
+    group = await db[GROUP_COLLECTION].find_one({"_id": to_backend_id(group_id), "tenant_id": tenant_id})
     if group is None:
         return False
-    in_use_count = await db[ACCOUNT_COLLECTION].count_documents({"group_code": group["code"], "main_id": main_id})
+    in_use_count = await db[ACCOUNT_COLLECTION].count_documents({"group_code": group["code"], "tenant_id": tenant_id})
     if in_use_count > 0:
         raise ValueError("账号组下仍有账号，无法删除")
-    result = await db[GROUP_COLLECTION].delete_one({"_id": ObjectId(group_id), "main_id": main_id})
+    result = await db[GROUP_COLLECTION].delete_one({"_id": to_backend_id(group_id), "tenant_id": tenant_id})
     return result.deleted_count > 0
 
 
-async def count_accounts_by_group_code(group_code: str, main_id: str) -> int:
+async def count_accounts_by_group_code(group_code: str, tenant_id: str) -> int:
     db = get_db()
-    return await db[ACCOUNT_COLLECTION].count_documents({"group_code": group_code, "main_id": main_id})
+    filter_q = sanitize_query_filter({"group_code": group_code, "tenant_id": tenant_id})
+    return await db[ACCOUNT_COLLECTION].count_documents(filter_q)
 
 
-async def list_accounts(main_id: str) -> list[dict]:
+async def list_accounts(tenant_id: str) -> list[dict]:
     db = get_db()
-    cursor = db[ACCOUNT_COLLECTION].find({"main_id": main_id}).sort("updated_at", -1)
+    filter_q = sanitize_query_filter({"tenant_id": tenant_id})
+    cursor = db[ACCOUNT_COLLECTION].find(filter_q).sort("updated_at", -1)
     return await cursor.to_list(length=1000)
 
 
-async def find_account_by_username(username: str, main_id: str) -> dict | None:
+async def find_account_by_username(username: str, tenant_id: str) -> dict | None:
     db = get_db()
-    return await db[ACCOUNT_COLLECTION].find_one({"username": username, "main_id": main_id})
+    filter_q = sanitize_query_filter({"username": username, "tenant_id": tenant_id})
+    return await db[ACCOUNT_COLLECTION].find_one(filter_q)
 
 
 async def find_account_by_username_any_main(username: str) -> dict | None:
     db = get_db()
-    rows = await db[ACCOUNT_COLLECTION].find({"username": username}).limit(2).to_list(length=2)
+    filter_q = sanitize_query_filter({"username": username})
+    rows = await db[ACCOUNT_COLLECTION].find(filter_q).limit(2).to_list(length=2)
     if len(rows) == 1:
         return rows[0]
     return None
@@ -159,13 +175,15 @@ async def find_account_by_username_any_main(username: str) -> dict | None:
 
 async def list_accounts_by_username(username: str) -> list[dict]:
     db = get_db()
-    cursor = db[ACCOUNT_COLLECTION].find({"username": username}).sort([("updated_at", -1)])
+    filter_q = sanitize_query_filter({"username": username})
+    cursor = db[ACCOUNT_COLLECTION].find(filter_q).sort([("updated_at", -1)])
     return await cursor.to_list(length=100)
 
 
-async def find_account_by_id(account_id: str, main_id: str) -> dict | None:
+async def find_account_by_id(account_id: str, tenant_id: str) -> dict | None:
     db = get_db()
-    return await db[ACCOUNT_COLLECTION].find_one({"_id": ObjectId(account_id), "main_id": main_id})
+    filter_q = sanitize_query_filter({"_id": to_backend_id(account_id), "tenant_id": tenant_id})
+    return await db[ACCOUNT_COLLECTION].find_one(filter_q)
 
 
 async def create_account(payload: dict) -> dict:
@@ -173,7 +191,8 @@ async def create_account(payload: dict) -> dict:
     now = utcnow()
     password_hash, password_salt = hash_password(payload.get("password") or "")
     doc = {
-        "main_id": payload["main_id"],
+        # Phase 1 dual-write: canonical tenant_id + legacy tenant_id (same value).
+        "tenant_id": payload["tenant_id"],
         "username": payload["username"],
         "display_name": payload["display_name"],
         "email": payload.get("email") or "",
@@ -196,7 +215,7 @@ async def create_account(payload: dict) -> dict:
 async def update_account(account_id: str, payload: dict) -> bool:
     db = get_db()
     result = await db[ACCOUNT_COLLECTION].update_one(
-        {"_id": ObjectId(account_id), "main_id": payload["main_id"]},
+        {"_id": to_backend_id(account_id), "tenant_id": payload["tenant_id"]},
         {
             "$set": {
                 "display_name": payload["display_name"],
@@ -212,47 +231,61 @@ async def update_account(account_id: str, payload: dict) -> bool:
     return result.matched_count > 0
 
 
-async def delete_account(account_id: str, main_id: str) -> bool:
+async def delete_account(account_id: str, tenant_id: str) -> bool:
     db = get_db()
-    account = await db[ACCOUNT_COLLECTION].find_one({"_id": ObjectId(account_id), "main_id": main_id})
+    account = await db[ACCOUNT_COLLECTION].find_one({"_id": to_backend_id(account_id), "tenant_id": tenant_id})
     if account is None:
         return False
     if bool(account.get("is_protected", False)):
         raise ValueError("系统内置账号不可删除")
-    result = await db[ACCOUNT_COLLECTION].delete_one({"_id": ObjectId(account_id), "main_id": main_id})
+    result = await db[ACCOUNT_COLLECTION].delete_one({"_id": to_backend_id(account_id), "tenant_id": tenant_id})
     return result.deleted_count > 0
 
 
-async def touch_account_last_login(username: str, main_id: str) -> None:
+async def touch_account_last_login(username: str, tenant_id: str) -> None:
     db = get_db()
     now = utcnow()
     await db[ACCOUNT_COLLECTION].update_one(
-        {"username": username, "main_id": main_id},
+        {"username": username, "tenant_id": tenant_id},
         {"$set": {"last_login_at": now, "updated_at": now}},
     )
 
 
-async def set_account_password(username: str, password: str, main_id: str) -> None:
+async def set_account_password(
+    username: str,
+    password: str,
+    tenant_id: str,
+    *,
+    must_change_password: bool | None = None,
+) -> None:
+    """重置/修改口令。
+
+    Args:
+        must_change_password: 022 FR-13（T021）——由口令重置路径传入 ``True``
+            时，账号下次登录必须强制改密；由用户自助改密路径传入 ``False``
+            以清除标记。``None`` 表示不改动该字段（保持原值）。
+    """
     db = get_db()
     now = utcnow()
     password_hash, password_salt = hash_password(password)
+    fields: dict = {
+        "password_hash": password_hash,
+        "password_salt": password_salt,
+        "updated_at": now,
+    }
+    if must_change_password is not None:
+        fields["must_change_password"] = bool(must_change_password)
     await db[ACCOUNT_COLLECTION].update_one(
-        {"username": username, "main_id": main_id},
-        {
-            "$set": {
-                "password_hash": password_hash,
-                "password_salt": password_salt,
-                "updated_at": now,
-            }
-        },
+        {"username": username, "tenant_id": tenant_id},
+        {"$set": fields},
     )
 
 
-async def update_account_profile(username: str, main_id: str, payload: dict) -> dict | None:
+async def update_account_profile(username: str, tenant_id: str, payload: dict) -> dict | None:
     db = get_db()
     now = utcnow()
     result = await db[ACCOUNT_COLLECTION].find_one_and_update(
-        {"username": username, "main_id": main_id},
+        {"username": username, "tenant_id": tenant_id},
         {
             "$set": {
                 "display_name": payload["display_name"],
@@ -266,11 +299,11 @@ async def update_account_profile(username: str, main_id: str, payload: dict) -> 
     return result
 
 
-async def update_account_avatar(username: str, main_id: str, avatar_url: str) -> dict | None:
+async def update_account_avatar(username: str, tenant_id: str, avatar_url: str) -> dict | None:
     db = get_db()
     now = utcnow()
     result = await db[ACCOUNT_COLLECTION].find_one_and_update(
-        {"username": username, "main_id": main_id},
+        {"username": username, "tenant_id": tenant_id},
         {
             "$set": {
                 "avatar_url": avatar_url,
@@ -283,14 +316,14 @@ async def update_account_avatar(username: str, main_id: str, avatar_url: str) ->
     return result
 
 
-async def ensure_group_exists(name: str, code: str, main_id: str, description: str = "") -> None:
+async def ensure_group_exists(name: str, code: str, tenant_id: str, description: str = "") -> None:
     db = get_db()
     now = utcnow()
     await db[GROUP_COLLECTION].update_one(
-        {"code": code, "main_id": main_id},
+        {"code": code, "tenant_id": tenant_id},
         {
             "$setOnInsert": {
-                "main_id": main_id,
+                "tenant_id": tenant_id,
                 "name": name,
                 "code": code,
                 "description": description,
@@ -304,7 +337,7 @@ async def ensure_group_exists(name: str, code: str, main_id: str, description: s
 
 
 async def ensure_bootstrap_account(
-    main_id: str,
+    tenant_id: str,
     username: str,
     password: str,
     display_name: str,
@@ -314,12 +347,12 @@ async def ensure_bootstrap_account(
 ) -> None:
     db = get_db()
     now = utcnow()
-    existing = await db[ACCOUNT_COLLECTION].find_one({"username": username, "main_id": main_id})
+    existing = await db[ACCOUNT_COLLECTION].find_one({"username": username, "tenant_id": tenant_id})
     if existing is None:
         password_hash, password_salt = hash_password(password)
         await db[ACCOUNT_COLLECTION].insert_one(
             {
-                "main_id": main_id,
+                "tenant_id": tenant_id,
                 "username": username,
                 "display_name": display_name,
                 "email": "",
@@ -351,14 +384,14 @@ async def ensure_bootstrap_account(
         update_doc["password_hash"] = password_hash
         update_doc["password_salt"] = password_salt
     await db[ACCOUNT_COLLECTION].update_one(
-        {"username": username, "main_id": main_id},
+        {"username": username, "tenant_id": tenant_id},
         {"$set": update_doc},
     )
 
 
-async def count_accounts(main_id: str) -> int:
+async def count_accounts(tenant_id: str) -> int:
     db = get_db()
-    return await db[ACCOUNT_COLLECTION].count_documents({"main_id": main_id})
+    return await db[ACCOUNT_COLLECTION].count_documents({"tenant_id": tenant_id})
 
 
 def _normalize_group_code(name: str) -> str:
@@ -366,10 +399,10 @@ def _normalize_group_code(name: str) -> str:
     return cleaned or "group"
 
 
-async def _next_available_group_code(base_code: str, main_id: str) -> str:
+async def _next_available_group_code(base_code: str, tenant_id: str) -> str:
     code = base_code
     suffix = 1
-    while await find_group_by_code(code, main_id):
+    while await find_group_by_code(code, tenant_id):
         suffix += 1
         code = f"{base_code}_{suffix}"
     return code

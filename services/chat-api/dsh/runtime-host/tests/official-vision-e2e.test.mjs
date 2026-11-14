@@ -19,7 +19,7 @@ async function waitFor(predicate) {
 }
 
 test('official DSH admits a user image and keeps it available for a follow-up', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'movo-vision-e2e-'))
+  const root = await mkdtemp(join(tmpdir(), 'mogo-vision-e2e-'))
   const calls = []
   const server = createServer(async (request, response) => {
     const chunks = []

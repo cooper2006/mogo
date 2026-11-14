@@ -2,9 +2,9 @@
 
 Rows in ``session_participants``: one per (conversation, user), soft-removed
 on leave and reactivated on re-join. Owner membership lives on the session
-document, not here; every method is scoped by tenant (``main_id``) and never
+document, not here; every method is scoped by tenant (``tenant_id``) and never
 filters by a viewer identity beyond that. The unique index omits
-``main_id`` because ``conversation_id`` is the session ``_id`` (ObjectId),
+``tenant_id`` because ``conversation_id`` is the session ``_id`` (32-hex),
 which is globally unique across tenants.
 """
 
@@ -28,7 +28,7 @@ class SessionParticipantsRepository:
             name="unique_conversation_participant",
         )
         await self._collection.create_index(
-            [("main_id", 1), ("user_id", 1), ("joined_at", DESCENDING)],
+            [("tenant_id", 1), ("user_id", 1), ("joined_at", DESCENDING)],
             name="participant_memberships_by_user",
         )
 
@@ -41,7 +41,7 @@ class SessionParticipantsRepository:
         row.
         """
         filter = {
-            "main_id": tenant_id,
+            "tenant_id": tenant_id,
             "conversation_id": conversation_id,
             "user_id": user_id,
         }
@@ -61,7 +61,7 @@ class SessionParticipantsRepository:
     async def remove(self, conversation_id: str, *, tenant_id: str, user_id: str) -> None:
         await self._collection.update_one(
             {
-                "main_id": tenant_id,
+                "tenant_id": tenant_id,
                 "conversation_id": conversation_id,
                 "user_id": user_id,
             },
@@ -76,7 +76,7 @@ class SessionParticipantsRepository:
         include_removed: bool = False,
     ) -> list[dict[str, Any]]:
         query: dict[str, Any] = {
-            "main_id": tenant_id,
+            "tenant_id": tenant_id,
             "conversation_id": conversation_id,
         }
         if not include_removed:
@@ -87,7 +87,7 @@ class SessionParticipantsRepository:
     async def is_member(self, conversation_id: str, *, tenant_id: str, user_id: str) -> bool:
         row = await self._collection.find_one(
             {
-                "main_id": tenant_id,
+                "tenant_id": tenant_id,
                 "conversation_id": conversation_id,
                 "user_id": user_id,
                 "removed_at": None,
@@ -107,7 +107,7 @@ class SessionParticipantsRepository:
         cursor = (
             self._collection.find(
                 {
-                    "main_id": tenant_id,
+                    "tenant_id": tenant_id,
                     "user_id": user_id,
                     "removed_at": None,
                 }
@@ -128,7 +128,7 @@ class SessionParticipantsRepository:
     ) -> None:
         await self._collection.update_one(
             {
-                "main_id": tenant_id,
+                "tenant_id": tenant_id,
                 "conversation_id": conversation_id,
                 "user_id": user_id,
             },
@@ -138,7 +138,7 @@ class SessionParticipantsRepository:
     async def delete_for_conversation(self, conversation_id: str, *, tenant_id: str) -> None:
         await self._collection.delete_many(
             {
-                "main_id": tenant_id,
+                "tenant_id": tenant_id,
                 "conversation_id": conversation_id,
             }
         )

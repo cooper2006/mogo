@@ -1,156 +1,226 @@
 #!/usr/bin/env bash
 
-movo_detect_locale() {
-  local requested="${MOVO_LANG:-en}"
+mogo_detect_locale() {
+  local requested="${MOGO_LANG:-en}"
   requested="$(printf '%s' "${requested}" | tr '[:upper:]' '[:lower:]')"
   case "${requested}" in
     zh|zh-*|zh_*|cn|chinese)
-      MOVO_LOCALE=zh
+      MOGO_LOCALE=zh
       ;;
     *)
-      MOVO_LOCALE=en
+      MOGO_LOCALE=en
       ;;
   esac
 }
 
-movo_usage() {
-  if [[ "${MOVO_LOCALE}" == "zh" ]]; then
+mogo_usage() {
+  if [[ "${MOGO_LOCALE}" == "zh" ]]; then
     printf '用法：\n'
-    printf '  ./movo [--lang zh-CN|en] [--mirror cn|global] up  启动 MOVO 并输出初始化地址\n'
-    printf '  ./movo up --build                  从源码构建并启动（不与 --mirror cn 合用）\n'
-    printf '  ./movo build                          从源码构建 MOVO 镜像\n'
-    printf '  ./movo update                         拉取当前版本镜像并更新服务\n'
-    printf '  ./movo fix [--yes]                    备份并修复冲突的会话消息序号\n'
-    printf '  ./movo backup [目录]                  停机一致性备份全部 MOVO 数据卷\n'
-    printf '  ./movo restore <目录> --yes           校验并恢复 MOVO 数据卷\n'
-    printf '  ./movo status                         查看服务状态\n'
-    printf '  ./movo logs [服务名]                  查看日志\n'
-    printf '  ./movo restart                        重启服务\n'
-    printf '  ./movo down                           停止服务（保留数据卷）\n'
-    printf '  ./movo down -v                        停止服务并删除全部 MOVO 数据\n'
+    printf '  ./mogo [--lang zh-CN|en] [--profile dev|test|prod] up [--build]  启动 MOGO 并输出初始化地址\n'
+    printf '      --profile dev   开发环境：arm64 + 栈内 mongo 容器\n'
+    printf '      --profile test  测试环境：arm64 + 栈内 panweidb 容器\n'
+    printf '      --profile prod  生产环境：amd64 + 外部 panweidb（.env 里的 PANWEIDB_HOST）\n'
+    printf '      不指定 --profile 时按 .env 推断：MOGO_DATA_BACKEND=panweidb -> test，否则 dev；MOGO_USE_EXTERNAL_DB=1 仅叠加外部数据库 overlay，不影响推断\n'
+    printf '      目标架构：dev/test=linux/arm64、prod=linux/amd64；宿主架构与之不符时必须显式给 MOGO_PLATFORM\n'
+    printf '  ./mogo build                          从源码构建 MOGO 镜像\n'
+    printf '  ./mogo update                         拉取当前版本镜像并更新服务\n'
+    printf '  ./mogo backup [目录]                  停机一致性备份全部 MOGO 数据卷\n'
+    printf '  ./mogo restore <目录> --yes           校验并恢复 MOGO 数据卷\n'
+    printf '  ./mogo status                         查看服务状态\n'
+    printf '  ./mogo check                          体检外部数据库连接信息\n'
+    printf '  ./mogo baseline [--json]                扫描部署安全基线（非root/只读/能力/体积）\n'
+    printf '  ./mogo config [--env all|dev|staging|prod]  校验配置清单键与代码读取点一致性\n'
+    printf '  ./mogo config rollback <ref> --yes     按 git commit 回滚配置清单并重建服务\n'
+    printf '  ./mogo drift [--service 名]            比对 compose 声明与容器实际运行态漂移\n'
+    printf '  ./mogo deploy --dry-run               预审部署计划 diff（新增/删除/变更服务与镜像）\n'
+    printf '  ./mogo verify                          校验运行镜像与流水线发布记录一致\n'
+    printf '  ./mogo canary start|promote|rollback|status  灰度发布：按档位分流、自动回滚与回滚记录\n'
+    printf '  ./mogo cert list|check|renew            证书到期检查、外部拨测与 ACME 续期\n'
+    printf '  ./mogo backup-schedule install|systemd|uninstall|status|prune  备份计划安装与管理\n'
+    printf '  ./mogo failover prepare|execute|verify|back|status  主备切换演练与状态\n'
+    printf '  ./mogo monitor check|watermarks        容量水位检查与阈值定义查看\n'
+    printf '  ./mogo logs [服务名]                  查看日志\n'
+    printf '  ./mogo restart                        重启服务\n'
+    printf '  ./mogo down                           停止服务（保留数据卷）\n'
+    printf '  ./mogo down -v                        停止服务并删除全部 MOGO 数据\n'
   else
     printf 'Usage:\n'
-    printf '  ./movo [--lang zh-CN|en] [--mirror cn|global] up  Start MOVO and print the setup URL\n'
-    printf '  ./movo up --build                       Build and start from source (without --mirror cn)\n'
-    printf '  ./movo build                           Build MOVO images from source\n'
-    printf '  ./movo update                          Pull current images and update services\n'
-    printf '  ./movo fix [--yes]                     Back up and repair conflicting chat sequences\n'
-    printf '  ./movo backup [directory]              Back up all MOVO volumes while stopped\n'
-    printf '  ./movo restore <directory> --yes       Verify and restore MOVO volumes\n'
-    printf '  ./movo status                          Show service status\n'
-    printf '  ./movo logs [service]                  Show logs\n'
-    printf '  ./movo restart                         Restart services\n'
-    printf '  ./movo down                            Stop services and preserve volumes\n'
-    printf '  ./movo down -v                         Stop services and delete all MOVO data\n'
+    printf '  ./mogo [--lang zh-CN|en] [--profile dev|test|prod] up [--build]  Start MOGO and print the setup URL\n'
+    printf '      --profile dev   Development: arm64 + in-stack mongo container\n'
+    printf '      --profile test  Test: arm64 + in-stack panweidb container\n'
+    printf '      --profile prod  Production: amd64 + external panweidb (PANWEIDB_HOST in .env)\n'
+    printf '      Without --profile it is inferred from .env: MOGO_DATA_BACKEND=panweidb -> test, else dev; MOGO_USE_EXTERNAL_DB=1 only adds external DB overlay, does not affect inference\n'
+    printf '      Target architecture: dev/test=linux/arm64, prod=linux/amd64; set MOGO_PLATFORM when the host differs\n'
+    printf '  ./mogo build                           Build MOGO images from source\n'
+    printf '  ./mogo update                          Pull current images and update services\n'
+    printf '  ./mogo backup [directory]              Back up all MOGO volumes while stopped\n'
+    printf '  ./mogo restore <directory> --yes       Verify and restore MOGO volumes\n'
+    printf '  ./mogo status                          Show service status\n'
+    printf '  ./mogo check                           Check external database settings\n'
+    printf '  ./mogo baseline [--json]                Scan deployment security baseline (non-root/read-only/caps/size)\n'
+    printf '  ./mogo config [--env all|dev|staging|prod]  Lint config manifests against code read sites\n'
+    printf '  ./mogo config rollback <ref> --yes      Roll back config manifests to a commit and rebuild\n'
+    printf '  ./mogo drift [--service name]           Compare compose declaration against running state\n'
+    printf '  ./mogo deploy --dry-run                Preview deployment plan diff for review\n'
+    printf '  ./mogo verify                           Verify running images match release record\n'
+    printf '  ./mogo canary start|promote|rollback|status   Canary: weight routing, auto-rollback, record\n'
+    printf '  ./mogo cert list|check|renew             Certificate expiry check, external probe, ACME renew\n'
+    printf '  ./mogo backup-schedule install|systemd|uninstall|status|prune  Manage backup schedule\n'
+    printf '  ./mogo failover prepare|execute|verify|back|status  Failover drill and status\n'
+    printf '  ./mogo monitor check|watermarks         Capacity watermark check and threshold list\n'
+    printf '  ./mogo logs [service]                  Show logs\n'
+    printf '  ./mogo restart                         Restart services\n'
+    printf '  ./mogo down                            Stop services and preserve volumes\n'
+    printf '  ./mogo down -v                         Stop services and delete all MOGO data\n'
   fi
 }
 
-movo_msg() {
+mogo_msg() {
   local key="$1"
   shift
-  case "${MOVO_LOCALE}:${key}" in
+  case "${MOGO_LOCALE}:${key}" in
     zh:docker_missing) printf '错误：未找到 Docker，请先安装 Docker Engine 或 Docker Desktop。\n' ;;
     en:docker_missing) printf 'Error: Docker was not found. Install Docker Engine or Docker Desktop first.\n' ;;
-    zh:compose_missing) printf '错误：未找到可用的 Docker Compose v2 或更新版本；已检查 docker compose 和 docker-compose。\n' ;;
-    en:compose_missing) printf 'Error: Docker Compose v2 or newer was not found; checked docker compose and docker-compose.\n' ;;
+    zh:compose_missing) printf '错误：未找到 Docker Compose v2。\n' ;;
+    en:compose_missing) printf 'Error: Docker Compose v2 was not found.\n' ;;
     zh:docker_stopped) printf '错误：Docker 尚未运行，请先启动 Docker。\n' ;;
     en:docker_stopped) printf 'Error: Docker is not running. Start Docker first.\n' ;;
-    zh:sandbox_config_mismatch) printf '错误：沙箱模式需要同时设置 COMPOSE_PROFILES=sandbox 和 MOVO_SANDBOX_MANAGER_URL=http://sandbox-manager:8300。\n' ;;
-    en:sandbox_config_mismatch) printf 'Error: sandbox mode requires COMPOSE_PROFILES=sandbox and MOVO_SANDBOX_MANAGER_URL=http://sandbox-manager:8300 together.\n' ;;
-    zh:sandbox_engine_old) printf '错误：沙箱工作区需要 Docker Engine 26 或更新版本，当前版本：%s。\n' "$1" ;;
-    en:sandbox_engine_old) printf 'Error: sandbox workspaces require Docker Engine 26 or newer. Current version: %s.\n' "$1" ;;
-    zh:sandbox_unavailable) printf '错误：沙箱管理服务未就绪。请执行 ./movo logs sandbox-manager 查看原因。\n' ;;
-    en:sandbox_unavailable) printf 'Error: sandbox manager is not ready. Run ./movo logs sandbox-manager for details.\n' ;;
-    zh:image_source_missing) printf '错误：无法确定公开镜像地址。请从 GitHub 克隆仓库、在 .env 设置 MOVO_IMAGE_PREFIX，或执行 ./movo up --build。\n' ;;
-    en:image_source_missing) printf 'Error: public image location is unknown. Clone from GitHub, set MOVO_IMAGE_PREFIX in .env, or run ./movo up --build.\n' ;;
-    zh:using_local_images) printf '未配置公开镜像地址，将使用现有的本地 MOVO 镜像。\n' ;;
-    en:using_local_images) printf 'No public image location is configured; using existing local MOVO images.\n' ;;
-    zh:update_local_only) printf '错误：当前仅配置了本地镜像。请先设置 MOVO_IMAGE_PREFIX，或使用 ./movo up --build 重新构建。\n' ;;
-    en:update_local_only) printf 'Error: only local images are configured. Set MOVO_IMAGE_PREFIX first, or rebuild with ./movo up --build.\n' ;;
+    zh:image_source_missing) printf '错误：无法确定公开镜像地址。请从 GitHub 克隆仓库、在 .env 设置 MOGO_IMAGE_REGISTRY，或执行 ./mogo up --build。\n' ;;
+    en:image_source_missing) printf 'Error: public image location is unknown. Clone from GitHub, set MOGO_IMAGE_REGISTRY in .env, or run ./mogo up --build.\n' ;;
+    zh:using_local_images) printf '未配置公开镜像地址，将使用现有的本地 MOGO 镜像。\n' ;;
+    en:using_local_images) printf 'No public image location is configured; using existing local MOGO images.\n' ;;
+    zh:update_local_only) printf '错误：当前仅配置了本地镜像。请先设置 MOGO_IMAGE_REGISTRY，或使用 ./mogo up --build 重新构建。\n' ;;
+    en:update_local_only) printf 'Error: only local images are configured. Set MOGO_IMAGE_REGISTRY first, or rebuild with ./mogo up --build.\n' ;;
     zh:waiting) printf '\n正在等待服务健康检查' ;;
     en:waiting) printf '\nWaiting for deployment health checks' ;;
     zh:done) printf ' 完成\n' ;;
     en:done) printf ' done\n' ;;
-    zh:timeout) printf '\n服务未在预期时间内全部就绪。请执行 ./movo status 和 ./movo logs 查看原因。\n' ;;
-    en:timeout) printf '\nServices did not become ready in time. Run ./movo status and ./movo logs for details.\n' ;;
-    zh:ready_title) printf '\nMOVO 已启动。请在浏览器中完成首次初始化：\n\n' ;;
-    en:ready_title) printf '\nMOVO is running. Complete the initial setup in your browser:\n\n' ;;
-    zh:starting) printf '正在启动 MOVO 服务...\n' ;;
-    en:starting) printf 'Starting MOVO services...\n' ;;
-    zh:building) printf '正在从源码构建 MOVO 镜像...\n' ;;
-    en:building) printf 'Building MOVO images from source...\n' ;;
-    zh:updating) printf '正在拉取 MOVO 镜像并更新服务...\n' ;;
-    en:updating) printf 'Pulling MOVO images and updating services...\n' ;;
-    zh:upgrading_database) printf '正在自动检查并升级会话分享数据库索引...\n' ;;
-    en:upgrading_database) printf 'Checking and upgrading session-sharing database indexes...\n' ;;
-    zh:upgrade_database_failed) printf '数据库升级未通过；旧服务保持运行，数据未被迁移脚本改写。请检查上方错误。\n' ;;
-    en:upgrade_database_failed) printf 'Database upgrade did not pass; old services remain running and the migration did not rewrite data. Check the error above.\n' ;;
-    zh:fix_confirm) printf '即将停止聊天服务并修改冲突会话的序号。已确认维护窗口后输入 FIX（自动化可用 --yes）：' ;;
-    en:fix_confirm) printf 'This stops chat and changes conflicting sequence metadata. Type FIX to continue (or use --yes): ' ;;
-    zh:fix_tools_missing) printf 'MongoDB 容器缺少 mongodump 或 mongorestore；聊天服务尚未停止。\n' ;;
-    en:fix_tools_missing) printf 'The MongoDB container lacks mongodump or mongorestore; chat was not stopped.\n' ;;
-    zh:fix_stopping) printf '正在停止聊天服务并备份 MongoDB...\n' ;;
-    en:fix_stopping) printf 'Stopping chat and backing up MongoDB...\n' ;;
-    zh:fix_writer_still_running) printf '聊天服务仍在运行，拒绝修改消息序号。\n' ;;
-    en:fix_writer_still_running) printf 'Chat is still running; refusing to modify message sequences.\n' ;;
-    zh:fix_incomplete) printf '发现上次未完成的修复：%s。请保留备份并联系维护人员，避免覆盖恢复点。\n' "$1" ;;
-    en:fix_incomplete) printf 'Found an incomplete repair at %s. Preserve the backup and contact support before retrying.\n' "$1" ;;
-    zh:fix_requires_running_chat) printf '修复前需要旧聊天服务处于运行状态；请先排查服务状态，避免错误版本的回退。\n' ;;
-    en:fix_requires_running_chat) printf 'The old chat service must be running before repair; check its state to ensure safe rollback.\n' ;;
-    zh:fix_backup_failed) printf '数据库备份失败，正在恢复旧聊天服务。\n' ;;
-    en:fix_backup_failed) printf 'Database backup failed; restarting the old chat service.\n' ;;
-    zh:fix_backup_complete) printf '数据库备份保存在：%s\n' "$1" ;;
-    en:fix_backup_complete) printf 'Database backup saved at: %s\n' "$1" ;;
-    zh:fix_restoring) printf '修复或验证失败，正在恢复聊天相关集合的备份...\n' ;;
-    en:fix_restoring) printf 'Repair or validation failed; restoring the chat collections...\n' ;;
-    zh:fix_restore_failed) printf '自动恢复失败。聊天服务保持停止；请保留备份 %s 并联系维护人员。\n' "$1" ;;
-    en:fix_restore_failed) printf 'Automatic restore failed. Chat remains stopped; preserve backup %s and contact support.\n' "$1" ;;
-    zh:fix_rolled_back) printf '已恢复备份并重新启动旧聊天服务。备份：%s\n' "$1" ;;
-    en:fix_rolled_back) printf 'Backup restored and old chat service restarted. Backup: %s\n' "$1" ;;
-    zh:fix_complete) printf '修复和验证成功。聊天服务保持停止，请立即执行 ./movo up 完成升级。\n' ;;
-    en:fix_complete) printf 'Repair verified. Chat remains stopped; run ./movo up now to complete the upgrade.\n' ;;
-    zh:fix_complete_build) printf '修复和验证成功。聊天服务保持停止，请立即执行 ./movo up --build 完成升级。\n' ;;
-    en:fix_complete_build) printf 'Repair verified. Chat remains stopped; run ./movo up --build now to complete the upgrade.\n' ;;
-    zh:local_images_ready) printf '本地镜像已齐全，直接使用本地镜像启动；如需检查更新，请执行 ./movo update。\n' ;;
-    en:local_images_ready) printf 'All images are available locally. Starting with local images; run ./movo update to check for updates.\n' ;;
-    zh:pulling_missing_image) printf '正在拉取本地缺失的镜像：%s\n' "$1" ;;
-    en:pulling_missing_image) printf 'Pulling missing local image: %s\n' "$1" ;;
-    zh:missing_image_unavailable) printf '无法获取缺失镜像：%s。内网环境请先导入对应镜像，再重新启动。\n' "$1" ;;
-    en:missing_image_unavailable) printf 'Cannot obtain missing image: %s. For offline deployments, import the matching image and start again.\n' "$1" ;;
+    zh:timeout) printf '\n服务未在预期时间内全部就绪。请执行 ./mogo status 和 ./mogo logs 查看原因。\n' ;;
+    en:timeout) printf '\nServices did not become ready in time. Run ./mogo status and ./mogo logs for details.\n' ;;
+    zh:ready_title) printf '\nMOGO 已启动。请在浏览器中完成首次初始化：\n\n' ;;
+    en:ready_title) printf '\nMOGO is running. Complete the initial setup in your browser:\n\n' ;;
+    zh:starting) printf '正在启动 MOGO 服务...\n' ;;
+    en:starting) printf 'Starting MOGO services...\n' ;;
+    zh:building) printf '正在从源码构建 MOGO 镜像...\n' ;;
+    en:building) printf 'Building MOGO images from source...\n' ;;
+    zh:pruned_dangling) printf '已清理构建残留的无标签镜像，释放约 %s MB。\n' "$1" ;;
+    en:pruned_dangling) printf 'Pruned untagged build leftovers, reclaimed about %s MB.\n' "$1" ;;
+    zh:pruned_previous_release) printf '已清理上一版本的 %s 个镜像，释放约 %s MB。\n' "$1" "$2" ;;
+    en:pruned_previous_release) printf 'Pruned %s image(s) from the previous release, reclaimed about %s MB.\n' "$1" "$2" ;;
+    zh:updating) printf '正在拉取 MOGO 镜像并更新服务...\n' ;;
+    en:updating) printf 'Pulling MOGO images and updating services...\n' ;;
+    zh:dsh_lb_reload_failed) printf '提示：DSH 负载均衡器重载配置失败，其上游地址可能仍是旧 IP（已有自动重试兜底）。\n' ;;
+    en:dsh_lb_reload_failed) printf 'Note: the DSH load balancer failed to reload; its upstreams may still hold stale IPs (automatic retry still covers this).\n' ;;
     zh:pulling_images) printf '正在串行拉取镜像（第 %s 次）...\n' "$1" ;;
     en:pulling_images) printf 'Pulling images sequentially (attempt %s)...\n' "$1" ;;
     zh:pull_retry) printf '第 %s 次拉取失败，%s 秒后继续重试；按 Ctrl+C 可停止。\n' "$1" "$2" ;;
     en:pull_retry) printf 'Image pull attempt %s failed; retrying in %s seconds. Press Ctrl+C to stop.\n' "$1" "$2" ;;
+    zh:base_images_reused) printf '基础镜像已存在于本地，跳过远端拉取（复用 %s 个）。\n' "$1" ;;
+    en:base_images_reused) printf 'Base images already exist locally; skipping remote downloads (reused %s).\n' "$1" ;;
+    zh:base_image_pulling) printf '本地缺少基础镜像 %s，正在拉取...\n' "$1" ;;
+    en:base_image_pulling) printf 'Base image %s is missing locally; pulling...\n' "$1" ;;
+    zh:base_image_pull_failed) printf '错误：无法获取基础镜像 %s。\n' "$1" ;;
+    en:base_image_pull_failed) printf 'Error: unable to obtain base image %s.\n' "$1" ;;
+    zh:base_image_missing) printf '错误：本地缺少基础镜像 %s，且当前策略禁止联网拉取。\n' "$1" ;;
+    en:base_image_missing) printf 'Error: base image %s is missing locally and the current policy forbids network pulls.\n' "$1" ;;
     zh:backup_stopping) printf '正在停止服务并创建一致性数据卷备份...\n' ;;
     en:backup_stopping) printf 'Stopping services to create a consistent volume backup...\n' ;;
     zh:backup_failed) printf '备份失败，正在尝试恢复服务。\n' ;;
     en:backup_failed) printf 'Backup failed; attempting to restart the deployment.\n' ;;
     zh:backup_complete) printf '备份完成：%s\n' "$1" ;;
     en:backup_complete) printf 'Backup completed: %s\n' "$1" ;;
-    zh:restore_confirm) printf '恢复会覆盖当前全部 MOVO 数据。确认后请重新执行并添加 --yes。\n' ;;
-    en:restore_confirm) printf 'Restore overwrites all current MOVO data. Run the command again with --yes to confirm.\n' ;;
-    zh:restore_complete) printf 'MOVO 数据恢复完成，服务已就绪。\n' ;;
-    en:restore_complete) printf 'MOVO data restoration completed and services are ready.\n' ;;
+    zh:restore_confirm) printf '恢复会覆盖当前全部 MOGO 数据。确认后请重新执行并添加 --yes。\n' ;;
+    en:restore_confirm) printf 'Restore overwrites all current MOGO data. Run the command again with --yes to confirm.\n' ;;
+    zh:restore_complete) printf 'MOGO 数据恢复完成，服务已就绪。\n' ;;
+    en:restore_complete) printf 'MOGO data restoration completed and services are ready.\n' ;;
     zh:dsh_build_target) printf 'DSH Runtime 目标构建版本：%s\n' "$1" ;;
     en:dsh_build_target) printf 'DSH Runtime build target: %s\n' "$1" ;;
     zh:dsh_running_version) printf 'DSH Runtime 运行版本：%s\n' "$1" ;;
     en:dsh_running_version) printf 'DSH Runtime running version: %s\n' "$1" ;;
     zh:migrating_project) printf '正在迁移旧版 Compose 服务名（数据卷会保留）...\n' ;;
     en:migrating_project) printf 'Migrating the legacy Compose project name (data volumes are preserved)...\n' ;;
-    zh:remove_confirm) printf '这会永久删除全部 MOVO 数据卷和初始化数据。输入 MOVO 确认：' ;;
-    en:remove_confirm) printf 'This permanently deletes all MOVO volumes and setup data. Type MOVO to confirm: ' ;;
-    zh:remove_aborted) printf '已取消。自动化环境请显式传入 ./movo down -v --yes。\n' ;;
-    en:remove_aborted) printf 'Cancelled. For automation, explicitly pass ./movo down -v --yes.\n' ;;
-    zh:start_failed) printf '\nMOVO 启动失败，当前服务状态如下：\n' ;;
-    en:start_failed) printf '\nMOVO failed to start. Current service status:\n' ;;
-    zh:logs_hint) printf '请执行 ./movo logs 查看详细日志。\n' ;;
-    en:logs_hint) printf 'Run ./movo logs for detailed logs.\n' ;;
-    zh:stopped) printf 'MOVO 已停止，数据卷仍然保留。\n' ;;
-    en:stopped) printf 'MOVO has stopped. Data volumes are preserved.\n' ;;
-    zh:stopped_removed) printf 'MOVO 已停止，数据卷和初始化数据已删除。\n' ;;
-    en:stopped_removed) printf 'MOVO has stopped. Data volumes and setup state were deleted.\n' ;;
+    zh:remove_confirm) printf '这会永久删除全部 MOGO 数据卷和初始化数据。输入 MOGO 确认：' ;;
+    en:remove_confirm) printf 'This permanently deletes all MOGO volumes and setup data. Type MOGO to confirm: ' ;;
+    zh:remove_aborted) printf '已取消。自动化环境请显式传入 ./mogo down -v --yes。\n' ;;
+    en:remove_aborted) printf 'Cancelled. For automation, explicitly pass ./mogo down -v --yes.\n' ;;
+    zh:start_failed) printf '\nMOGO 启动失败，当前服务状态如下：\n' ;;
+    en:start_failed) printf '\nMOGO failed to start. Current service status:\n' ;;
+    zh:logs_hint) printf '请执行 ./mogo logs 查看详细日志。\n' ;;
+    en:logs_hint) printf 'Run ./mogo logs for detailed logs.\n' ;;
+    zh:stopped) printf 'MOGO 已停止，数据卷仍然保留。\n' ;;
+    en:stopped) printf 'MOGO has stopped. Data volumes are preserved.\n' ;;
+    zh:stopped_removed) printf 'MOGO 已停止，数据卷和初始化数据已删除。\n' ;;
+    en:stopped_removed) printf 'MOGO has stopped. Data volumes and setup state were deleted.\n' ;;
+    zh:tls_generating_certs) printf '未找到 TLS 证书，正在 %s 生成自签名证书对（CN=localhost）...\n' "$1" ;;
+    en:tls_generating_certs) printf 'No TLS certificate pair found; generating a self-signed pair (CN=localhost) in %s...\n' "$1" ;;
+    zh:tls_certs_generated) printf '已生成自签名证书：%s/fullchain.pem 与 privkey.pem（权限 0644）。浏览器会提示不安全；正式环境请换成 CA 签发的证书。\n' "$1" ;;
+    en:tls_certs_generated) printf 'Generated a self-signed certificate pair in %s (mode 0644). Browsers will warn; replace it with a CA-issued pair for real use.\n' "$1" ;;
+    zh:tls_cert_generated_without_san) printf '提示：当前 openssl 不支持 -addext，生成的证书没有 SAN，浏览器会拒绝；curl -k 与服务端调用不受影响。\n' ;;
+    en:tls_cert_generated_without_san) printf 'Note: this openssl has no -addext, so the certificate was generated without a SAN and browsers will reject it; curl -k and server-to-server calls are unaffected.\n' ;;
+    zh:tls_certs_missing_no_openssl) printf '错误：网关已启用 TLS，但 %s 下没有证书，且本机没有 openssl 无法生成。请放入 fullchain.pem 与 privkey.pem（私钥需 0644），或安装 openssl 后重试。\n' "$1" ;;
+    en:tls_certs_missing_no_openssl) printf 'Error: TLS is enabled for the gateway but no certificate pair exists in %s, and openssl is unavailable to generate one. Place fullchain.pem and privkey.pem there (private key mode 0644), or install openssl and retry.\n' "$1" ;;
+    zh:tls_cert_generation_failed) printf '错误：openssl 生成证书失败（%s）。请手动生成，或把 MOGO_NGINX_CONF 指向 deploy/docker/nginx.conf 临时退回 HTTP。\n' "$1" ;;
+    en:tls_cert_generation_failed) printf 'Error: openssl failed to generate a certificate pair in %s. Generate one manually, or point MOGO_NGINX_CONF at deploy/docker/nginx.conf to fall back to HTTP for now.\n' "$1" ;;
+    zh:tls_gateway_restart_failed) printf '提示：重启 gateway 让新证书生效失败，请执行 ./mogo restart 手动重启。\n' ;;
+    en:tls_gateway_restart_failed) printf 'Note: restarting the gateway to apply the new certificate failed; run ./mogo restart manually.\n' ;;
+    zh:local_images_missing) printf '错误：本地缺少 %s 个 MOGO 应用镜像。\n' "$1" ;;
+    en:local_images_missing) printf 'Error: %s MOGO application image(s) are missing locally.\n' "$1" ;;
+    zh:local_images_missing_hint) printf '纯 registry 拉取链路已停用：本仓库生成的 ghcr.io/mogoai/<service> 引用并不存在（实测 denied）。请改用 ./mogo up --build 从源码构建；若要固定版本，先设 MOGO_VERSION=vX.Y.Z。\n' ;;
+    en:local_images_missing_hint) printf 'The pure-registry path is retired: the ghcr.io/mogoai/<service> reference this repository generates does not exist (verified denied). Build from source with ./mogo up --build instead; set MOGO_VERSION=vX.Y.Z to pin a version.\n' ;;
+    zh:update_registry_retired) printf '错误：./mogo update 依赖的 registry 拉取链路已停用——本仓库生成的 ghcr.io/mogoai/<service> 引用并不存在（实测 denied），且旧实现会无限重试。请改用 ./mogo up --build 从源码构建并更新（先 MOGO_VERSION=vX.Y.Z 可固定到某个发布 tag）。\n' ;;
+    en:update_registry_retired) printf 'Error: ./mogo update relied on the registry pull path, which is retired -- the ghcr.io/mogoai/<service> reference this repository generates does not exist (verified denied), and the old implementation retried it forever. Rebuild and update from source with ./mogo up --build instead (set MOGO_VERSION=vX.Y.Z to pin a release tag).\n' ;;
+    zh:panweidb_profile_enabled) printf '已启用 PanWeiDB 数据后端（compose profile: panweidb），数据库容器随本次部署一起启动。\n' ;;
+    en:panweidb_profile_enabled) printf 'PanWeiDB data backend is enabled (compose profile: panweidb); the database container starts with this deployment.\n' ;;
+    zh:panweidb_image_missing) printf '错误：MOGO_DATA_BACKEND=panweidb 已启用 PanWeiDB 后端，但本地没有镜像 %s。\n' "$1" ;;
+    en:panweidb_image_missing) printf 'Error: MOGO_DATA_BACKEND=panweidb enables the PanWeiDB backend, but image %s is not present locally.\n' "$1" ;;
+    zh:panweidb_image_missing_hint) printf '该镜像不发布到 registry（openEuler/arm64，仅离线交付）。请先载入：docker load -i base-images/images/arm64/panweidb_3.2.0.tar；或把 MOGO_DATA_BACKEND 改回 mongo。\n' ;;
+    en:panweidb_image_missing_hint) printf 'This image is not published to a registry (openEuler/arm64, offline delivery only). Load it first: docker load -i base-images/images/arm64/panweidb_3.2.0.tar ; or set MOGO_DATA_BACKEND back to mongo.\n' ;;
+    zh:external_db_checking) printf 'MOGO_USE_EXTERNAL_DB=1：体检外部数据库连接信息\n' ;;
+    en:external_db_checking) printf 'MOGO_USE_EXTERNAL_DB=1: checking external database connection settings\n' ;;
+    zh:external_db_check_failed) printf '错误：外部数据库连接信息有硬伤（上方明细）。请先修 .env 再 ./mogo up；或把 MOGO_USE_EXTERNAL_DB 改回 0 用栈内数据库。\n' ;;
+    en:external_db_check_failed) printf 'Error: external database connection settings are broken (see details above). Fix .env before ./mogo up, or set MOGO_USE_EXTERNAL_DB back to 0 to use the stack databases.\n' ;;
+    zh:external_db_disabled) printf '未启用外部数据库模式（MOGO_USE_EXTERNAL_DB 不是 1），无需检查。\n' ;;
+    en:external_db_disabled) printf 'External database mode is not enabled (MOGO_USE_EXTERNAL_DB is not 1); nothing to check.\n' ;;
+    zh:profile_selected) printf '环境 profile：%s（数据库：%s）\n' "$1" "$2" ;;
+    en:profile_selected) printf 'Environment profile: %s (database: %s)\n' "$1" "$2" ;;
+    zh:profile_invalid) printf '错误：未知环境 profile「%s」。可选：%s。\n' "$1" "$2" ;;
+    en:profile_invalid) printf 'Error: unknown environment profile "%s". Choose one of: %s.\n' "$1" "$2" ;;
+    zh:profile_dev_backend_conflict) printf '错误：dev profile 固定使用栈内 mongo，但 MOGO_DATA_BACKEND=panweidb。请改用 ./mogo --profile test up，或把 MOGO_DATA_BACKEND 改回 mongo。\n' ;;
+    en:profile_dev_backend_conflict) printf 'Error: the dev profile always uses the in-stack mongo, but MOGO_DATA_BACKEND=panweidb. Use ./mogo --profile test up, or set MOGO_DATA_BACKEND=mongo.\n' ;;
+    zh:profile_prod_panweidb_missing) printf '错误：prod profile 要求外部 PanWeiDB，但 .env 里没有 PANWEIDB_HOST。请填入外部实例地址后再启动。\n' ;;
+    en:profile_prod_panweidb_missing) printf 'Error: the prod profile requires an external PanWeiDB, but .env has no PANWEIDB_HOST. Set the external address first.\n' ;;
+    zh:profile_prod_panweidb_internal) printf '错误：prod profile 需要外部 PanWeiDB，而 PANWEIDB_HOST=%s 仍是栈内服务名（prod 不启动该容器）。请改成外部实例地址。\n' "$1" ;;
+    en:profile_prod_panweidb_internal) printf 'Error: the prod profile requires an external PanWeiDB, but PANWEIDB_HOST=%s is still a stack-internal service name (prod starts no such container). Point it at the external instance.\n' "$1" ;;
+    zh:profile_arch_unspecified) printf '错误：%s profile 的目标架构是 %s，当前宿主机是 %s。请先明确指定架构再启动：交付用 MOGO_PLATFORM=%s，在本机演练用 MOGO_PLATFORM=%s。\n' "$1" "$2" "$3" "$2" "$3" ;;
+    en:profile_arch_unspecified) printf 'Error: the %s profile targets %s but this host is %s. Specify the architecture before starting: MOGO_PLATFORM=%s to deliver, MOGO_PLATFORM=%s to rehearse on this host.\n' "$1" "$2" "$3" "$2" "$3" ;;
     zh:unknown) printf '未知命令：%s\n\n' "$1" ;;
     en:unknown) printf 'Unknown command: %s\n\n' "$1" ;;
+     zh:baseline_script_missing) printf '错误：未找到基线扫揇脚本 deploy/cli/baseline-check.sh，请确认仓库完整．\n' ;;
+     en:baseline_script_missing) printf 'Error: baseline scan script deploy/cli/baseline-check.sh not found; verify the repository is complete.\n' ;;
+     zh:config_script_missing) printf '错误：未找到配置清单校验脚本 deploy/cli/config-lint.sh，请确认仓库完整。\n' ;;
+     en:config_script_missing) printf 'Error: config-lint script deploy/cli/config-lint.sh not found; verify the repository is complete.\n' ;;
+     zh:drift_script_missing) printf '错误：未找到漂移比对脚本 deploy/cli/drift-check.sh，请确认仓库完整。\n' ;;
+     en:drift_script_missing) printf 'Error: drift-check script deploy/cli/drift-check.sh not found; verify the repository is complete.\n' ;;
+     zh:usage_config_rollback) printf '用法：./mogo config rollback <git-ref> --yes\n' ;;
+     en:usage_config_rollback) printf 'Usage: ./mogo config rollback <git-ref> --yes\n' ;;
+     zh:bad_ref) printf '错误：git 引用不存在：%s。请用 git log --oneline -- deploy/config 查看可用 commit。\n' "$1" ;;
+     en:bad_ref) printf 'Error: git ref not found: %s. Use git log --oneline -- deploy/config to list commits.\n' "$1" ;;
+     zh:rollback_dirty) printf '错误：deploy/config/ 有未提交改动。请先提交或带 --yes 强制覆盖。\n' ;;
+     en:rollback_dirty) printf 'Error: deploy/config/ has uncommitted changes. Commit first, or pass --yes to overwrite.\n' ;;
+     zh:rollback_lint_failed) printf '错误：回滚后的配置清单未通过 config-lint，已中止。\n' ;;
+     en:rollback_lint_failed) printf 'Error: rolled-back config manifest failed config-lint; aborted.\n' ;;
+     zh:rollback_done) printf '已把 deploy/config/ 从 %s 回滚到 %s，开始重建服务。\n' "$1" "$2" ;;
+     zh:deploy_dryrun_script_missing) printf '错误：未找到部署预审脚本 deploy/cli/deploy-dry-run.sh。\n' ;;
+     en:deploy_dryrun_script_missing) printf 'Error: deploy dry-run script deploy/cli/deploy-dry-run.sh not found.\n' ;;
+     zh:verify_script_missing) printf '错误：未找到制品校验脚本 deploy/cli/verify-artifact.sh。\n' ;;
+     en:verify_script_missing) printf 'Error: artifact verification script deploy/cli/verify-artifact.sh not found.\n' ;;
+     en:rollback_done) printf 'Rolled deploy/config/ back from %s to %s; rebuilding services.\n' "$1" "$2" ;;
+     zh:sandbox_config_mismatch) printf '错误：sandbox 模式需要同时设置 COMPOSE_PROFILES=sandbox 和 MOGO_SANDBOX_MANAGER_URL=http://sandbox-manager:8300。\n' ;;
+     en:sandbox_config_mismatch) printf 'Error: sandbox mode requires COMPOSE_PROFILES=sandbox and MOGO_SANDBOX_MANAGER_URL=http://sandbox-manager:8300 together.\n' ;;
+     zh:sandbox_unavailable) printf '错误：sandbox 管理服务未就绪。请执行 ./mogo logs sandbox-manager 查看原因。\n' ;;
+     en:sandbox_unavailable) printf 'Error: sandbox manager is not ready. Run ./mogo logs sandbox-manager for details.\n' ;;
+     zh:sandbox_engine_old) printf '错误：sandbox 需要 Docker Engine 26 或更高版本（当前：%s）。\n' "${1:-unknown}" ;;
+     en:sandbox_engine_old) printf 'Error: sandbox requires Docker Engine 26 or newer (current: %s).\n' "${1:-unknown}" ;;
     *) printf '%s' "${key}" ;;
   esac
 }

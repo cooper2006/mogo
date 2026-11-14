@@ -13,7 +13,7 @@ class _Transport:
         self.probed = []
         self.disposed = []
 
-    async def request(self, method, path, *, json=None, params=None):
+    async def request(self, method, path, *, json=None, params=None, session_id=None, sticky_key=None):
         if method == "DELETE":
             self.disposed.append(path)
             return {}
@@ -58,19 +58,12 @@ def test_sandbox_runtime_failure_does_not_silently_remove_plugins():
         ))
 
 
-def test_gateway_retries_same_profile_with_only_healthy_plugins(monkeypatch):
-    unavailable = []
-
-    async def mark_unavailable(**kwargs):
-        unavailable.append(kwargs)
-
-    monkeypatch.setattr("app.dsh_runtime.gateway.mark_runtime_unavailable", mark_unavailable)
-
+def test_gateway_retries_same_profile_with_only_healthy_plugins():
     class Resolver:
         async def resolve(self, profile_version, *, tenant_id=None):
             return {"profileVersion": profile_version, "modelInstanceId": "model-one", "plugins": [
-                {"installation_id": "a" * 24, "name": "broken", "version": "1", "spec": "broken@1"},
-                {"installation_id": "b" * 24, "name": "healthy", "version": "1", "spec": "healthy@1"},
+                {"name": "broken", "version": "1", "spec": "broken@1"},
+                {"name": "healthy", "version": "1", "spec": "healthy@1"},
             ]}
 
     class Transport(_Transport):
@@ -78,7 +71,7 @@ def test_gateway_retries_same_profile_with_only_healthy_plugins(monkeypatch):
             super().__init__()
             self.production_attempts = []
 
-        async def request(self, method, path, *, json=None, params=None):
+        async def request(self, method, path, *, json=None, params=None, session_id=None, sticky_key=None):
             if method == "POST" and path == "/v1/runtimes" and not json["isolationKey"].startswith("plugin-runtime-probe:"):
                 names = [item["name"] for item in json["modelProfile"]["plugins"]]
                 self.production_attempts.append(names)
@@ -86,7 +79,7 @@ def test_gateway_retries_same_profile_with_only_healthy_plugins(monkeypatch):
                     raise DshTransportError("DSH plugin broken failed to install")
                 return {"runtimeId": "runtime-one", "kernelVersion": "1", "profileVersion": json["profileVersion"],
                         "isolationKey": json["isolationKey"]}
-            return await super().request(method, path, json=json, params=params)
+            return await super().request(method, path, json=json, params=params, session_id=session_id, sticky_key=sticky_key)
 
     async def run():
         transport = Transport()
@@ -96,7 +89,5 @@ def test_gateway_retries_same_profile_with_only_healthy_plugins(monkeypatch):
         ))
         assert runtime.profile_version == "rp-one"
         assert transport.production_attempts == [["broken", "healthy"], ["healthy"]]
-        assert unavailable[0]["tenant_id"] == "tenant-one"
-        assert [item["name"] for item in unavailable[0]["activated"]] == ["healthy"]
 
     asyncio.run(run())

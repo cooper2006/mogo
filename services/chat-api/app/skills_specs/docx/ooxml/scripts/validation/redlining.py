@@ -3,6 +3,23 @@ Validator for tracked changes in Word documents.
 """
 
 import subprocess
+import pathlib
+
+
+def _safe_extract(zf, dest):
+    """Zip-slip-safe extraction (QF-420).
+
+    Extract every member only when its resolved path stays inside *dest*.
+    Guards against absolute paths and ``../`` traversal entries. Works on
+    Python 3.10+ without relying on the 3.12+ ``filter=`` argument.
+    """
+    dest = pathlib.Path(dest).resolve()
+    for member in zf.infolist():
+        target = (dest / member.filename).resolve()
+        if target != dest and dest not in target.parents:
+            raise ValueError(f"Refusing zip-slip entry: {member.filename!r}")
+        zf.extract(member, str(dest))
+from app.infrastructure.observability.config import log_print
 import tempfile
 import zipfile
 from pathlib import Path
@@ -56,9 +73,8 @@ class RedliningValidator:
                     print("PASSED - No tracked changes by Claude found.")
                 return True
 
-        except Exception:
-            # If we can't parse the XML, continue with full validation
-            pass
+        except Exception as exc:
+            log_print(f"[redlining/docx] XML parse failed: {exc}", flush=True)
 
         # Create temporary directory for unpacking original docx
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -67,7 +83,7 @@ class RedliningValidator:
             # Unpack original docx
             try:
                 with zipfile.ZipFile(self.original_docx, "r") as zip_ref:
-                    zip_ref.extractall(temp_path)
+                    _safe_extract(zip_ref, temp_path)
             except Exception as e:
                 print(f"FAILED - Error unpacking original docx: {e}")
                 return False

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import html
 import os
@@ -372,8 +373,8 @@ def _parse_chart_data(raw: str) -> str:
         # If it's already valid JSON, return as is
         json.loads(raw)
         return raw
-    except:
-        pass
+    except Exception as exc:
+        log_print(f"[tools/pdf] parse failed: {exc}", flush=True)
     
     # Simple YAML-like parser
     result = {}
@@ -390,14 +391,16 @@ def _parse_chart_data(raw: str) -> str:
             import ast
             try:
                 result[key] = ast.literal_eval(val)
-            except:
+            except Exception as exc:
+                log_print(f"[tools.pdf._parse_chart_data] suppressed {type(exc).__name__}: {exc}", flush=True)
                 result[key] = val
         else:
             # Try to parse as int/float
             try:
                 if '.' in val: result[key] = float(val)
                 else: result[key] = int(val)
-            except:
+            except Exception as exc:
+                log_print(f"[tools.pdf._parse_chart_data] suppressed {type(exc).__name__}: {exc}", flush=True)
                 result[key] = val.strip('"\'')
     
     import json
@@ -669,8 +672,8 @@ async def generate_pdf_file(markdown_content: str, filename: str = "report.pdf")
             # Ensure charts and mermaid diagrams have time to render
             try:
                 await page.wait_for_timeout(5000)
-            except Exception:
-                pass
+            except Exception as exc:
+                log_print(f"[tools/pdf] extract failed: {exc}", flush=True)
 
             await page.emulate_media(media="print")
             await page.pdf(
@@ -679,7 +682,7 @@ async def generate_pdf_file(markdown_content: str, filename: str = "report.pdf")
                 print_background=True,
                 margin={"top": "20mm", "bottom": "20mm", "left": "20mm", "right": "20mm"},
                 display_header_footer=True,
-                header_template='<div style="font-size: 10px; width: 100%; text-align: right; padding-right: 20mm; color: #999; font-family: sans-serif;">MOVO Report</div>',
+                header_template='<div style="font-size: 10px; width: 100%; text-align: right; padding-right: 20mm; color: #999; font-family: sans-serif;">MOGO Report</div>',
                 footer_template='<div style="font-size: 10px; width: 100%; text-align: center; color: #999; font-family: sans-serif;"><span class="pageNumber"></span> / <span class="totalPages"></span></div>'
             )
             await browser.close()

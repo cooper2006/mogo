@@ -36,7 +36,6 @@ export interface SkillInstallResult {
   updated: boolean
   fileCount: number
   digest: string
-  dependencyPreparation?: 'disabled' | 'not_required' | 'preparing' | 'ready' | 'failed' | 'unavailable'
   warnings: Array<{ code: string; message: string; tool?: string; packageVersion?: string; skillVersion?: string; childSlug?: string; declaredName?: string; skillName?: string }>
   childCount: number
   children: ExpertPackageChild[]
@@ -47,16 +46,6 @@ export interface SkillInstallResult {
     warnings: Array<{ code: string; message: string; tool?: string; packageVersion?: string; skillVersion?: string }>
   }
   upgrade?: SkillUpgradeInfo
-}
-
-export async function fetchSkillDependencyStatus(id: string): Promise<{ status: string }> {
-  const res = await api.get(`/skills/${encodeURIComponent(id)}/dependency-status`)
-  return dataOf<{ status: string }>(res)
-}
-
-export async function retrySkillDependency(id: string): Promise<{ status: string }> {
-  const res = await api.post(`/skills/${encodeURIComponent(id)}/dependency-retry`)
-  return dataOf<{ status: string }>(res)
 }
 
 export interface SkillUpgradeInfo {
@@ -91,14 +80,13 @@ export interface SkillFeedbackSummary {
 
 export interface SkillItem {
   id: string
-  mainId: string
+  tenantId: string
   name: string
   description: string
   scenario: string
   type: SkillType
   config: Record<string, any>
   enabled: boolean
-  environmentStatus?: 'preparing' | 'ready' | 'failed' | 'unavailable' | 'disabled' | null
   createdAt: string
   updatedAt: string
   packageSource?: {
@@ -128,17 +116,13 @@ export interface SkillPayload {
 
 export interface SelectableSkillItem {
   id: string
-  mainId: string
+  tenantId: string
   name: string
   description: string
   scenario: string
   type: SkillType
   sourceScope: 'user' | 'organization'
-  pluginName?: string
-  entryKind?: 'command'
   enabled: boolean
-  available?: boolean
-  unavailableReason?: string
   updatedAt?: string
 }
 
@@ -254,10 +238,10 @@ export interface TemplateAnalysis {
   resources?: Record<string, any>
 }
 
-function params(userId: string | null | undefined, mainId: string | null | undefined) {
+function params(userId: string | null | undefined, tenantId: string | null | undefined) {
   return {
     userId: userId || '',
-    mainId: mainId || 'default',
+    tenantId: tenantId || 'default',
   }
 }
 
@@ -265,18 +249,18 @@ function dataOf<T>(res: { data?: any }): T {
   return res.data?.data ?? res.data
 }
 
-export async function fetchSkills(userId: string, mainId = 'default'): Promise<SkillItem[]> {
-  const res = await api.get('/skills', { params: params(userId, mainId), timeout: 15000 })
+export async function fetchSkills(userId: string, tenantId = 'default'): Promise<SkillItem[]> {
+  const res = await api.get('/skills', { params: params(userId, tenantId), timeout: 15000 })
   return dataOf<SkillItem[]>(res) || []
 }
 
-export async function listSkills(userId: string, mainId = 'default'): Promise<SkillItem[]> {
-  return fetchSkills(userId, mainId)
+export async function listSkills(userId: string, tenantId = 'default'): Promise<SkillItem[]> {
+  return fetchSkills(userId, tenantId)
 }
 
 export async function fetchSelectableSkills(payload: {
   userId: string
-  mainId?: string
+  tenantId?: string
   scope?: 'all' | 'user' | 'organization'
   keyword?: string
   cursor?: string
@@ -284,7 +268,7 @@ export async function fetchSelectableSkills(payload: {
 }): Promise<SelectableSkillPage> {
   const res = await api.get('/skills/selectable', {
     params: {
-      ...params(payload.userId, payload.mainId),
+      ...params(payload.userId, payload.tenantId),
       scope: payload.scope || 'all',
       keyword: payload.keyword || '',
       cursor: payload.cursor || '',
@@ -300,97 +284,82 @@ export async function fetchSelectableSkills(payload: {
   }
 }
 
-export async function fetchSelectablePluginSkills(payload: {
-  scope?: 'all' | 'user' | 'organization'
-  keyword?: string
-  cursor?: string
-  limit?: number
-}): Promise<SelectableSkillPage> {
-  const res = await api.get('/dsh-plugins/personal/selectable-skills', {
-    params: {
-      scope: payload.scope || 'all',
-      keyword: payload.keyword || '',
-      cursor: payload.cursor || '0',
-      limit: payload.limit || 20,
-    },
-    timeout: 15000,
-  })
-  const data = dataOf<SelectableSkillPage>(res) || { items: [], nextCursor: '', hasMore: false }
-  return {
-    items: Array.isArray(data.items) ? data.items : [],
-    nextCursor: String(data.nextCursor || ''),
-    hasMore: Boolean(data.hasMore),
-  }
-}
-
-export async function fetchSelectablePluginCommands(payload: {
-  scope?: 'all' | 'user' | 'organization'
-  keyword?: string
-  cursor?: string
-  limit?: number
-}): Promise<SelectableSkillPage> {
-  const res = await api.get('/dsh-plugins/personal/selectable-commands', {
-    params: {
-      scope: payload.scope || 'all',
-      keyword: payload.keyword || '',
-      cursor: payload.cursor || '0',
-      limit: payload.limit || 20,
-    },
-    timeout: 15000,
-  })
-  const data = dataOf<SelectableSkillPage>(res) || { items: [], nextCursor: '', hasMore: false }
-  return {
-    items: Array.isArray(data.items) ? data.items : [],
-    nextCursor: String(data.nextCursor || ''),
-    hasMore: Boolean(data.hasMore),
-  }
-}
-
-export async function fetchSkill(id: string, userId: string, mainId = 'default'): Promise<SkillItem> {
-  const res = await api.get(`/skills/${id}`, { params: params(userId, mainId) })
+export async function fetchSkill(id: string, userId: string, tenantId = 'default'): Promise<SkillItem> {
+  const res = await api.get(`/skills/${id}`, { params: params(userId, tenantId) })
   return dataOf<SkillItem>(res)
 }
 
-export async function createSkill(userId: string, mainId: string, payload: SkillPayload): Promise<SkillItem> {
-  const res = await api.post('/skills', payload, { params: params(userId, mainId), timeout: 90000 })
+export async function createSkill(userId: string, tenantId: string, payload: SkillPayload): Promise<SkillItem> {
+  const res = await api.post('/skills', payload, { params: params(userId, tenantId), timeout: 90000 })
   return dataOf<SkillItem>(res)
 }
 
-export async function updateSkill(id: string, userIdOrPayload: string | any, mainId = 'default', payload?: SkillPayload): Promise<SkillItem> {
+// legacy skill 载荷（generate / update 两条路径共用）。
+type LegacySkillPayload = {
+  user_id?: string
+  userId?: string
+  tenant_id?: string
+  tenantId?: string
+  skill_type?: string
+  type?: string
+  name?: string
+  description?: string
+  summary?: string
+  scenario?: string
+  notes?: string
+  config?: Record<string, unknown>
+  input_profile?: Record<string, unknown>
+  contract_json?: Record<string, unknown>
+  skill_markdown?: string
+  is_active?: boolean
+  enabled?: boolean
+}
+
+// 归一化 legacy skill 载荷的配置对象：先铺原 config，再逐字段兜底。
+function normalizeLegacyConfig(legacy: LegacySkillPayload): Record<string, unknown> {
+  return {
+    ...(legacy.config || {}),
+    inputProfile: legacy.input_profile || legacy.config?.inputProfile || {},
+    contractJson: legacy.contract_json || legacy.config?.contractJson || {},
+    skillMarkdown: legacy.skill_markdown || legacy.config?.skillMarkdown || '',
+  }
+}
+
+// 将 legacy skill 载荷归一化为服务端期望的 body。
+function buildLegacySkillBody(legacy: LegacySkillPayload): SkillPayload {
+  const skillType = String(legacy.skill_type || legacy.type || 'style')
+  const type: SkillType = skillType === 'composite_task' || skillType === 'workflow' ? 'workflow' : 'writing_style'
+  return {
+    name: String(legacy.name || ''),
+    description: String(legacy.description || legacy.summary || ''),
+    scenario: String(legacy.scenario || legacy.notes || ''),
+    type,
+    config: normalizeLegacyConfig(legacy),
+    enabled: legacy.is_active !== false && legacy.enabled !== false,
+  }
+}
+
+export async function updateSkill(id: string, userIdOrPayload: string | any, tenantId = 'default', payload?: SkillPayload): Promise<SkillItem> {
   let userId = String(userIdOrPayload || '')
   let body = payload
-  let resolvedMainId = mainId
+  let resolvedTenantId = tenantId
   if (typeof userIdOrPayload === 'object') {
     const legacy = userIdOrPayload || {}
     userId = String(legacy.user_id || legacy.userId || '')
-    resolvedMainId = String(legacy.main_id || legacy.mainId || 'default')
-    const skillType = String(legacy.skill_type || legacy.type || 'style')
-    const type: SkillType = skillType === 'composite_task' || skillType === 'workflow' ? 'workflow' : 'writing_style'
-    body = {
-      name: String(legacy.name || ''),
-      description: String(legacy.description || legacy.summary || ''),
-      scenario: String(legacy.scenario || legacy.notes || ''),
-      type,
-      config: {
-        ...(legacy.config || {}),
-        inputProfile: legacy.input_profile || legacy.config?.inputProfile || {},
-        contractJson: legacy.contract_json || legacy.config?.contractJson || {},
-        skillMarkdown: legacy.skill_markdown || legacy.config?.skillMarkdown || '',
-      },
-      enabled: legacy.is_active !== false && legacy.enabled !== false,
-    }
+    resolvedTenantId = String(legacy.tenant_id || legacy.tenantId || 'default')
+    body = buildLegacySkillBody(legacy)
   }
-  const res = await api.put(`/skills/${id}`, body, { params: params(userId, resolvedMainId), timeout: 90000 })
+  const res = await api.put(`/skills/${id}`, body, { params: params(userId, resolvedTenantId), timeout: 90000 })
   return dataOf<SkillItem>(res)
 }
 
-export async function deleteSkill(id: string, userId: string, mainId = 'default'): Promise<{ id: string }> {
-  const res = await api.delete(`/skills/${id}`, { params: params(userId, mainId) })
+export async function deleteSkill(id: string, userId: string, tenantId = 'default'): Promise<{ id: string }> {
+  const res = await api.delete(`/skills/${id}`, { params: params(userId, tenantId) })
   return dataOf<{ id: string }>(res)
 }
 
-export async function setSkillEnabled(id: string, userId: string, mainId: string, enabled: boolean): Promise<SkillItem> {
-  const res = await api.patch(`/skills/${id}/enabled`, { enabled }, { params: params(userId, mainId) })
+export async function setSkillEnabled(id: string, userId: string, tenantId: string, enabled: boolean): Promise<SkillItem> {
+  const res = await api.patch(`/skills/${id}/enabled`, { enabled }, { params: params(userId, tenantId) })
   return dataOf<SkillItem>(res)
 }
 
@@ -399,7 +368,7 @@ export async function installPersonalSkillZip(file: File, confirmReplace = false
   form.append('file', file)
   form.append('confirmReplace', String(confirmReplace))
   const res = await api.post('/skills/install-zip', form, {
-    headers: { 'Content-Type': 'multipart/form-data' }, timeout: 300000,
+    headers: { 'Content-Type': 'multipart/form-data' }, timeout: 90000,
   })
   return dataOf<SkillInstallResult>(res)
 }
@@ -500,7 +469,7 @@ export async function generateScriptPlugin(payload: {
 
 export async function enrichWritingStyleDraft(payload: {
   userId: string
-  mainId: string
+  tenantId: string
   name: string
   description?: string
   scenario?: string
@@ -518,7 +487,7 @@ export async function enrichWritingStyleDraft(payload: {
       scenario: payload.scenario || '',
       draft: payload.draft,
     },
-    { params: params(payload.userId, payload.mainId), timeout: 60000 },
+    { params: params(payload.userId, payload.tenantId), timeout: 60000 },
   )
   return dataOf(res)
 }
@@ -543,21 +512,38 @@ export async function analyzeTemplate(file: File): Promise<TemplateAnalysis> {
   return dataOf<TemplateAnalysis>(res)
 }
 
-export async function generateSkill(payload: any) {
-  const userId = String(payload?.user_id || payload?.userId || '')
-  const mainId = String(payload?.main_id || payload?.mainId || 'default')
-  const skillType = String(payload?.skill_type || payload?.type || 'style')
-  const type: SkillType = skillType === 'composite_task' || skillType === 'workflow' ? 'workflow' : 'writing_style'
-  return createSkill(userId, mainId, {
+// 解析 generate 载荷的 type 字段：composite_task / workflow 归为 workflow，其余按写作风格。
+function resolveSkillType(payload: LegacySkillPayload): SkillType {
+  const rawType = String(payload?.skill_type || payload?.type || 'style')
+  return rawType === 'composite_task' || rawType === 'workflow' ? 'workflow' : 'writing_style'
+}
+
+// 组装 generate 路径的配置对象。
+function buildGenerateConfig(payload: LegacySkillPayload): Record<string, unknown> {
+  return {
+    inputProfile: payload?.input_profile || {},
+    contractJson: payload?.contract_json || {},
+    skillMarkdown: payload?.skill_markdown || '',
+  }
+}
+
+// 组装 generate 路径的标量字段（不含 config / enabled，以保持字段顺序）。
+function buildGenerateHead(payload: LegacySkillPayload): Pick<SkillPayload, 'name' | 'description' | 'scenario' | 'type'> {
+  return {
     name: String(payload?.name || ''),
     description: String(payload?.description || payload?.summary || ''),
     scenario: String(payload?.scenario || payload?.notes || ''),
-    type,
-    config: {
-      inputProfile: payload?.input_profile || {},
-      contractJson: payload?.contract_json || {},
-      skillMarkdown: payload?.skill_markdown || '',
-    },
+    type: resolveSkillType(payload),
+  }
+}
+
+export async function generateSkill(payload: any) {
+  const userId = String(payload?.user_id || payload?.userId || '')
+  const tenantId = String(payload?.tenant_id || payload?.tenantId || 'default')
+  const head = buildGenerateHead(payload)
+  return createSkill(userId, tenantId, {
+    ...head,
+    config: buildGenerateConfig(payload),
     enabled: payload?.is_active === true,
   })
 }

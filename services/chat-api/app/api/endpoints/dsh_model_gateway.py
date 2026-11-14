@@ -19,6 +19,15 @@ from app.dsh_runtime.model_gateway.token import ModelGatewayTokenService
 router = APIRouter(prefix="/internal/dsh/model", tags=["dsh-internal"])
 
 
+def _model_gateway() -> ModelGatewayService:
+    """从 application 取注入了 ProjectIdResolver 的 ModelGatewayService（FR-006）。"""
+    from app.dsh_runtime.application import dsh_runtime_application
+
+    if dsh_runtime_application.model_gateway is None:
+        raise RuntimeError("DSH Runtime Application is not started")
+    return dsh_runtime_application.model_gateway
+
+
 def _token_service() -> ModelGatewayTokenService:
     settings = get_settings()
     secret = str(
@@ -41,7 +50,7 @@ async def generate(
         )
     try:
         claims = _token_service().verify(authorization.removeprefix("Bearer ").strip())
-        events = await ModelGatewayService().stream(request, claims)
+        events = await _model_gateway().stream(request, claims)
 
         async def ndjson_stream():
             async for event in events:

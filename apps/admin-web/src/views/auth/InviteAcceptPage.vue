@@ -2,10 +2,10 @@
   <div class="invite-page">
     <div class="invite-shell">
       <section class="invite-hero">
-        <div class="hero-badge">{{ t('legacy.organization_invitation') }}</div>
-        <h1 class="hero-title">{{ t('legacy.join_s_movo_workspace', { org: orgName }) }}</h1>
-        <p class="hero-desc">{{ t('legacy.activate_your_account_to_sign_in_and_start_using') }}</p>
-        <div class="hero-meta">{{ t('legacy.invitation_valid_until', { time: inviteDetail.expiresAt || '--' }) }}</div>
+        <div class="hero-badge">{{ t('企业邀请') }}</div>
+        <h1 class="hero-title">{{ t('加入 {org} 的 MOGO 工作空间', { org: orgName }) }}</h1>
+        <p class="hero-desc">{{ t('完成账号激活后，即可登录 MOGO 前台系统开始使用。') }}</p>
+        <div class="hero-meta">{{ t('邀请有效期至：{time}', { time: inviteDetail.expiresAt || '--' }) }}</div>
       </section>
 
       <n-card class="invite-card" :bordered="false">
@@ -13,57 +13,57 @@
           <div class="state-wrap"><n-spin size="large" /></div>
         </template>
         <template v-else-if="state === 'error'">
-          <n-result status="error" :title="t('legacy.invitation_link_is_invalid')" :description="errorMessage" />
+          <n-result status="error" :title="t('邀请链接不可用')" :description="errorMessage" />
         </template>
         <template v-else-if="state === 'success'">
-          <n-result status="success" :title="t('legacy.joined_successfully')" :description="successDescription" />
-          <div class="success-tip">{{ t('legacy.redirecting_to_movo_sign_in_page') }}</div>
+          <n-result status="success" :title="t('加入成功')" :description="successDescription" />
+          <div class="success-tip">{{ t('正在跳转到 MOGO 登录页…') }}</div>
         </template>
         <template v-else>
-          <div class="form-title">{{ t('legacy.activate_organization_account') }}</div>
+          <div class="form-title">{{ t('激活企业账号') }}</div>
           <n-form :model="form" label-placement="top">
             <n-grid :cols="2" :x-gap="12">
               <n-grid-item :span="2">
-                <n-form-item :label="t('legacy.login_name')">
-                  <n-input v-model:value="form.loginName" :placeholder="t('legacy.please_enter_login_name_for_sign_in')" />
+                <n-form-item :label="t('登录名')">
+                  <n-input v-model:value="form.loginName" :placeholder="t('请输入登录名（登录时使用）')" />
                 </n-form-item>
               </n-grid-item>
               <n-grid-item>
-                <n-form-item :label="t('legacy.name')">
-                  <n-input v-model:value="form.name" :placeholder="t('legacy.please_enter_your_name')" />
+                <n-form-item :label="t('姓名')">
+                  <n-input v-model:value="form.name" :placeholder="t('请输入姓名')" />
                 </n-form-item>
               </n-grid-item>
               <n-grid-item>
-                <n-form-item :label="t('legacy.mobile_optional')">
-                  <n-input v-model:value="form.mobile" :placeholder="t('legacy.used_for_subsequent_notifications')" />
+                <n-form-item :label="t('手机号（可选）')">
+                  <n-input v-model:value="form.mobile" :placeholder="t('用于后续通知')" />
                 </n-form-item>
               </n-grid-item>
               <n-grid-item :span="2">
-                <n-form-item :label="t('legacy.email_optional')">
-                  <n-input v-model:value="form.email" :placeholder="t('legacy.used_for_password_recovery_optional')" />
+                <n-form-item :label="t('邮箱（可选）')">
+                  <n-input v-model:value="form.email" :placeholder="t('用于后续找回密码（可选）')" />
                 </n-form-item>
               </n-grid-item>
               <n-grid-item>
-                <n-form-item :label="t('legacy.set_password')">
-                  <n-input v-model:value="form.password" type="password" show-password-on="click" :placeholder="t('legacy.at_least_10_characters')" />
+                <n-form-item :label="t('设置密码')">
+                  <n-input v-model:value="form.password" type="password" show-password-on="click" :placeholder="t('至少 10 位')" />
                 </n-form-item>
               </n-grid-item>
               <n-grid-item>
-                <n-form-item :label="t('legacy.confirm_password')">
-                  <n-input v-model:value="form.confirmPassword" type="password" show-password-on="click" :placeholder="t('legacy.please_enter_password_again')" />
+                <n-form-item :label="t('确认密码')">
+                  <n-input v-model:value="form.confirmPassword" type="password" show-password-on="click" :placeholder="t('请再次输入密码')" />
                 </n-form-item>
               </n-grid-item>
             </n-grid>
           </n-form>
           <p v-if="errorMessage" class="error-line">{{ errorMessage }}</p>
-          <n-button type="primary" class="submit-btn" :loading="submitting" @click="submitAccept">{{ t('legacy.join_activate') }}</n-button>
+          <n-button type="primary" class="submit-btn" :loading="submitting" @click="submitAccept">{{ t('加入企业并激活') }}</n-button>
         </template>
       </n-card>
     </div>
 
-    <footer class="invite-brand-footer" aria-label="MOVO Brand">
-      <img class="invite-brand-logo" :src="movoLogo" alt="MOVO" />
-      <span class="brand-text">Powered by MOVO</span>
+    <footer class="invite-brand-footer" aria-label="MOGO Brand">
+      <img class="invite-brand-logo" :src="mogoLogo" alt="MOGO" />
+      <span class="brand-text">Powered by MOGO</span>
     </footer>
   </div>
 </template>
@@ -74,7 +74,7 @@ import { useRoute } from 'vue-router';
 import axios from 'axios';
 import { acceptInviteLink, fetchInviteLinkDetail, type InviteLinkDetail } from '@/api/directory';
 import { t } from '@/composables/i18n';
-import movoLogo from '@/assets/images/movo-logo.png';
+import mogoLogo from '@/assets/images/mogo-logo.png';
 
 const route = useRoute();
 const state = ref<'loading' | 'ready' | 'success' | 'error'>('loading');
@@ -102,14 +102,14 @@ const form = reactive({
 });
 
 const token = computed(() => String(route.query.token || ''));
-const orgName = computed(() => inviteDetail.orgName || t('legacy.organization_6ea45e8'));
-const successDescription = computed(() => t('legacy.account_has_been_activated_you_can_now_sign_in', { username: form.loginName || '' }));
+const orgName = computed(() => inviteDetail.orgName || t('企业组织'));
+const successDescription = computed(() => t('账号 {username} 已激活，可前往 MOGO 登录。', { username: form.loginName || '' }));
 
 function parseError(error: unknown) {
   if (axios.isAxiosError(error)) {
     return (error.response?.data as { detail?: string } | undefined)?.detail || error.message;
   }
-  return t('legacy.request_failed');
+  return t('请求失败');
 }
 
 function redirectToFrontendLogin() {
@@ -125,7 +125,7 @@ function redirectToFrontendLogin() {
 async function loadInviteDetail() {
   if (!token.value) {
     state.value = 'error';
-    errorMessage.value = t('legacy.missing_invitation_token');
+    errorMessage.value = t('缺少邀请 token');
     return;
   }
   state.value = 'loading';
@@ -148,19 +148,19 @@ async function loadInviteDetail() {
 async function submitAccept() {
   errorMessage.value = '';
   if (!form.loginName.trim()) {
-    errorMessage.value = t('legacy.please_enter_login_name');
+    errorMessage.value = t('请填写登录名');
     return;
   }
   if (!form.name.trim()) {
-    errorMessage.value = t('legacy.please_enter_name');
+    errorMessage.value = t('请填写姓名');
     return;
   }
   if (form.password.length < 10) {
-    errorMessage.value = t('legacy.password_must_be_at_least_10_characters');
+    errorMessage.value = t('密码至少 10 位');
     return;
   }
   if (form.password !== form.confirmPassword) {
-    errorMessage.value = t('legacy.passwords_do_not_match');
+    errorMessage.value = t('两次密码不一致');
     return;
   }
   submitting.value = true;
@@ -189,7 +189,7 @@ onMounted(async () => {
 <style scoped>
 .invite-page {
   min-height: 100vh;
-  background: linear-gradient(160deg, #edf2ff 0%, #f5f8ff 48%, #eef8ff 100%);
+  background: var(--mg-gradient-invite);
   padding: 44px 24px 64px;
 }
 
@@ -202,7 +202,7 @@ onMounted(async () => {
 }
 
 .invite-hero {
-  border: 1px solid #dbe5ff;
+  border: 1px solid var(--mg-brand-soft-border);
   border-radius: 18px;
   background: linear-gradient(145deg, #366aff 0%, #5d86ff 100%);
   color: #fff;
@@ -253,14 +253,14 @@ onMounted(async () => {
   margin-bottom: 8px;
   font-size: 18px;
   font-weight: 700;
-  color: #1f2937;
+  color: var(--mg-text-1);
 }
 
 .error-line {
   margin: 8px 0 12px;
   border-radius: 10px;
-  background: #fef2f2;
-  color: #dc2626;
+  background: var(--mg-danger-bg);
+  color: var(--mg-danger-text);
   padding: 8px 10px;
   font-size: 13px;
 }
@@ -275,7 +275,7 @@ onMounted(async () => {
   margin-top: 10px;
   text-align: center;
   font-size: 13px;
-  color: #6b7280;
+  color: var(--mg-text-2);
 }
 
 .invite-brand-footer {
@@ -287,7 +287,7 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  color: #7a8599;
+  color: var(--mg-text-3);
   font-size: 12px;
   user-select: none;
 }

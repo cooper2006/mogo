@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from typing import Any, Dict, Tuple
 
@@ -40,7 +41,8 @@ def split_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:
         meta = yaml.safe_load(front) or {}
         if not isinstance(meta, dict):
             meta = {}
-    except Exception:
+    except Exception as exc:
+        log_print(f"[knowledge.skill_md_parser.split_frontmatter] suppressed {type(exc).__name__}: {exc}", flush=True)
         meta = {}
     return meta, body
 

@@ -52,9 +52,9 @@ export class AskaiSkillProvider {
       resourceBase: hasBundle
         ? {
             kind: 'opaque',
-            description: 'Read text resources with skill_resource_read using package-relative paths. In MOVO run_script code, skill_dir is the absolute package root; copy final files into output_dir for delivery.',
+            description: 'Read text resources with skill_resource_read using package-relative paths. In MOGO run_script code, skill_dir is the absolute package root; copy final files into output_dir for delivery.',
           }
-        : { kind: 'opaque', description: `MOVO immutable Skill ${skill.version}` },
+        : { kind: 'opaque', description: `MOGO immutable Skill ${skill.version}` },
       metadata: candidate.metadata,
       content: skill.content,
     }

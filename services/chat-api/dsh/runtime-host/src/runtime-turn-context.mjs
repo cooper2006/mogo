@@ -8,10 +8,6 @@ function attachments(value) {
     for (const key of ['object_path', 'filename', 'content_type', 'size']) {
       if (item[key] !== undefined && item[key] !== null && item[key] !== '') clean[key] = item[key]
     }
-    if (typeof item.local_path === 'string' &&
-        /^\/job\/home\/conversations\/[0-9a-f]{64}\/inputs\/[0-9a-f]{32}\/[0-9]+-[^/]+$/.test(item.local_path)) {
-      clean.local_path = item.local_path
-    }
     return typeof clean.object_path === 'string' && clean.object_path ? Object.freeze(clean) : undefined
   }).filter(Boolean)
 }
@@ -49,32 +45,32 @@ export function normalizeTurnContext(value) {
 export function renderTurnContext(value, visionEnabled = false) {
   if (value === undefined) return ''
   const sections = [
-    'MOVO interaction language policy: use the language of the user\'s latest message for all user-facing text, including progress notes before tools, retry explanations, questions, and the final answer. If the user explicitly requests another output language, follow that request. Tool commands and source-code identifiers may remain in their technically required language.',
-    'MOVO file delivery policy: when you create files for the user in this Session workspace, call present with only the completed files the user should receive. Do not present probes, drafts, or temporary files. When a tool or DSH deliverable presents a user-facing file, mention its exact filename in the final answer. You may write [filename](filename) for that same file; MOVO makes the link clickable only after it verifies a matching delivered artifact. Do not put object_path, sandbox: paths, signed storage URLs, or invented download links in user-facing prose or Markdown. Keep artifact references available as tool inputs when further processing is needed. Do not claim that a file is downloadable unless it was presented as a user-facing artifact. This rule does not restrict ordinary public web links or Markdown image references returned by image-generation tools.',
+    'MOGO interaction language policy: use the language of the user\'s latest message for all user-facing text, including progress notes before tools, retry explanations, questions, and the final answer. If the user explicitly requests another output language, follow that request. Tool commands and source-code identifiers may remain in their technically required language.',
+    'MOGO file delivery policy: when a tool returns a user-facing file artifact, describe the result and its filename in the final answer, and let MOGO present the download card from the tool result. Do not put object_path, sandbox: paths, signed storage URLs, or invented download links in user-facing prose or Markdown. Keep artifact references available as tool inputs when further processing is needed. Do not claim that a file is downloadable unless a tool returned a user-facing artifact. This rule does not restrict ordinary public web links or Markdown image references returned by image-generation tools.',
   ]
   if (value.strictKnowledgeMode) {
     const scope = value.knowledgeBaseCount > 0
       ? `${value.knowledgeBaseCount} explicitly selected server-authorized knowledge base(s)`
       : 'the server-authorized tenant knowledge scope'
-    sections.push(`Enterprise Knowledge QA mode is enabled for ${scope}. You must call knowledge_search before answering, ground the answer only in its returned evidence, and state clearly when evidence is insufficient or retrieval fails. The knowledge source is chosen by the server. citation_ref, documentId, chunkId, kb:// addresses, and chunk_* identifiers are private MOVO locators: never include them in the answer or create a raw technical reference list. MOVO renders source evidence separately.`)
+    sections.push(`MOGO Knowledge QA mode is enabled for ${scope}. You must call knowledge_search before answering, ground the answer only in returned chunks, and state clearly when evidence is insufficient. citation_ref, documentId, chunkId, kb:// addresses, and chunk_* identifiers are private MOGO locators: never include them in the answer or create a raw technical reference list. MOGO renders source evidence separately.`)
   } else {
-    sections.push('MOVO retrieval mode is automatic. Choose knowledge_search for enterprise-internal facts, policies, documents, or follow-ups grounded in prior internal knowledge; choose web_search for one bounded public or current lookup; choose progressive_research for multi-source research, comparisons, coverage analysis, or evidence-sufficiency checks; combine internal and public evidence only when the user needs a comparison; and answer directly when retrieval is unnecessary. Internal citation locators are private MOVO metadata and must never appear in the answer. MOVO renders source evidence separately.')
+    sections.push('MOGO retrieval mode is automatic. Choose knowledge_search for enterprise-internal facts, policies, documents, or follow-ups grounded in prior internal knowledge; choose web_search for one bounded public or current lookup; choose progressive_research for multi-source research, comparisons, coverage analysis, or evidence-sufficiency checks; combine internal and public evidence only when the user needs a comparison; and answer directly when retrieval is unnecessary. Internal citation locators are private MOGO metadata and must never appear in the answer. MOGO renders source evidence separately.')
   }
   if (value.documents.length > 0) {
-    sections.push(`MOVO document references for this turn:\n${JSON.stringify(value.documents)}\nDocuments with local_path are staged in this server conversation's workspace and can be read by available workspace tools. Use document_parse or document_extract_resources when their contents are needed. Do not invent file contents.`)
+    sections.push(`MOGO document references for this turn:\n${JSON.stringify(value.documents)}\nUse document_parse or document_extract_resources when their contents are needed. Do not invent file contents.`)
   }
   if (value.images.length > 0) {
     sections.push(visionEnabled
-      ? `MOVO supplied this turn's images directly to the selected vision-capable model. Image references: ${JSON.stringify(value.images)}. Images with local_path are also staged in this server conversation's workspace for workspace tools. Use the actual image content when answering; do not invent unseen details.`
-      : `MOVO image references for this turn:\n${JSON.stringify(value.images)}\nImages with local_path are staged in this server conversation's workspace and can be read by available workspace tools. Use image_extract_facts when image facts are needed. Do not invent unseen image details.`)
+      ? 'MOGO supplied this turn\'s images directly to the selected vision-capable model. Use the actual image content when answering; do not invent unseen details.'
+      : `MOGO image references for this turn:\n${JSON.stringify(value.images)}\nUse image_extract_facts when image facts are needed. Do not invent unseen image details.`)
   }
   if (value.browserResume) {
     sections.push(`A server-authorized browser checkpoint is ready to resume. Call browser_task exactly once with these mission arguments: ${JSON.stringify(value.browserResume)}. Do not start a different browser mission.`)
   }
   if (value.writingStyle?.instructions) {
-    sections.push(`MOVO writing standard selected for this turn: ${value.writingStyle.name}. Apply the following standard only when authoring or rewriting prose or a user-facing content deliverable. It must not change retrieval choices, search queries, tool arguments, calculations, extracted facts, browser actions, approvals, or ordinary factual answers. If the task is not writing, ignore this standard completely.\n\n${value.writingStyle.instructions}`)
+    sections.push(`MOGO writing standard selected for this turn: ${value.writingStyle.name}. Apply the following standard only when authoring or rewriting prose or a user-facing content deliverable. It must not change retrieval choices, search queries, tool arguments, calculations, extracted facts, browser actions, approvals, or ordinary factual answers. If the task is not writing, ignore this standard completely.\n\n${value.writingStyle.instructions}`)
   }
-  return sections.length === 0 ? '' : `Trusted MOVO turn scope:\n${sections.join('\n\n')}`
+  return sections.length === 0 ? '' : `Trusted MOGO turn scope:\n${sections.join('\n\n')}`
 }
 
 export class RuntimeTurnContext {

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from typing import Any, Dict, List, Set
 from urllib.parse import urlparse
@@ -46,7 +47,8 @@ def extract_candidate_entries(
     for url in user_urls:
         try:
             host = urlparse(url).hostname
-        except Exception:
+        except Exception as exc:
+            log_print(f"[enterprise_capabilities.browser.engine.entry_candidates] silent exception caught: {exc}", flush=True)
             host = None
         if host:
             user_hosts.add(host)
@@ -86,7 +88,8 @@ def extract_candidate_entries(
             continue
         try:
             site_host = urlparse(entry_url).hostname or ""
-        except Exception:
+        except Exception as exc:
+            log_print(f"[enterprise_capabilities.browser.engine.entry_candidates] silent exception caught: {exc}", flush=True)
             site_host = ""
         if site_host and site_host in user_hosts:
             continue
@@ -106,7 +109,8 @@ def _clean_url(raw: str) -> str:
 def _url_matches_site(url: str, site: str) -> bool:
     try:
         host = str(urlparse(str(url or "")).hostname or "").lower().removeprefix("www.")
-    except Exception:
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.browser.engine.entry_candidates] silent exception caught: {exc}", flush=True)
         return False
     expected = str(site or "").lower().removeprefix("www.")
     return bool(host and expected and (host == expected or host.endswith(f".{expected}")))
@@ -115,7 +119,8 @@ def _url_matches_site(url: str, site: str) -> bool:
 def _is_http_url(url: str) -> bool:
     try:
         parsed = urlparse(str(url or ""))
-    except Exception:
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.browser.engine.entry_candidates] silent exception caught: {exc}", flush=True)
         return False
     return parsed.scheme.lower() in {"http", "https"} and bool(parsed.hostname)
 

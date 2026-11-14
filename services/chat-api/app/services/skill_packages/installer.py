@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import datetime
 import uuid
 from typing import Any, Literal
@@ -7,12 +8,9 @@ from typing import Any, Literal
 from pymongo.errors import DuplicateKeyError
 
 from app.core.db import get_db
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 
 from .validator import ValidatedSkillPackage
-from .archive_store import archive_fields, delete_archive
-from .prewarm import prewarm_skill_dependencies
-from .prewarm import DEPENDENCY_FILES
 
 
 InstallScope = Literal["personal", "organization"]
@@ -26,32 +24,16 @@ class SkillPackageInstaller:
         package: ValidatedSkillPackage,
         *,
         scope: InstallScope,
-        main_id: str,
+        tenant_id: str,
         user_id: str = "",
         package_source: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        result = await self._persist(
-            package, scope=scope, main_id=main_id, user_id=user_id,
-            package_source=package_source,
-        )
-        result["dependencyPreparation"] = await prewarm_skill_dependencies(package)
-        return result
-
-    async def _persist(
-        self,
-        package: ValidatedSkillPackage,
-        *,
-        scope: InstallScope,
-        main_id: str,
-        user_id: str = "",
-        package_source: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        tenant_id = resolve_main_id(main_id)
+        tenant_id = resolve_tenant_id(tenant_id)
         if scope == "personal" and not user_id:
             raise ValueError("personal Skill installation requires an owner")
         db = get_db()
         collection = db.user_skills if scope == "personal" else db.skills
-        owner_query: dict[str, Any] = {"main_id": tenant_id, "package_slug": package.name}
+        owner_query: dict[str, Any] = {"tenant_id": tenant_id, "package_slug": package.name}
         if scope == "personal":
             owner_query["user_id"] = str(user_id)
         current = await collection.find_one(owner_query)
@@ -65,7 +47,7 @@ class SkillPackageInstaller:
                 package_id = str(current.get("package_id") or "")
                 if package_id:
                     await db.skill_packages.update_one(
-                        {"_id": package_id, "main_id": tenant_id},
+                        {"_id": package_id, "tenant_id": tenant_id},
                         {"$set": {"source": source}},
                     )
                 current = {**current, "package_source": source}
@@ -77,25 +59,21 @@ class SkillPackageInstaller:
         package_id = uuid.uuid4().hex
         package_doc = {
             "_id": package_id,
-            "main_id": tenant_id,
+            "tenant_id": tenant_id,
             "owner_scope": scope,
             "owner_id": str(user_id) if scope == "personal" else tenant_id,
             "slug": package.name,
             "version": package.version,
             "digest": package.archive_digest,
             "root_prefix": package.root_prefix,
-            **await archive_fields(db, package.archive_bytes, main_id=tenant_id, digest=package.archive_digest),
+            "archive_base64": base64.b64encode(package.archive_bytes).decode("ascii"),
             "files": [dict(item) for item in package.files],
             "kind": package.package_kind,
             "children": [dict(item) for item in package.children],
             "source": dict(package_source or {}),
             "created_at": now,
         }
-        try:
-            await db.skill_packages.insert_one(package_doc)
-        except Exception:
-            await delete_archive(db, package_doc)
-            raise
+        await db.skill_packages.insert_one(package_doc)
 
         common = {
             "name": package.display_name,
@@ -123,21 +101,7 @@ class SkillPackageInstaller:
             "source_kind": "zip",
             "updated_at": now,
         }
-        has_environment = any(item.get("path") in DEPENDENCY_FILES for item in package.files)
-        common["package_requires_environment"] = has_environment
-        from .execution_requirements import package_uses_execution
-        common["package_requires_execution"] = package_uses_execution(
-            files=package.files,
-            tools=(*package.declared_tools, *package.referenced_tools),
-            requires_environment=has_environment,
-            declared_requirement=str(package.metadata.get("requires-execution") or "").lower() in {"true", "yes", "1"},
-        )
         if current:
-            pending = current.get("pending_package") or {}
-            if pending.get("digest") == package.archive_digest:
-                await db.skill_packages.delete_one({"_id": package_id})
-                await delete_archive(db, package_doc)
-                return self._result(current, package, duplicate=True, updated=False, package_source=package_source)
             previous = [str(item) for item in current.get("previous_package_ids") or [] if str(item)]
             old_package = str(current.get("package_id") or "")
             if old_package:
@@ -145,26 +109,10 @@ class SkillPackageInstaller:
             retained = previous[-5:]
             common["previous_package_ids"] = retained
             try:
-                if has_environment:
-                    await collection.update_one(
-                        {"_id": current["_id"], **owner_query},
-                        {"$set": {"pending_package": {"digest": package.archive_digest, "fields": common}, "updated_at": now}},
-                    )
-                else:
-                    await collection.update_one(
-                        {"_id": current["_id"], **owner_query},
-                        {"$set": common, "$unset": {"pending_package": ""}},
-                    )
+                await collection.update_one({"_id": current["_id"], **owner_query}, {"$set": common})
             except Exception:
                 await db.skill_packages.delete_one({"_id": package_id})
-                await delete_archive(db, package_doc)
                 raise
-            replaced_pending_id = str((pending.get("fields") or {}).get("package_id") or "")
-            if replaced_pending_id:
-                replaced_pending = await db.skill_packages.find_one({"_id": replaced_pending_id})
-                await db.skill_packages.delete_one({"_id": replaced_pending_id})
-                if replaced_pending:
-                    await delete_archive(db, replaced_pending)
             expired = [item for item in previous if item not in retained]
             if expired:
                 await db.skill_packages.delete_many({"_id": {"$in": expired}})
@@ -177,11 +125,11 @@ class SkillPackageInstaller:
         skill_id = uuid.uuid4().hex
         record = {
             "_id": skill_id,
-            "main_id": tenant_id,
+            "tenant_id": tenant_id,
             **common,
             "config": {},
-            "enabled": scope == "personal" and not has_environment,
-            "is_active": scope == "personal" and not has_environment,
+            "enabled": scope == "personal",
+            "is_active": scope == "personal",
             "visibility": "private" if scope == "personal" else "organization",
             "category": "Imported Expert Package" if package.package_kind == "expert_package" else "Imported Skill",
             "tags": ["zip", package.package_kind],
@@ -205,7 +153,6 @@ class SkillPackageInstaller:
             await collection.insert_one(record)
         except DuplicateKeyError:
             await db.skill_packages.delete_one({"_id": package_id})
-            await delete_archive(db, package_doc)
             winner = await collection.find_one(owner_query)
             if winner and str(winner.get("package_digest") or "") == package.archive_digest:
                 return self._result(
@@ -235,7 +182,6 @@ class SkillPackageInstaller:
             "enabled": bool(record.get("enabled", record.get("is_active", False))),
             "duplicate": duplicate,
             "updated": updated,
-            "staged": bool((record.get("pending_package") or {}).get("digest") == package.archive_digest),
             "fileCount": len(package.files),
             "digest": package.archive_digest,
             "warnings": [dict(item) for item in package.warnings],

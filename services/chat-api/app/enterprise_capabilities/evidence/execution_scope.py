@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from app.core.db import get_db
@@ -40,7 +40,7 @@ class ExecutionEvidenceRepository:
                         "$each": [{
                             "action_id": action_id,
                             "bundle": normalize_evidence_bundle(bundle),
-                            "created_at": datetime.utcnow(),
+                            "created_at": datetime.now(tz=timezone.utc),
                         }],
                         "$slice": -12,
                     }

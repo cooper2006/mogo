@@ -18,7 +18,7 @@ from app.services.document_parsing_service import (
 def _copy_source_to_path(request: ParseMarkdownRequest, source_path: Path) -> None:
     source_url = str(request.sourceUrl or "").strip()
     if source_url.startswith(("http://", "https://")):
-        http_request = Request(source_url, headers={"User-Agent": "MOVO-DocumentParser/1.0"})
+        http_request = Request(source_url, headers={"User-Agent": "MOGO-DocumentParser/1.0"})
         with urlopen(http_request, timeout=60) as response, source_path.open("wb") as output:
             while True:
                 chunk = response.read(1024 * 1024)
@@ -45,7 +45,12 @@ def parse_markdown_sync(request: ParseMarkdownRequest) -> dict[str, Any]:
         source_path = temp_path / f"source{suffix}"
         _copy_source_to_path(request, source_path)
 
-        parsed = parse_document(source_path, request.source.filename or request.source.storageKey)
+        parsed = parse_document(
+            source_path,
+            request.source.filename or request.source.storageKey,
+            chunk_size=request.chunkSize,
+            chunk_overlap=request.chunkOverlap,
+        )
 
     raw_chunks = parsed.raw_chunks if parsed.raw_chunks is not None else chunk_markdown(
         parsed.markdown,

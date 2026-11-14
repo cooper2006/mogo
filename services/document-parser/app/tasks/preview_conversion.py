@@ -3,10 +3,11 @@ from __future__ import annotations
 from app.domain.jobs import PreviewConvertJobRequest
 from app.repositories.job_repository import mark_job_failed, mark_job_running
 from app.services.preview_conversion_service import post_preview_failure_callback, run_preview_conversion
+from app.tasks.base import TracedTask
 from app.workers.celery_app import celery_app
 
 
-@celery_app.task(name="document.preview_convert", bind=True, max_retries=2)
+@celery_app.task(name="document.preview_convert", base=TracedTask, bind=True, max_retries=2)
 def preview_convert_task(self, job_id: str, payload: dict) -> None:
     request = PreviewConvertJobRequest.model_validate(payload)
     try:

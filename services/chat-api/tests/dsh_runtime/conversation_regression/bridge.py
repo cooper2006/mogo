@@ -58,7 +58,7 @@ class DeterministicBridge(BaseHTTPRequestHandler):
             self._ndjson(self._answer_events(scenario.id))
             return
         assert scenario.model_tool_name in {tool["name"] for tool in payload.get("tools") or []}
-        if self._current_turn_has_result(payload, scenario.id):
+        if self._current_turn_has_result(payload):
             self._ndjson(self._answer_events(scenario.id))
             return
         self._ndjson([
@@ -84,17 +84,22 @@ class DeterministicBridge(BaseHTTPRequestHandler):
         return BY_ID[self.scenario_by_session[session_id]]
 
     @staticmethod
-    def _current_turn_has_result(payload: dict[str, Any], scenario_id: str) -> bool:
-        call_id = f"call-{scenario_id}"
-        return any(
-            (message.get("role") == "tool" and message.get("source", {}).get("callId") == call_id)
-            or any(
-                isinstance(block, dict) and block.get("type") == "tool-result"
-                for block in list(message.get("content") or [])
-            )
-            for message in list(payload.get("messages") or [])
-            if isinstance(message, dict)
-        )
+    def _current_turn_has_result(payload: dict[str, Any]) -> bool:
+        """Whether the messages already carry an executed tool result.
+
+        DSH 0.2.x replays tool results as dedicated ``role: "tool"`` messages
+        (with ``toolCallId``), not as ``tool-result`` content blocks. Both shapes
+        are accepted so the deterministic model converges across DSH versions.
+        """
+        for message in list(payload.get("messages") or []):
+            if not isinstance(message, dict):
+                continue
+            if message.get("role") == "tool" or message.get("toolCallId"):
+                return True
+            for block in list(message.get("content") or []):
+                if isinstance(block, dict) and block.get("type") == "tool-result":
+                    return True
+        return False
 
     @staticmethod
     def _answer_events(scenario_id: str) -> list[dict[str, Any]]:
@@ -107,10 +112,14 @@ class DeterministicBridge(BaseHTTPRequestHandler):
     def _tool_result(payload: dict[str, Any]) -> dict[str, Any]:
         name = str(payload["toolName"])
         arguments = payload.get("arguments") or {}
+        # Tool output schemas are strict (additionalProperties: false), so only
+        # fields declared by each tool's output_schema may be returned. The
+        # generic "receipt" field used to violate that and made DSH reject every
+        # tool result, which sent the deterministic model into an endless
+        # tool-call loop.
         result: dict[str, Any] = {
             "success": True,
             "echo": str(arguments.get("value") or name),
-            "receipt": f"TOOL_OK:{name}",
         }
         if name == "content_production":
             result.update({"accepted": True, "markdown": "# SCENARIO_OK:content_generation"})

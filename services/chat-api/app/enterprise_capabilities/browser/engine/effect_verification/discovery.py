@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 import re
@@ -121,7 +122,12 @@ async def discover_effect_contract(
             target_label=label,
         )
         return EffectContract(**data, source="model")
-    except Exception:
+    except Exception as exc:
+        log_print(
+            "[enterprise_capabilities.browser.engine.effect_verification.discovery] "
+            f"effect discovery failed: {exc}",
+            flush=True,
+        )
         return EffectContract(
             action_name=label or "unknown action",
             operation_family="custom",

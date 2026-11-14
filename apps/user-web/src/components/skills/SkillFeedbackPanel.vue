@@ -58,23 +58,35 @@ const groups = computed(() => {
   return roots.map(root => ({ root, replies: thread.items.filter(item => item.id !== root.id && item.rootId === root.id).slice().reverse() }))
 })
 
-async function load(append = false, silent = false) {
-  if (loading.value || loadingMore.value) return
+// 进入加载态：已有请求在跑时返回 false，调用方据此提前 return
+function beginLoading(append: boolean, silent: boolean) {
+  if (loading.value || loadingMore.value) return false
   if (append) loadingMore.value = true
   else if (!silent) loading.value = true
+  return true
+}
+function resolveCursor(append: boolean) { return append ? thread.nextCursor : '' }
+function clearedUnreadOf(append: boolean, data: any) { return !append && (visibleUnreadCount.value > 0 || Boolean(data.focus)) }
+function applyLoadedThread(append: boolean, data: any) {
+  thread.items = append ? [...thread.items, ...data.items] : data.items
+  thread.commentCount = Number(data.commentCount ?? data.items.length); thread.likes = data.likes; thread.likedByMe = data.likedByMe; thread.hasMore = data.hasMore; thread.nextCursor = data.nextCursor
+}
+function shouldFocusNewActivity(append: boolean, data: any) {
+  return !append && !!data.focus && !highlightedCommentId.value && !highlightedCommentLikeId.value && !highlightLike.value
+}
+function settleLoading(silent: boolean) { if (!silent) loading.value = false; loadingMore.value = false }
+function reportLoadFailure(silent: boolean) { if (!silent) message.error(t('skills.feedback.load_failed')) }
+async function load(append = false, silent = false) {
+  if (!beginLoading(append, silent)) return
   try {
-    const data = await fetchFeedback(props.resourceType, props.resourceId, append ? thread.nextCursor : '')
-    const clearedUnread = !append && (visibleUnreadCount.value > 0 || Boolean(data.focus))
-    thread.items = append ? [...thread.items, ...data.items] : data.items
-    thread.commentCount = Number(data.commentCount ?? data.items.length); thread.likes = data.likes; thread.likedByMe = data.likedByMe; thread.hasMore = data.hasMore; thread.nextCursor = data.nextCursor
-    if (!append && data.focus && !highlightedCommentId.value && !highlightedCommentLikeId.value && !highlightLike.value) focusNewActivity(data.focus)
+    const data = await fetchFeedback(props.resourceType, props.resourceId, resolveCursor(append))
+    const clearedUnread = clearedUnreadOf(append, data)
+    applyLoadedThread(append, data)
+    if (shouldFocusNewActivity(append, data)) focusNewActivity(data.focus!)
     visibleUnreadCount.value = 0
     if (clearedUnread) emit('read')
-  } catch { if (!silent) message.error(t('skills.feedback.load_failed')) }
-  finally {
-    if (!silent) loading.value = false
-    loadingMore.value = false
-  }
+  } catch { reportLoadFailure(silent) }
+  finally { settleLoading(silent) }
 }
 function focusNewActivity(focus: NonNullable<FeedbackThread['focus']>) {
   const commentLike = focus.kind === 'like' && Boolean(focus.commentId)
@@ -120,5 +132,5 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.feedback{display:flex;height:100%;min-height:0;flex-direction:column;gap:14px;overflow:hidden}.feedback>header{display:flex;flex:0 0 auto;align-items:center;justify-content:space-between;gap:16px;padding:2px 0 10px;border-bottom:1px solid #edf0f5}.feedback> :deep(.n-spin-container){display:flex;min-height:0;flex:1;flex-direction:column}.feedback> :deep(.n-spin-container) > .n-spin-content{display:flex;height:100%;min-height:0;flex-direction:column}.heading{min-width:0}.title-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.total{color:#667085;font-size:13px;font-weight:400}.comments{min-height:0;flex:1;max-height:none;overflow:auto;padding:0 4px 2px 0}.comments>section{margin-bottom:16px;padding:0 10px 16px;border-bottom:1px solid #edf0f5}.comments>section:last-child{margin-bottom:0;border-bottom:0}.comments>section.has-replies> :deep(.comment){padding-bottom:10px}.replies{margin:8px 0 8px 42px;padding:0 10px;border:1px solid #e7eefc;border-radius:10px;background:#f8faff}.replies :deep(.comment.reply){margin-left:0}.replies :deep(.comment.reply:first-child){border-top:0}.replies :deep(.comment.reply + .comment.reply){border-top:1px solid #e8edf5}.empty{padding:54px 0}.load-more{text-align:center;padding:12px}.replying{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border-radius:9px;color:#52627d;background:#f2f5fa}.composer{display:flex;flex:0 0 auto;align-items:flex-end;gap:10px;padding-top:10px;border-top:1px solid #edf0f5;background:#fff}.composer :deep(.n-input){flex:1}.resource-heart{display:inline-block;margin-right:4px;transform-origin:center}.resource-heart.heart-highlighted{color:#e5484d;animation:feedback-heart-pulse 1.4s ease-in-out}@keyframes feedback-heart-pulse{0%,100%{transform:scale(1)}30%{transform:scale(1.65)}58%{transform:scale(.88)}78%{transform:scale(1.15)}}
+.feedback{display:flex;height:100%;min-height:0;flex-direction:column;gap:14px;overflow:hidden}.feedback>header{display:flex;flex:0 0 auto;align-items:center;justify-content:space-between;gap:16px;padding:2px 0 10px;border-bottom:1px solid var(--mg-border)}.feedback> :deep(.n-spin-container){display:flex;min-height:0;flex:1;flex-direction:column}.feedback> :deep(.n-spin-container) > .n-spin-content{display:flex;height:100%;min-height:0;flex-direction:column}.heading{min-width:0}.title-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.total{color: var(--mg-text-2);font-size:13px;font-weight:400}.comments{min-height:0;flex:1;max-height:none;overflow:auto;padding:0 4px 2px 0}.comments>section{margin-bottom:16px;padding:0 10px 16px;border-bottom:1px solid var(--mg-border)}.comments>section:last-child{margin-bottom:0;border-bottom:0}.comments>section.has-replies> :deep(.comment){padding-bottom:10px}.replies{margin:8px 0 8px 42px;padding:0 10px;border: 1px solid var(--mg-brand-soft-border);border-radius: 10px;background:var(--mg-brand-soft)}.replies :deep(.comment.reply){margin-left:0}.replies :deep(.comment.reply:first-child){border-top:0}.replies :deep(.comment.reply + .comment.reply){border-top:1px solid var(--mg-border)}.empty{padding:54px 0}.load-more{text-align:center;padding:12px}.replying{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border-radius: 9px;color: var(--mg-text-2);background:var(--mg-bg-subtle)}.composer{display:flex;flex:0 0 auto;align-items:flex-end;gap:10px;padding-top:10px;border-top: 1px solid var(--mg-border);background:var(--mg-bg-surface)}.composer :deep(.n-input){flex:1}.resource-heart{display:inline-block;margin-right:4px;transform-origin:center}.resource-heart.heart-highlighted{color: var(--mg-danger-text);animation:feedback-heart-pulse 1.4s ease-in-out}@keyframes feedback-heart-pulse{0%,100%{transform:scale(1)}30%{transform:scale(1.65)}58%{transform:scale(.88)}78%{transform:scale(1.15)}}
 </style>

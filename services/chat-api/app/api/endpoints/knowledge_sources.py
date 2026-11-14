@@ -42,13 +42,13 @@ def _serialize_chunk(chunk: dict[str, Any]) -> dict[str, Any]:
 async def _current_scope(authorization: str | None) -> tuple[str, str]:
     resolved = await _resolve_session_user(authorization)
     user_id = str(resolved["user"].get("_id") or "")
-    main_id = str(resolved.get("main_id") or resolved["user"].get("main_id") or "default")
-    return user_id, main_id
+    tenant_id = str(resolved.get("tenant_id") or resolved["user"].get("tenant_id") or "default")
+    return user_id, tenant_id
 
 
-async def _find_document_or_404(document_id: str, main_id: str, user_id: str = "") -> dict[str, Any]:
+async def _find_document_or_404(document_id: str, tenant_id: str, user_id: str = "") -> dict[str, Any]:
     doc = await get_db()[DOCUMENT_COLLECTION].find_one(
-        {"_id": document_id, "main_id": main_id, "deleted_at": None}
+        {"_id": document_id, "tenant_id": tenant_id, "deleted_at": None}
     )
     if not doc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="document not found")
@@ -56,7 +56,7 @@ async def _find_document_or_404(document_id: str, main_id: str, user_id: str = "
         resource_id = str(doc.get("resource_id") or "")
         try:
             await PersonalKnowledgeAccessService().require_view(
-                main_id=main_id, user_id=user_id, resource_id=resource_id,
+                tenant_id=tenant_id, user_id=user_id, resource_id=resource_id,
             )
         except (LookupError, PermissionError) as exc:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="knowledge_forbidden") from exc
@@ -65,7 +65,7 @@ async def _find_document_or_404(document_id: str, main_id: str, user_id: str = "
         if access_policy is not None:
             try:
                 await access_policy.require_view(
-                    main_id=main_id,
+                    tenant_id=tenant_id,
                     user_id=user_id,
                     document_id=document_id,
                 )
@@ -79,15 +79,15 @@ async def get_knowledge_source_document(
     document_id: str,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    user_id, main_id = await _current_scope(authorization)
-    doc = await _find_document_or_404(document_id, main_id, user_id)
+    user_id, tenant_id = await _current_scope(authorization)
+    doc = await _find_document_or_404(document_id, tenant_id, user_id)
     can_download = True
     if str(doc.get("scope") or "organization") != "personal":
         access_policy = get_product_extension().knowledge_access_policy
         check_download = getattr(access_policy, "can_download", None)
         if callable(check_download):
             can_download = bool(await check_download(
-                main_id=main_id, user_id=user_id, document_id=document_id,
+                tenant_id=tenant_id, user_id=user_id, document_id=document_id,
             ))
     return {
         "id": str(doc.get("_id") or ""),
@@ -109,11 +109,11 @@ async def get_knowledge_source_chunk(
     chunk_id: str,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    user_id, main_id = await _current_scope(authorization)
-    await _find_document_or_404(document_id, main_id, user_id)
+    user_id, tenant_id = await _current_scope(authorization)
+    await _find_document_or_404(document_id, tenant_id, user_id)
     chunk = await get_db()[CHUNK_COLLECTION].find_one(
         {
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "document_id": document_id,
             "chunk_id": chunk_id,
             "$or": [{"chunk_stage": "rag"}, {"chunk_stage": {"$exists": False}}],
@@ -130,8 +130,8 @@ async def get_knowledge_source_preview(
     request: Request,
     authorization: str | None = Header(default=None),
 ):
-    user_id, main_id = await _current_scope(authorization)
-    doc = await _find_document_or_404(document_id, main_id, user_id)
+    user_id, tenant_id = await _current_scope(authorization)
+    doc = await _find_document_or_404(document_id, tenant_id, user_id)
     preview_status = str(doc.get("preview_status") or "")
     if _needs_preview_conversion(str(doc.get("file_ext") or "")):
         if preview_status != "succeeded":

@@ -14,6 +14,23 @@ Examples:
 """
 
 import argparse
+import pathlib
+
+
+def _safe_extract(zf, dest):
+    """Zip-slip-safe extraction (QF-420).
+
+    Extract every member only when its resolved path stays inside *dest*.
+    Guards against absolute paths and ``../`` traversal entries. Works on
+    Python 3.10+ without relying on the 3.12+ ``filter=`` argument.
+    """
+    dest = pathlib.Path(dest).resolve()
+    for member in zf.infolist():
+        target = (dest / member.filename).resolve()
+        if target != dest and dest not in target.parents:
+            raise ValueError(f"Refusing zip-slip entry: {member.filename!r}")
+        zf.extract(member, str(dest))
+from app.infrastructure.observability.config import log_print
 import sys
 import zipfile
 from pathlib import Path
@@ -51,7 +68,7 @@ def unpack(
         output_path.mkdir(parents=True, exist_ok=True)
 
         with zipfile.ZipFile(input_path, "r") as zf:
-            zf.extractall(output_path)
+            _safe_extract(zf, output_path)
 
         xml_files = list(output_path.rglob("*.xml")) + list(output_path.rglob("*.rels"))
         for xml_file in xml_files:
@@ -84,8 +101,8 @@ def _pretty_print_xml(xml_file: Path) -> None:
         content = xml_file.read_text(encoding="utf-8")
         dom = defusedxml.minidom.parseString(content)
         xml_file.write_bytes(dom.toprettyxml(indent="  ", encoding="utf-8"))
-    except Exception:
-        pass  
+    except Exception as exc:
+        log_print(f"[unpack/xlsx] XML pretty print failed: {exc}", flush=True)
 
 
 def _escape_smart_quotes(xml_file: Path) -> None:
@@ -94,8 +111,8 @@ def _escape_smart_quotes(xml_file: Path) -> None:
         for char, entity in SMART_QUOTE_REPLACEMENTS.items():
             content = content.replace(char, entity)
         xml_file.write_text(content, encoding="utf-8")
-    except Exception:
-        pass
+    except Exception as exc:
+        log_print(f"[unpack/xlsx] smart quote escape failed: {exc}", flush=True)
 
 
 if __name__ == "__main__":

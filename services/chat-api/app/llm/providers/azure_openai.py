@@ -7,7 +7,9 @@ from openai.lib._pydantic import to_strict_json_schema
 from pydantic import BaseModel
 
 from app.llm.base import BaseLLMClient
+from app.llm.providers.pools import PROVIDER_AZURE_OPENAI, provider_http_client
 from app.llm.types import LLMResponse, Message, Role
+from app.infrastructure.observability.config import log_print
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +28,8 @@ class AzureOpenAIClient(BaseLLMClient):
         self.streaming = streaming
         self._last_invocation_meta: Dict[str, Any] | None = None
         kwargs.setdefault("timeout", 90.0)
+        # FR-24 / T082：azure-openai 走自己的连接池，与其他 provider 不共享配额。
+        kwargs.setdefault("http_client", provider_http_client(PROVIDER_AZURE_OPENAI))
         self.client = AsyncAzureOpenAI(
             api_key=api_key,
             azure_endpoint=azure_endpoint,
@@ -60,7 +64,8 @@ class AzureOpenAIClient(BaseLLMClient):
             return {}
         try:
             return json.loads(text)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[llm.providers.azure_openai] JSON parse failed: {exc}", flush=True)
             return {"_raw": text}
 
     @staticmethod
@@ -179,6 +184,11 @@ class AzureOpenAIClient(BaseLLMClient):
 
     def _convert_messages_chat(self, messages: List[Message]) -> List[Dict[str, Any]]:
         result: List[Dict[str, Any]] = []
+        # Azure OpenAI rejects a tool-role message without tool_call_id, exactly
+        # like the plain OpenAI-compatible path. Correlate a missing id with the
+        # pending tool call from the preceding assistant message rather than
+        # emitting a request the provider refuses.
+        pending_tool_call_ids: List[str] = []
         for msg in messages:
             if isinstance(msg, dict):
                 role = msg.get("role")
@@ -224,8 +234,14 @@ class AzureOpenAIClient(BaseLLMClient):
                     )
                 if normalized_calls:
                     msg_dict["tool_calls"] = normalized_calls
-            if tool_call_id:
-                msg_dict["tool_call_id"] = tool_call_id
+                    pending_tool_call_ids = [
+                        str(call.get("id") or "") for call in normalized_calls if str(call.get("id") or "")
+                    ]
+            resolved_tool_call_id = str(tool_call_id or "").strip()
+            if not resolved_tool_call_id and role_value == Role.TOOL.value:
+                resolved_tool_call_id = pending_tool_call_ids.pop(0) if pending_tool_call_ids else ""
+            if resolved_tool_call_id:
+                msg_dict["tool_call_id"] = resolved_tool_call_id
             result.append(msg_dict)
         return result
 
@@ -513,7 +529,8 @@ class AzureOpenAIClient(BaseLLMClient):
                 pass
             try:
                 response_json = response.json()
-            except Exception:
+            except Exception as exc:
+                log_print(f"[llm.providers.azure_openai._exception_details] suppressed {type(exc).__name__}: {exc}", flush=True)
                 response_json = None
             if isinstance(response_json, dict):
                 details["response_json"] = json.dumps(response_json, ensure_ascii=False, default=str)[:2000]
@@ -529,7 +546,8 @@ class AzureOpenAIClient(BaseLLMClient):
         if body is not None:
             try:
                 details["body"] = json.dumps(body, ensure_ascii=False, default=str)[:2000]
-            except Exception:
+            except Exception as exc:
+                log_print(f"[llm.providers.azure_openai._exception_details] suppressed {type(exc).__name__}: {exc}", flush=True)
                 details["body"] = str(body)[:2000]
             if isinstance(body, dict):
                 error_obj = body.get("error")

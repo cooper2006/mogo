@@ -43,7 +43,7 @@ def comment_lines(finding: dict, *, language: str = "zh") -> list[str]:
 def append_comment(comments: etree._Element, comment_id: int, finding: dict, *, language: str = "zh") -> None:
     comment = etree.SubElement(comments, qn("comment"))
     comment.set(qn("id"), str(comment_id))
-    comment.set(qn("author"), "MOVO AI")
+    comment.set(qn("author"), "MOGO AI")
     comment.set(qn("date"), datetime.now(timezone.utc).isoformat(timespec="seconds"))
     paragraph = etree.SubElement(comment, qn("p"))
     for index, line in enumerate(comment_lines(finding, language=language)):

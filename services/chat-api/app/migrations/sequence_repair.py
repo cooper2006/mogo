@@ -20,11 +20,11 @@ def _affected_sessions(db: Any) -> list[dict[str, Any]]:
     pipeline = [
         {"$match": MESSAGE_SEQ_INDEX_FILTER},
         {"$group": {
-            "_id": {"main_id": "$main_id", "session_id": "$session_id", "seq": "$seq"},
+            "_id": {"tenant_id": "$tenant_id", "session_id": "$session_id", "seq": "$seq"},
             "count": {"$sum": 1},
         }},
         {"$match": {"count": {"$gt": 1}}},
-        {"$group": {"_id": {"main_id": "$_id.main_id", "session_id": "$_id.session_id"}}},
+        {"$group": {"_id": {"tenant_id": "$_id.tenant_id", "session_id": "$_id.session_id"}}},
     ]
     return [row["_id"] for row in db.chat_messages.aggregate(pipeline, allowDiskUse=True)]
 
@@ -62,8 +62,8 @@ def _remap_boundary(
     return min(covered), max(covered)
 
 
-def _repair_session(db: Any, *, main_id: str, session_id: Any) -> int:
-    query = {"main_id": main_id, "session_id": session_id}
+def _repair_session(db: Any, *, tenant_id: str, session_id: Any) -> int:
+    query = {"tenant_id": tenant_id, "session_id": session_id}
     rows = _ordered_rows(list(db.chat_messages.find(query)))
     if not rows:
         raise ValueError(f"conflicting session has no messages: {session_id}")
@@ -87,7 +87,7 @@ def _repair_session(db: Any, *, main_id: str, session_id: Any) -> int:
         summaries[row["_id"]] = {**covers, "start_seq": start, "end_seq": end}
 
     participants = list(db.session_participants.find({
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "conversation_id": str(session_id),
     }))
     cursors = {}
@@ -111,7 +111,7 @@ def _repair_session(db: Any, *, main_id: str, session_id: Any) -> int:
             patch["covers"] = summaries[row["_id"]]
         db.chat_messages.update_one({"_id": row["_id"]}, {"$set": patch})
     db.chat_sessions.update_one(
-        {"_id": session_id, "main_id": main_id},
+        {"_id": session_id, "tenant_id": tenant_id},
         {"$set": {"next_message_seq": len(rows)}},
     )
     for participant in participants:
@@ -129,7 +129,7 @@ def _repair_session(db: Any, *, main_id: str, session_id: Any) -> int:
 
 
 def main() -> int:
-    if os.environ.get("MOVO_SESSION_FIX_WRITES_STOPPED") != "1":
+    if os.environ.get("MOGO_SESSION_FIX_WRITES_STOPPED") != "1":
         print("Refusing sequence repair without the maintenance write-stop flag.", file=sys.stderr)
         return 2
     client = MongoClient(os.environ["MONGODB_URI"], serverSelectionTimeoutMS=5000)

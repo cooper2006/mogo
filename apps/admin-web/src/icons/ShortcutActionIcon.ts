@@ -2,7 +2,7 @@ import { defineComponent, h, type PropType } from 'vue'
 
 type ActionKind = 'add' | 'save'
 
-// Ionicons-style outline icons (the same xicons family used elsewhere in MOVO).
+// Ionicons-style outline icons (the same xicons family used elsewhere in MOGO).
 export const ShortcutActionIcon = defineComponent({
   name: 'ShortcutActionIcon',
   props: {

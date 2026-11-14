@@ -57,7 +57,7 @@ test('settled events without an active live attempt still expand for replay comp
 })
 
 test('KernelRuntime receives actual DSH live frames before its durable assistant message', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'movo-live-assistant-stream-'))
+  const root = await mkdtemp(join(tmpdir(), 'mogo-live-assistant-stream-'))
   const runtime = new KernelRuntime({
     runtimeId: 'live-stream-test', isolationKey: 'live-stream-test',
     profileVersion: 'test-v1', storageRoot: root,
@@ -84,8 +84,8 @@ test('KernelRuntime receives actual DSH live frames before its durable assistant
   }
 })
 
-test('a model gateway text chunk reaches MOVO while the provider response is still open', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'movo-live-gateway-stream-'))
+test('a model gateway text chunk reaches MOGO while the provider response is still open', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'mogo-live-gateway-stream-'))
   let providerFinished = false
   try {
     await withModelServer((_request, response) => {

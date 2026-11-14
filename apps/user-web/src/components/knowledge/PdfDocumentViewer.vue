@@ -48,7 +48,6 @@ const currentPage = ref(1)
 const zoom = ref(1)
 const canvasRefs = new Map<number, HTMLCanvasElement>()
 const renderTasks = new Map<number, any>()
-const renderQueues = new Map<number, Promise<void>>()
 const PAGE_BATCH_SIZE = 3
 let loadingTask: any = null
 let pdfDocument: any = null
@@ -115,23 +114,11 @@ async function loadNextBatch() {
   }
 }
 
-function renderPage(pageNumber: number): Promise<void> {
-  const previous = renderQueues.get(pageNumber) || Promise.resolve()
-  const sequence = loadSequence
-  const next = previous.catch(() => {}).then(() => renderPageOnce(pageNumber, sequence))
-  renderQueues.set(pageNumber, next)
-  void next.finally(() => {
-    if (renderQueues.get(pageNumber) === next) renderQueues.delete(pageNumber)
-  }).catch(() => {})
-  return next
-}
-
-async function renderPageOnce(pageNumber: number, sequence: number) {
-  if (sequence !== loadSequence) return
+async function renderPage(pageNumber: number) {
   const canvas = canvasRefs.get(pageNumber)
   if (!pdfDocument || !canvas || !viewportRef.value) return
+  try { renderTasks.get(pageNumber)?.cancel?.() } catch { /* noop */ }
   const page = await pdfDocument.getPage(pageNumber)
-  if (sequence !== loadSequence || canvasRefs.get(pageNumber) !== canvas) return
   const baseViewport = page.getViewport({ scale: 1 })
   const availableWidth = Math.max(240, viewportRef.value.clientWidth - 32)
   const fitScale = Math.min(1.5, availableWidth / baseViewport.width)
@@ -201,19 +188,18 @@ function readableError(error: any) {
 
 async function destroyDocument() {
   for (const task of renderTasks.values()) {
-    try { task?.cancel?.() } catch {}
+    try { task?.cancel?.() } catch { /* noop */ }
   }
   renderTasks.clear()
-  renderQueues.clear()
   const task = loadingTask
   const document = pdfDocument
   loadingTask = null
   pdfDocument = null
-  try { await task?.destroy?.() } catch {}
-  try { await document?.destroy?.() } catch {}
+  try { await task?.destroy?.() } catch { /* noop */ }
+  try { await document?.destroy?.() } catch { /* noop */ }
 }
 
-watch([() => props.url, () => props.httpHeaders?.Authorization], () => { void loadDocument() })
+watch(() => [props.url, props.httpHeaders?.Authorization], () => { void loadDocument() })
 watch(loadMoreRef, (element) => {
   loadMoreObserver?.disconnect()
   if (element) loadMoreObserver?.observe(element)
@@ -241,5 +227,5 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.pdf-viewer{display:flex;height:100%;min-height:0;flex-direction:column;background:#eef1f5}.pdf-toolbar{display:flex;min-height:42px;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid #dfe4eb;background:#fff;color:#4b5565;font-size:12px}.load-hint{color:#98a2b3}.pdf-toolbar button{display:grid;width:30px;height:30px;padding:0;border:0;border-radius:6px;background:transparent;color:#364152;cursor:pointer;font-size:20px;place-items:center}.pdf-toolbar button:hover:not(:disabled){background:#f1f4f8}.pdf-toolbar button:disabled{cursor:not-allowed;opacity:.35}.toolbar-spacer{flex:1}.zoom-value{min-width:38px;text-align:center}.pdf-viewport{position:relative;flex:1;overflow:auto;padding:16px}.pdf-page{position:relative;width:max-content;margin:0 auto 16px}.pdf-page canvas{display:block;background:#fff;box-shadow:0 2px 10px rgba(31,42,68,.12)}.pdf-page>span{position:absolute;right:8px;bottom:8px;padding:2px 7px;border-radius:10px;background:rgba(25,33,48,.65);color:#fff;font-size:11px}.load-more{display:flex;min-height:52px;align-items:center;justify-content:center;color:#7b8798;font-size:12px}.viewer-state{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:12px;background:rgba(247,249,252,.86);color:#667085}.viewer-error{flex-direction:column}.viewer-error button{padding:6px 12px;border:1px solid #d7deea;border-radius:6px;background:#fff;color:#315fce;cursor:pointer}
+.pdf-viewer{display:flex;height:100%;min-height:0;flex-direction:column;background:var(--mg-bg-app)}.pdf-toolbar{display:flex;min-height:42px;align-items:center;gap:10px;padding:0 12px;border-bottom: 1px solid var(--mg-border);background: var(--mg-bg-surface);color: var(--mg-text-2);font-size:12px}.load-hint{color:var(--mg-text-3)}.pdf-toolbar button{display:grid;width:30px;height:30px;padding:0;border: 0;border-radius: 6px;background: transparent;color: var(--mg-text-2);cursor:pointer;font-size:20px;place-items:center}.pdf-toolbar button:hover:not(:disabled){background:var(--mg-bg-subtle)}.pdf-toolbar button:disabled{cursor:not-allowed;opacity:.35}.toolbar-spacer{flex:1}.zoom-value{min-width:38px;text-align:center}.pdf-viewport{position:relative;flex:1;overflow:auto;padding:16px}.pdf-page{position:relative;width:max-content;margin:0 auto 16px}.pdf-page canvas{display:block;background: var(--mg-bg-surface);box-shadow:0 2px 10px rgba(31,42,68,.12)}.pdf-page>span{position:absolute;right:8px;bottom:8px;padding:2px 7px;border-radius: 10px;background: rgba(25,33,48,.65);color: #fff;font-size:11px}.load-more{display:flex;min-height:52px;align-items:center;justify-content:center;color: var(--mg-text-3);font-size:12px}.viewer-state{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:12px;background: var(--mg-bg-surface);color:var(--mg-text-2)}.viewer-error{flex-direction:column}.viewer-error button{padding:6px 12px;border: 1px solid #d7deea;border-radius: 6px;background: var(--mg-bg-surface);color: var(--mg-brand-text);cursor:pointer}
 </style>

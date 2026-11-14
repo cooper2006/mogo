@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field
@@ -9,13 +9,19 @@ from pydantic import BaseModel, Field
 class TokenUsageRecord(BaseModel):
     request_id: str
     user_request_id: str = ""
-    main_id: str = "default"
+    tenant_id: str = "default"
     user_id: str = ""
     session_id: str = ""
     trace_id: str = ""
     stage: str = ""
     intent: str = ""
     node_id: str = ""
+    # 035 US1 (T015): cost-attribution dimensions, backfilled by the runtime so
+    # dashboard cost attribution can bucket by agent / space without guessing.
+    # Empty string means "no source in this call" — never fabricate a value.
+    agent_id: str = ""
+    skill_id: str = ""
+    project_id: str = ""  # 046 FR-005: workspace_id 改名 project_id
     status: str = "completed"
     model_name: str = ""
     model_id: str = ""
@@ -31,8 +37,18 @@ class TokenUsageRecord(BaseModel):
     completion_tokens: int = 0
     push_status: str = "pending"
     push_error: str = ""
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    # 007 US4 (T018/T019): estimated cost of the call (USD, token count x 008 MODEL_PRICES unit price).
+    cost_estimate_usd: float = 0.0
+    # 007 FR-7: resilience events (failover_from / failover_to / degradation_step)
+    # carried on the same record; None means no resilience event occurred.
+    resilience_events: Optional[Dict[str, Any]] = None
+    # 040 (R-10): model tier actually served and the tier the caller declared.
+    # Kept as top-level fields on purpose — ``resilience_events`` is reserved for
+    # the 007 failover trio only. Empty string means "not tiered" / "no declaration".
+    tier: str = ""
+    tier_declared: str = ""
+    created_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
 
 
 class TokenUsagePushResult(BaseModel):

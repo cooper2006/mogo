@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-import re
 import secrets
 import threading
 from pathlib import Path
@@ -18,9 +17,9 @@ from .storage_paths import legacy_runtime_root, manager_state_root, workspace_ro
 class PluginRuntimes:
     def __init__(self, engine: DockerEngine) -> None:
         self.engine = engine
-        self.project = os.environ.get("MOVO_SANDBOX_COMPOSE_PROJECT", "movo")
-        self.image = os.environ["MOVO_SANDBOX_RUNTIME_IMAGE"]
-        self.volume = os.environ["MOVO_SANDBOX_WORKSPACE_VOLUME"]
+        self.project = os.environ.get("MOGO_SANDBOX_COMPOSE_PROJECT", "mogo")
+        self.image = os.environ["MOGO_SANDBOX_RUNTIME_IMAGE"]
+        self.volume = os.environ["MOGO_SANDBOX_WORKSPACE_VOLUME"]
         self.volume_root = workspace_root()
         self.legacy_root = legacy_runtime_root()
         self._store = LeaseStore(manager_state_root(), legacy_root=self.legacy_root)
@@ -32,22 +31,20 @@ class PluginRuntimes:
         with self._lock:
             return {"plugin_runtimes": len(self._leases)}
 
-    def create(self, isolation_key: str, personal_space_key: str | None = None) -> dict:
+    def create(self, isolation_key: str) -> dict:
         if not isolation_key or len(isolation_key) > 512:
             raise ValueError("Invalid Runtime isolation key")
-        if personal_space_key is not None and not re.fullmatch(r"[0-9a-f]{64}", personal_space_key):
-            raise ValueError("Invalid personal space key")
         with self._lock:
             if isolation_key in self._creating:
                 raise ValueError("Runtime creation is already in progress")
             self._creating.add(isolation_key)
         try:
-            return self._create(isolation_key, personal_space_key)
+            return self._create(isolation_key)
         finally:
             with self._lock:
                 self._creating.discard(isolation_key)
 
-    def _create(self, isolation_key: str, personal_space_key: str | None = None) -> dict:
+    def _create(self, isolation_key: str) -> dict:
         with self._lock:
             previous = next((item["lease_id"] for item in self._leases.values()
                              if item.get("isolation_key") == isolation_key), None)
@@ -58,7 +55,7 @@ class PluginRuntimes:
         legacy_storage = self.legacy_root / "sandbox-runtimes" / storage_key
         if legacy_storage.is_dir():
             relative_storage = f"sandbox-runtimes/{storage_key}"
-            storage_volume = os.environ["MOVO_SANDBOX_RUNTIME_VOLUME"]
+            storage_volume = os.environ["MOGO_SANDBOX_RUNTIME_VOLUME"]
         else:
             relative_storage = f"plugin-runtimes/{storage_key}"
             storage = self.volume_root / relative_storage
@@ -71,10 +68,10 @@ class PluginRuntimes:
         container_id = None
         connected_proxy = False
         connected_parent = False
-        name = f"movo-plugin-{lease_id}"
+        name = f"mogo-plugin-{lease_id}"
         token = secrets.token_hex(32)
         try:
-            network_id = self.engine.create_internal_network(f"movo-plugin-net-{lease_id}")
+            network_id = self.engine.create_internal_network(f"mogo-plugin-net-{lease_id}")
             self.engine.connect_network(network_id, proxy_id, ["sandbox-egress"])
             connected_proxy = True
             self.engine.connect_network(network_id, parent_id, ["sandbox-gateway"])
@@ -83,27 +80,9 @@ class PluginRuntimes:
                 "Type": "volume", "Source": storage_volume, "Target": "/data/dsh-runtime",
                 "VolumeOptions": {"Subpath": relative_storage, "NoCopy": True},
             }]
-            offline_volume = os.environ.get("MOVO_OFFLINE_PACKAGE_VOLUME")
-            if offline_volume:
-                mounts.append({"Type": "volume", "Source": offline_volume, "Target": "/offline-packages"})
-            if personal_space_key:
-                personal_root = self.volume_root / "personal" / personal_space_key
-                personal_root.mkdir(parents=True, exist_ok=True)
-                personal_root.chmod(0o777)
-                plugin_home = personal_root / "plugin-home"
-                plugin_home.mkdir(exist_ok=True)
-                plugin_home.chmod(0o777)
-                personal_tmp = personal_root / "tmp"
-                personal_tmp.mkdir(exist_ok=True)
-                personal_tmp.chmod(0o777)
-                mounts.append({
-                    "Type": "volume", "Source": self.volume,
-                    "Target": "/job/home",
-                    "VolumeOptions": {"Subpath": f"personal/{personal_space_key}", "NoCopy": True},
-                })
             if (self.legacy_root / "plugin-archives").is_dir():
                 mounts.append({
-                    "Type": "volume", "Source": os.environ["MOVO_SANDBOX_RUNTIME_VOLUME"],
+                    "Type": "volume", "Source": os.environ["MOGO_SANDBOX_RUNTIME_VOLUME"],
                     "Target": "/data/dsh-runtime/plugin-archives", "ReadOnly": True,
                     "VolumeOptions": {"Subpath": "plugin-archives", "NoCopy": True},
                 })
@@ -114,16 +93,10 @@ class PluginRuntimes:
                 "Cmd": ["src/host.mjs", "--host", "0.0.0.0", "--port", "8101", "--storage-root", "/data/dsh-runtime"],
                 "WorkingDir": "/app",
                 "Env": [
-                    f"DSH_RUNTIME_HOST_TOKEN={token}", "MOVO_DSH_PLUGIN_CHILD=1",
-                    f"HOME={'/job/home/plugin-home' if personal_space_key else '/data/dsh-runtime'}",
-                    *(["MOVO_PLUGIN_LEGACY_HOME=/data/dsh-runtime"] if personal_space_key else []),
-                    f"TMPDIR={'/job/home/tmp' if personal_space_key else '/tmp'}",
-                    "NODE_USE_ENV_PROXY=1",
-                    *(["MOVO_PERSONAL_SPACE_ROOT=/job/home"] if personal_space_key else []),
+                    f"DSH_RUNTIME_HOST_TOKEN={token}", "MOGO_DSH_PLUGIN_CHILD=1",
+                    "HOME=/data/dsh-runtime", "TMPDIR=/tmp", "NODE_USE_ENV_PROXY=1",
                     "HTTP_PROXY=http://sandbox-egress:3128", "HTTPS_PROXY=http://sandbox-egress:3128",
                     "NO_PROXY=sandbox-gateway,localhost,127.0.0.1",
-                    *(["MOVO_OFFLINE_PACKAGE_ROOT=/offline-packages",
-                       "npm_config_userconfig=/offline-packages/.npmrc"] if offline_volume else []),
                 ],
                 "HostConfig": {
                     "NetworkMode": network_id, "ReadonlyRootfs": True,
@@ -133,7 +106,7 @@ class PluginRuntimes:
                     "Tmpfs": {"/tmp": "rw,exec,nosuid,size=64m"},
                     "Mounts": mounts,
                 },
-                "Labels": {"movo.role": "plugin-runtime", "movo.lease": lease_id, "movo.project": self.project},
+                "Labels": {"mogo.role": "plugin-runtime", "mogo.lease": lease_id, "mogo.project": self.project},
             }
             container_id = self.engine.create(name, payload)
             self.engine.start(container_id)

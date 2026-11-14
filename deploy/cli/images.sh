@@ -1,71 +1,190 @@
 #!/usr/bin/env bash
 
-MOVO_COMPOSE_BUILD=false
-MOVO_DEFAULT_IMAGE_PREFIX=ghcr.io/himovo/movo
-MOVO_CHINA_IMAGE_PREFIX=registry.cn-beijing.aliyuncs.com/himovo-cn/movo
+MOGO_COMPOSE_BUILD=false
+# Every image -- published or built from source -- is named <registry>/<service>
+# (ghcr.io/mogoai/admin-web). The registry is read from MOGO_IMAGE_REGISTRY in
+# .env, falling back to the official one below. One naming scheme means a local
+# `./mogo build` produces exactly the reference `./mogo up` looks for, the same
+# reference a registry deployment pulls, and the same one the container-hardening
+# tests resolve.
+MOGO_DEFAULT_IMAGE_REGISTRY=ghcr.io/mogoai
+MOGO_IMAGE_SERVICES=(
+  MOGO_DSH_RUNTIME_HOST_IMAGE:dsh-runtime-host
+  MOGO_CHAT_API_IMAGE:chat-api
+  MOGO_ADMIN_API_IMAGE:admin-api
+  MOGO_USER_WEB_IMAGE:user-web
+  MOGO_ADMIN_WEB_IMAGE:admin-web
+  MOGO_GATEWAY_IMAGE:gateway
+)
 
-movo_configure_mirror() {
-  case "${MOVO_MIRROR:-}" in
-    '') ;;
-    global)
-      MOVO_IMAGE_PREFIX="${MOVO_DEFAULT_IMAGE_PREFIX}"
-      MOVO_MONGO_IMAGE=mongo:6.0.20
-      MOVO_REDIS_IMAGE=redis:7.4.2-alpine
-      MOVO_WEAVIATE_IMAGE=semitechnologies/weaviate:1.25.7
-      MOVO_ALPINE_IMAGE=alpine:3.21
-      export MOVO_IMAGE_PREFIX MOVO_MONGO_IMAGE MOVO_REDIS_IMAGE MOVO_WEAVIATE_IMAGE MOVO_ALPINE_IMAGE
-      ;;
-    cn)
-      MOVO_IMAGE_PREFIX="${MOVO_CHINA_IMAGE_PREFIX}"
-      MOVO_MONGO_IMAGE="registry.cn-beijing.aliyuncs.com/himovo-cn/movo-mongo:6.0.20"
-      MOVO_REDIS_IMAGE="registry.cn-beijing.aliyuncs.com/himovo-cn/movo-redis:7.4.2-alpine"
-      MOVO_WEAVIATE_IMAGE="registry.cn-beijing.aliyuncs.com/himovo-cn/movo-weaviate:1.25.7"
-      MOVO_ALPINE_IMAGE="registry.cn-beijing.aliyuncs.com/himovo-cn/movo-alpine:3.21"
-      export MOVO_IMAGE_PREFIX MOVO_MONGO_IMAGE MOVO_REDIS_IMAGE MOVO_WEAVIATE_IMAGE MOVO_ALPINE_IMAGE
-      ;;
-    *) printf 'Unknown mirror: %s (expected global or cn)\n' "${MOVO_MIRROR}" >&2; return 2 ;;
-  esac
+# True when MOGO_DATA_BACKEND selects the PanWeiDB backend.
+#
+# This is the *intent* switch -- what the services connect to, and the only thing
+# that may make a deployment fail for a missing image. Resolution mirrors
+# compose's own precedence: the exported variable wins, then the .env file (which
+# `docker compose` also reads).
+mogo_panweidb_backend_selected() {
+  local backend
+  # `${VAR+x}` (not `${VAR:-}`) so that a deliberately-empty MOGO_DATA_BACKEND is
+  # treated as "set to empty", exactly like compose's `${MOGO_DATA_BACKEND:-mongo}`
+  # does: empty resolves to the mongo default, it does not fall through to .env.
+  if [[ -n "${MOGO_DATA_BACKEND+x}" ]]; then
+    backend="${MOGO_DATA_BACKEND}"
+  else
+    backend="$(dotenv_value MOGO_DATA_BACKEND)"
+  fi
+  # Trim and lower-case: the services resolve the same variable with
+  # `raw.strip().lower()` (app/core/config.py) and the field has been written as
+  # `PanWeiDB`. A raw string compare here would let the CLI and the apps disagree
+  # about which backend is live.
+  backend="${backend#"${backend%%[![:space:]]*}"}"
+  backend="${backend%"${backend##*[![:space:]]}"}"
+  backend="$(printf '%s' "${backend}" | tr '[:upper:]' '[:lower:]')"
+  [[ "${backend}" == "panweidb" ]]
 }
 
-movo_compose() {
+# True when the `panweidb` compose profile has to be passed for the lifecycle to
+# stay closed.
+#
+# `panweidb` is a profile, not a default service: the image is local-only (arm64,
+# shipped from base-images/images/arm64) and the default backend stays `mongo`,
+# so a plain `./mogo up` must keep creating exactly the stack it created before.
+# Turning MOGO_DATA_BACKEND=panweidb on therefore has to carry the database into
+# the topology in the same breath -- otherwise the apps start and sit behind
+# `depends_on: panweidb: service_healthy` waiting on a service that was never
+# created.
+#
+# The second check covers the other direction: once the container exists it stays
+# under management even if the backend switch is later flipped back to `mongo`,
+# so `./mogo down` / `stop` / `restart` still take the database down instead of
+# leaving it running outside the stack. The probe is best-effort and never fails
+# the caller: `mogo_compose` runs it on every command, including on hosts where
+# the daemon is unreachable, and a lookup error simply means "not enabled".
+mogo_panweidb_enabled() {
+  if mogo_panweidb_backend_selected; then
+    return 0
+  fi
+  local existing=""
+  existing="$("${DOCKER_BIN}" ps -aq \
+    --filter "label=com.docker.compose.service=panweidb" 2>/dev/null | head -n 1 || true)"
+  [[ -n "${existing}" ]]
+}
+
+# 把 profile 并进 COMPOSE_PROFILES 并导出。
+#
+# 这是 profile 的唯一投递通道，理由见 mogo_compose：compose 命令行上的
+# `--profile` 会**覆盖** COMPOSE_PROFILES 而不是与之取并集。
+mogo_enable_compose_profile() {
+  local want="${1:-}"
+  [[ -n "${want}" ]] || return 0
+  # `mogo` 里 env-profiles.sh 在 images.sh 之后才 source；只 source 了 images.sh
+  # 的脚本（scripts/check_compose_image_modes.sh）走下面的兜底实现。
+  if declare -F mogo_profile_add_compose_profile >/dev/null 2>&1; then
+    mogo_profile_add_compose_profile "${want}"
+    return 0
+  fi
+  local existing="${COMPOSE_PROFILES:-}"
+  case ",${existing}," in
+    *",${want},"*)
+      export COMPOSE_PROFILES="${existing}"
+      return 0
+      ;;
+  esac
+  if [[ -n "${existing}" ]]; then
+    export COMPOSE_PROFILES="${existing},${want}"
+  else
+    export COMPOSE_PROFILES="${want}"
+  fi
+}
+
+mogo_compose() {
   local compose_args=(-f "${ROOT_DIR}/docker-compose.yml")
-  if [[ "${MOVO_COMPOSE_BUILD}" == "true" ]]; then
+  if [[ "${MOGO_COMPOSE_BUILD}" == "true" ]]; then
     compose_args+=(-f "${ROOT_DIR}/docker-compose.build.yml")
   fi
-  local offline_file="${MOVO_OFFLINE_COMPOSE_FILE:-$(dotenv_value MOVO_OFFLINE_COMPOSE_FILE)}"
-  if [[ -n "${offline_file}" ]]; then
-    compose_args+=(-f "${ROOT_DIR}/${offline_file}")
+  # 外部数据库模式：把栈内 mongo / redis / panweidb 排除出拓扑，应用只连 .env
+  # 里配的外部实例（MOGO_MONGODB_URI / MOGO_REDIS_URL / PANWEIDB_*）。
+  if [[ "${MOGO_USE_EXTERNAL_DB:-}" == "1" ]]; then
+    compose_args+=(-f "${ROOT_DIR}/docker-compose.external.yml")
+  elif mogo_panweidb_enabled; then
+    # 内部模式才需要把 panweidb 容器带进拓扑；外部模式下 PanWeiDB 也是外部的，
+    # 靠 PANWEIDB_HOST 指过去（override 文件已把内部 panweidb 排除）。
+    #
+    # 只走 COMPOSE_PROFILES，不要写成 `--profile panweidb`：实测 docker compose
+    # 5.5.0 里命令行 --profile 会覆盖（而非并集）COMPOSE_PROFILES，一旦带上它，
+    # env-profiles.sh 导出的 dev/test/prod 全部失效 —— `./mogo down` 会漏掉
+    # mongo 等别的环境的数据库容器，并把所属网络报成 "Resource is still in use"。
+    mogo_enable_compose_profile panweidb
   fi
-  movo_compose_command "${compose_args[@]}" "$@"
+  "${DOCKER_BIN}" compose "${compose_args[@]}" "$@"
 }
 
-movo_export_shared_document_image() {
-  MOVO_DOCUMENT_API_IMAGE="${MOVO_IMAGE_PREFIX}-document-parser:${MOVO_VERSION}"
-  MOVO_DOCUMENT_WORKER_IMAGE="${MOVO_DOCUMENT_API_IMAGE}"
-  export MOVO_DOCUMENT_API_IMAGE MOVO_DOCUMENT_WORKER_IMAGE
+mogo_export_shared_document_image() {
+  MOGO_DOCUMENT_API_IMAGE="${MOGO_EXPORTED_IMAGE_PREFIX}document-parser:${MOGO_VERSION}"
+  MOGO_DOCUMENT_WORKER_IMAGE="${MOGO_DOCUMENT_API_IMAGE}"
+  export MOGO_DOCUMENT_API_IMAGE MOGO_DOCUMENT_WORKER_IMAGE
 }
 
-movo_configure_images() {
+# Publish one complete image reference per service. A source build resolves the
+# registry exactly like a registry deployment does, so both yield the
+# <registry>/<service>:<tag> form (ghcr.io/mogoai/admin-web:bf5000d1).
+mogo_export_service_images() {
+  local entry var service
+  for entry in "${MOGO_IMAGE_SERVICES[@]}"; do
+    var="${entry%%:*}"
+    service="${entry##*:}"
+    printf -v "${var}" '%s%s:%s' "${MOGO_EXPORTED_IMAGE_PREFIX}" "${service}" "${MOGO_VERSION}"
+    export "${var?}"
+  done
+  mogo_export_shared_document_image
+}
+
+mogo_configure_images() {
   local source_build="${1:-false}"
-  local configured_prefix="${MOVO_IMAGE_PREFIX:-$(dotenv_value MOVO_IMAGE_PREFIX)}"
-  MOVO_VERSION="${MOVO_VERSION:-$(dotenv_value MOVO_VERSION)}"
-  MOVO_VERSION="${MOVO_VERSION:-latest}"
-  export MOVO_VERSION
+  local configured_registry="${MOGO_IMAGE_REGISTRY:-}"
+  if [ -z "${configured_registry}" ]; then
+    configured_registry="$(dotenv_value MOGO_IMAGE_REGISTRY)"
+  fi
+
+  # MOGO_IMAGE_PREFIX is a legacy variable from before the image rename. Its old
+  # semantics were a *name prefix* (`${MOGO_IMAGE_PREFIX}-chat-api` →
+  # ghcr.io/mogoai/mogo-chat-api), which no longer matches the
+  # `<registry>/<service>` form the release pipeline publishes
+  # (ghcr.io/mogoai/chat-api). It is therefore ignored with a warning
+  # and the default registry is used instead. Set MOGO_IMAGE_REGISTRY to point
+  # at a different registry.
+  local legacy_prefix="${MOGO_IMAGE_PREFIX:-$(dotenv_value MOGO_IMAGE_PREFIX)}"
+  if [[ -n "${legacy_prefix}" ]]; then
+    printf 'Warning: MOGO_IMAGE_PREFIX=%s is no longer supported (images were renamed from\n' "${legacy_prefix}" >&2
+    printf '  %s-<service> to <registry>/<service>). It is being ignored.\n' "${legacy_prefix}" >&2
+    printf '  Set MOGO_IMAGE_REGISTRY (e.g. ghcr.io/mogoai) instead.\n' >&2
+  fi
+
+  local configured_prefix="${MOGO_EXPORTED_IMAGE_PREFIX:-$(dotenv_value MOGO_EXPORTED_IMAGE_PREFIX)}"
+  if [[ -n "${configured_prefix}" && -z "${configured_registry}" ]]; then
+    configured_registry="${configured_prefix}"
+  fi
+
+  MOGO_VERSION="${MOGO_VERSION:-$(dotenv_value MOGO_VERSION)}"
+  MOGO_VERSION="${MOGO_VERSION:-latest}"
+  export MOGO_VERSION
 
   if [[ "${source_build}" == "true" ]]; then
-    MOVO_COMPOSE_BUILD=true
-    MOVO_IMAGE_PREFIX="${MOVO_BUILD_IMAGE_PREFIX:-movo}"
-    export MOVO_IMAGE_PREFIX
-    movo_export_shared_document_image
-    return 0
+    # A source build adds the build file to the compose invocation; the image
+    # *names* stay identical to a registry deployment (same registry, same
+    # <registry>/<service>:<tag> form). Keeping them distinct used to leave a
+    # locally built chat-api:bf5000d1 next to the ghcr.io/mogoai/chat-api that
+    # compose actually references, so the build produced images nothing could
+    # find.
+    MOGO_COMPOSE_BUILD=true
   fi
-  if [[ -n "${configured_prefix}" ]]; then
-    MOVO_IMAGE_PREFIX="${configured_prefix%/}"
-    export MOVO_IMAGE_PREFIX
-    movo_export_shared_document_image
-    return 0
+  if [[ -n "${configured_registry}" ]]; then
+    MOGO_EXPORTED_IMAGE_PREFIX="${configured_registry%/}/"
+  else
+    MOGO_EXPORTED_IMAGE_PREFIX="${MOGO_DEFAULT_IMAGE_REGISTRY%/}/"
   fi
-  MOVO_IMAGE_PREFIX="${MOVO_DEFAULT_IMAGE_PREFIX}"
-  export MOVO_IMAGE_PREFIX
-  movo_export_shared_document_image
+
+  MOGO_IMAGE_REGISTRY="${MOGO_EXPORTED_IMAGE_PREFIX%/}"
+  export MOGO_IMAGE_REGISTRY
+  mogo_export_service_images
 }

@@ -37,7 +37,7 @@ def embed_texts(texts: list[str], config: dict[str, Any]) -> list[list[float]]:
     if provider == "model_center":
         try:
             runtime = resolve_model_instance(
-                str(config.get("_mainId") or ""),
+                str(config.get("_tenantId") or ""),
                 str(embedding_config.get("modelInstanceId") or ""),
                 "embedding",
             )

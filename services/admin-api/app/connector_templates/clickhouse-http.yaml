@@ -1,0 +1,57 @@
+# 连接器模板种子（041-connector-market）。凭证一律占位符 <...>，加载时校验。
+id: clickhouse-http
+version: 1
+category: data
+name:
+  zh: "ClickHouse HTTP"
+  en: "ClickHouse HTTP"
+description:
+  zh: "通过 HTTP 接口执行只读查询。"
+  en: "Run read-only queries over the HTTP interface."
+auth_type: none
+credential_key: token
+config_template:
+  method: POST
+  url: "https://${host}:8443/?query=${query}"
+params:
+  - key: host
+    label:
+      zh: "服务地址"
+      en: "服务地址"
+    type: string
+    required: true
+    secret: false
+    in: path
+    description:
+      zh: "ClickHouse 域名（不含协议）"
+      en: "ClickHouse host without scheme"
+    example: "<your-clickhouse-host>"
+  - key: query
+    label:
+      zh: "查询语句"
+      en: "查询语句"
+    type: string
+    required: true
+    secret: false
+    in: query
+    description:
+      zh: "只读 SELECT 语句"
+      en: "Read-only SELECT statement"
+    example: "SELECT 1"
+  - key: token
+    label:
+      zh: "接口凭证"
+      en: "接口凭证"
+    type: string
+    required: true
+    secret: false
+    in: headers
+    description:
+      zh: "ClickHouse 访问令牌"
+      en: "ClickHouse access token"
+    example: "<your-clickhouse-token>"
+test_hint:
+  probe:
+    zh: "执行 SELECT 1"
+    en: "执行 SELECT 1"
+  expected_status: 200

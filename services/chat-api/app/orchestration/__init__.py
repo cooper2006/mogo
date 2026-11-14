@@ -1,0 +1,118 @@
+"""DAG orchestration engine (feature 010).
+
+A general-purpose DAG engine with four modes (sequential / supervisor / hybrid /
+graph), topological ordering with cycle detection, conditional skipping via a
+**restricted JSON condition object** (no arbitrary code), and node-level
+exponential-backoff retry.
+
+This package holds the dependency-light core (graph / topo / conditions), so it is
+unit-testable without the DSH runtime or a database.
+"""
+
+from __future__ import annotations
+
+from .conditions import ConditionError, evaluate_condition
+from .debate import DebateError, DebateResult
+from .dispatch import execute_orchestration, wrap_node_runner
+from .loader import LoadedOrchestration, OrchestrationLoadError, load_orchestration_document
+from .round_robin import (
+    CandidateOutcome,
+    CandidateSpec,
+    RoundRobinError,
+    SelectionResult,
+    parse_instances,
+    run_round_robin,
+    select_candidate,
+)
+from .engine import (
+    DEFAULT_MAX_CONCURRENCY,
+    DagEngine,
+    ExecutionResult,
+    NodeOutcome,
+    NodeState,
+)
+from .graph import VALID_MODES, Edge, Graph, GraphError, Node
+from .registry import (
+    OrchestrationDefinition,
+    OrchestrationRegistry,
+    RegistryError,
+)
+from .supervisor import Supervisor, SupervisorResult, run_hybrid
+from .topo import CycleError, topological_order
+from .human_approval import (
+    ApprovalError,
+    ApprovalNodeConfig,
+    DecisionOutcome,
+    NODE_TYPE_HUMAN_APPROVAL,
+    PausableDagEngine,
+    RunDriver,
+    RunSuspended,
+    approval_node_ids,
+    is_approval_node,
+    make_approval_runner,
+)
+from .run_store import ORCHESTRATION_RUNS_COLLECTION, RunStore, RunStoreError
+from .team import (
+    NODE_MODE_TEAM,
+    TeamError,
+    TeamPlan,
+    TeamResult,
+    clamp_review_rounds,
+    run_team,
+)
+
+__all__ = [
+    "VALID_MODES",
+    "Node",
+    "Edge",
+    "Graph",
+    "GraphError",
+    "topological_order",
+    "CycleError",
+    "evaluate_condition",
+    "ConditionError",
+    "DagEngine",
+    "ExecutionResult",
+    "NodeOutcome",
+    "NodeState",
+    "DEFAULT_MAX_CONCURRENCY",
+    "Supervisor",
+    "SupervisorResult",
+    "run_hybrid",
+    "OrchestrationDefinition",
+    "OrchestrationRegistry",
+    "RegistryError",
+    "OrchestrationLoadError",
+    "LoadedOrchestration",
+    "load_orchestration_document",
+    "execute_orchestration",
+    "wrap_node_runner",
+    "run_round_robin",
+    "parse_instances",
+    "select_candidate",
+    "SelectionResult",
+    "CandidateOutcome",
+    "CandidateSpec",
+    "RoundRobinError",
+    "DebateResult",
+    "DebateError",
+    "NODE_TYPE_HUMAN_APPROVAL",
+    "ApprovalError",
+    "ApprovalNodeConfig",
+    "DecisionOutcome",
+    "PausableDagEngine",
+    "RunDriver",
+    "RunSuspended",
+    "approval_node_ids",
+    "is_approval_node",
+    "make_approval_runner",
+    "RunStore",
+    "RunStoreError",
+    "ORCHESTRATION_RUNS_COLLECTION",
+    "NODE_MODE_TEAM",
+    "TeamError",
+    "TeamPlan",
+    "TeamResult",
+    "clamp_review_rounds",
+    "run_team",
+]

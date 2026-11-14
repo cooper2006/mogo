@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Usage examples:
-#   # Default: build CPU image and reuse movo-document-parser-base:bookworm-cpu if present.
+#   # Default: build CPU image and reuse document-parser-base:bookworm-cpu if present.
 #   ./build_document_processing_bigpack.sh
 #
 #   # Run in the background and write logs to BUILD_LOG.
@@ -31,11 +31,11 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENVIRONMENT="${ENVIRONMENT:-test}"
 REGISTRY="${REGISTRY:-ghcr.io}"
 REGISTRY_NAMESPACE="${REGISTRY_NAMESPACE:-}"
-IMAGE_NAME="${IMAGE_NAME:-movo-document-processing}"
+IMAGE_NAME="${IMAGE_NAME:-mogo-document-processing}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
-BASE_IMAGE="${BASE_IMAGE:-python:3.10-slim-bookworm}"
+BASE_IMAGE="${BASE_IMAGE:-python:3.13-slim-bookworm}"
 USE_COMMITTED_SYSTEM_BASE="${USE_COMMITTED_SYSTEM_BASE:-true}"
-SYSTEM_BASE_SOURCE_IMAGE="${SYSTEM_BASE_SOURCE_IMAGE:-python:3.10-slim-bookworm}"
+SYSTEM_BASE_SOURCE_IMAGE="${SYSTEM_BASE_SOURCE_IMAGE:-python:3.13-slim-bookworm}"
 PYPI_INDEX_URL="${PYPI_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}"
 PYPI_TRUSTED_HOST="${PYPI_TRUSTED_HOST:-mirrors.aliyun.com}"
 HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
@@ -63,7 +63,7 @@ if [[ -z "${REGISTRY_NAMESPACE}" ]]; then
   echo "ERROR: set REGISTRY_NAMESPACE to the target registry owner or organization." >&2
   exit 2
 fi
-SYSTEM_BASE_IMAGE="${SYSTEM_BASE_IMAGE:-${REGISTRY%/}/${REGISTRY_NAMESPACE#/}/movo-document-parser-base:${DEFAULT_SYSTEM_BASE_TAG}}"
+SYSTEM_BASE_IMAGE="${SYSTEM_BASE_IMAGE:-${REGISTRY%/}/${REGISTRY_NAMESPACE#/}/document-parser-base:${DEFAULT_SYSTEM_BASE_TAG}}"
 REBUILD_SYSTEM_BASE="${REBUILD_SYSTEM_BASE:-false}"
 PUSH_SYSTEM_BASE="${PUSH_SYSTEM_BASE:-false}"
 RESUME_SYSTEM_BASE_BUILD="${RESUME_SYSTEM_BASE_BUILD:-true}"
@@ -184,7 +184,7 @@ prepare_committed_system_base() {
     build_source_image="${staging_image}"
     echo "Resuming system base build from staging image: ${staging_image}"
   fi
-  echo "Preparing movo document parser base image: ${SYSTEM_BASE_IMAGE}"
+  echo "Preparing mogo document parser base image: ${SYSTEM_BASE_IMAGE}"
   echo "Source image: ${build_source_image}"
   docker rm -f "${container_name}" >/dev/null 2>&1 || true
 

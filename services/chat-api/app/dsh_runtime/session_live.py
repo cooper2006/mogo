@@ -93,7 +93,8 @@ def _process_claim_reconciler() -> ClaimReconciler | None:
     """
     from app.dsh_runtime.application import dsh_runtime_application
 
-    recovery = dsh_runtime_application.claim_recovery
+    # P3 本地适配：本地 DshRuntimeApplication 无 claim_recovery 属性时兜底 None。
+    recovery = getattr(dsh_runtime_application, "claim_recovery", None)
     if recovery is None:
         return None
     return recovery.reconcile_session_claims
@@ -703,7 +704,7 @@ class SessionLiveService:
         self, session_id: str, tenant_id: str
     ) -> tuple[Mapping[str, Any], Sequence[Mapping[str, Any]], Sequence[Mapping[str, Any]]]:
         session = await self._conversations._sessions.find_one(
-            {"_id": __import__("bson").ObjectId(session_id), "main_id": tenant_id}
+            {"_id": session_id, "tenant_id": tenant_id}
         )
         participants = await self._participants.list(
             session_id, tenant_id=tenant_id
@@ -770,7 +771,11 @@ class SessionLiveService:
 
         binding = None
         if tracked is not None:
-            binding = await self._bindings.by_message(tracked, tenant_id=tenant_id)
+            # P3 本地适配：本地 KernelBindingRepository.by_message 保留必填
+            # user_id（himovo 已从过滤去掉但签名仍带）；传入 lease.user_id。
+            binding = await self._bindings.by_message(
+                tracked, tenant_id=tenant_id, user_id=lease.user_id
+            )
 
         run_id = active_run.get("run_id") if isinstance(active_run, Mapping) else None
         initiator_user_id: str | None = None

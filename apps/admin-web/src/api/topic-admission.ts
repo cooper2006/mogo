@@ -48,36 +48,36 @@ export interface TopicChanges {
 }
 
 export async function fetchTopicSummary(): Promise<TopicSummary> {
-  const { data } = await apiClient.get<TopicSummary>('/api/settings/topic-admission/summary')
+  const { data } = await apiClient.get<TopicSummary>('/api/v1/settings/topic-admission/summary')
   return data
 }
 
 export async function fetchTopicRules(params: { q: string; status: string; page: number; pageSize?: number; offset?: number }): Promise<TopicRulePage> {
-  const { data } = await apiClient.get<TopicRulePage>('/api/settings/topic-admission/rules', { params: { pageSize: 10, ...params } })
+  const { data } = await apiClient.get<TopicRulePage>('/api/v1/settings/topic-admission/rules', { params: { pageSize: 10, ...params } })
   return data
 }
 
 export async function saveTopicChanges(changes: TopicChanges): Promise<TopicSummary> {
-  const { data } = await apiClient.put<TopicSummary>('/api/settings/topic-admission/changes', changes)
+  const { data } = await apiClient.put<TopicSummary>('/api/v1/settings/topic-admission/changes', changes)
   return data
 }
 
 export async function previewTopicChanges(text: string, changes: TopicChanges): Promise<TopicTestResult> {
-  const { data } = await apiClient.post<TopicTestResult>('/api/settings/topic-admission/preview', { text, ...changes })
+  const { data } = await apiClient.post<TopicTestResult>('/api/v1/settings/topic-admission/preview', { text, ...changes })
   return data
 }
 
 export async function fetchTopicPolicy(): Promise<TopicPolicy> {
-  const { data } = await apiClient.get<TopicPolicy>('/api/settings/topic-admission')
+  const { data } = await apiClient.get<TopicPolicy>('/api/v1/settings/topic-admission')
   return data
 }
 
 export async function saveTopicPolicy(policy: TopicPolicy): Promise<TopicPolicy> {
-  const { data } = await apiClient.put<TopicPolicy>('/api/settings/topic-admission', policy)
+  const { data } = await apiClient.put<TopicPolicy>('/api/v1/settings/topic-admission', policy)
   return data
 }
 
 export async function testTopicPolicy(text: string, policy: TopicPolicy): Promise<TopicTestResult> {
-  const { data } = await apiClient.post<TopicTestResult>('/api/settings/topic-admission/test', { text, policy })
+  const { data } = await apiClient.post<TopicTestResult>('/api/v1/settings/topic-admission/test', { text, policy })
   return data
 }

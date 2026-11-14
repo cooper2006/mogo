@@ -1,0 +1,938 @@
+# FR-23 已知 camelCase 偏差登记表（T038 自动生成 + 人工审阅）
+#
+# 契约按消费方实际读取的服务端字段名登记（服务端 wire 格式为 camelCase，见各契约 gaps）；
+# FR-23 目标是 snake_case，待服务端逐项迁移到 snake_case 后从本表移除。
+# 未登记在表的 camelCase 字段会被 serialization_check.py 视为未登记偏差（error）。
+# 生成命令: python3 tools/contract/serialization_check.py --seed
+
+admin-api:
+  analytics_token_usage:
+    - filterOptions.departments
+    - filterOptions.models
+    - filterOptions.stages
+    - filterOptions.statuses
+    - hasMore
+    - items[].completionTokens
+    - items[].createdAt
+    - items[].departmentName
+    - items[].durationMs
+    - items[].modelName
+    - items[].promptPreview
+    - items[].promptTokens
+    - items[].requestId
+    - items[].requestTitle
+    - items[].stage
+    - items[].status
+    - items[].totalTokens
+    - items[].userName
+    - summary.activeUsers
+    - summary.avgTokens
+    - summary.completionTokens
+    - summary.last24hCalls
+    - summary.promptTokens
+    - summary.totalCalls
+    - summary.totalCost
+    - summary.totalTokens
+  auth_login:
+    - candidates[].displayName
+    - candidates[].orgName
+    - candidates[].roleName
+    - candidates[].tenantId
+    - candidates[].username
+    - challengeToken
+    - profile.name
+    - profile.orgName
+    - profile.roleName
+    - profile.tenantId
+    - requiresTenantSelection
+  auth_me:
+    - avatarUpdatedAt
+    - avatarUrl
+    - lastLoginAt
+    - orgName
+    - roleName
+    - tenantId
+  auth_sso_exchange:
+    - data.accessToken
+    - data.expiresAt
+    - data.sessionId
+  connector_templates:
+    - loadIssues
+    - templates[].authType
+    - templates[].category
+    - templates[].description
+    - templates[].id
+    - templates[].installCount
+    - templates[].installed
+    - templates[].name
+    - templates[].params
+    - templates[].version
+  directory_departments_tree:
+    - parentId
+    - userCount
+  directory_invites:
+    - expiresAt
+    - inviteUrl
+  directory_user_create:
+    - loginName
+  directory_users_list:
+    - customFields
+    - loginName
+    - pendingPositionRole
+    - positionRoles
+    - primaryDepartmentId
+    - primaryDepartmentName
+    - sourceUserId
+    - updatedAt
+  egress_allowlist:
+    - items[].enabled
+    - items[].entry_id
+    - items[].match_domain
+    - items[].note
+    - items[].path_prefix
+    - items[].scope
+    - items[].tenant_id
+    - items[].tool_id
+    - items[].updated_at
+  egress_logs:
+    - items[].action_id
+    - items[].details.allowed
+    - items[].details.domain
+    - items[].details.matched_scope
+    - items[].details.reason
+    - items[].event
+    - items[].occurred_at
+    - items[].tenant_id
+    - items[].user_id
+  knowledge_documents_list:
+    - data[].chunkCount
+    - data[].createdAt
+    - data[].fileExt
+    - data[].fileSize
+    - data[].id
+    - data[].indexStatus
+    - data[].name
+    - data[].originalFilename
+    - data[].parseStatus
+    - data[].previewStatus
+    - data[].status
+    - data[].storageType
+    - data[].updatedAt
+    - pageSize
+  knowledge_documents_stats:
+    - totalSize
+  knowledge_documents_upload:
+    - fileSize
+    - originalFilename
+    - updatedAt
+  models_discover:
+    - models[].id
+    - models[].name
+    - models[].ownedBy
+  models_instance_create:
+    - displayName
+    - isDefault
+    - modelName
+    - updatedAt
+  models_instances:
+    - apiKeyMasked
+    - apiVersion
+    - baseUrl
+    - displayName
+    - healthStatus
+    - isDefault
+    - lastError
+    - maxContextTokens
+    - modelName
+    - providerCode
+    - providerId
+    - providerName
+    - runtimeKind
+    - tenantId
+    - updatedAt
+  models_providers:
+    - defaultBaseUrl
+    - providerType
+    - updatedAt
+  organizations_account_create:
+    - displayName
+  organizations_accounts:
+    - displayName
+    - groupCode
+    - groupName
+    - isProtected
+    - roleName
+    - updatedAt
+  platform_tenants:
+    - items[].adminUsername
+    - items[].archivedAt
+    - items[].createdAt
+    - items[].edition
+    - items[].memberLimit
+    - items[].name
+    - items[].purgedAt
+    - items[].status
+    - items[].tenantId
+  portal_listings:
+    - items[].asset_key
+    - items[].asset_type
+    - items[].category
+    - items[].is_active_asset
+    - items[].name
+    - items[].published
+    - items[].published_at
+    - items[].published_by
+  setup_status:
+    - initializedAt
+    - orgName
+    - platformAdminMissing
+    - services[].core
+    - services[].key
+    - services[].label
+    - services[].message
+    - services[].ok
+    - tenantId
+    - urls.adminWeb
+    - urls.userWeb
+  skill_canary_create:
+    - data.current_step
+    - data.error_rate
+    - data.ladder
+    - data.reason
+    - data.shadow_enabled
+    - data.shadow_stats
+    - data.should_rollback
+    - data.skill_id
+    - data.state
+    - data.traffic_ratio
+  skill_eval_dry_run:
+    - blockedReason
+    - caseResults
+    - createdAt
+    - dryRun
+    - durationMs
+    - failedMetrics
+    - metrics.citation_support
+    - metrics.refusal_accuracy
+    - metrics.task_success
+  skill_eval_reports_latest:
+    - blockedReason
+    - caseResults
+    - createdAt
+    - dryRun
+    - durationMs
+    - failedMetrics
+  skills_create:
+    - updatedAt
+  skills_detail:
+    - lifecycle.publicationStatus
+    - updatedAt
+  skills_enabled:
+    - updatedAt
+  skills_list:
+    - data[].description
+    - data[].enabled
+    - data[].id
+    - data[].lifecycle.publicationStatus
+    - data[].lifecycle.publishedVersion
+    - data[].name
+    - data[].scenario
+    - data[].type
+    - data[].updatedAt
+  skills_publish:
+    - release.id
+    - release.version
+    - skill.enabled
+    - skill.id
+  skills_update:
+    - updatedAt
+  tools_create:
+    - updatedAt
+  tools_detail:
+    - lastTestMessage
+    - lastTestStatus
+    - updatedAt
+    - usageHint
+  tools_list:
+    - lastTestStatus
+    - updatedAt
+  traffic_allocations_overview:
+    - alertThresholdRatio
+    - assignedPolicyCount
+    - assignedTokens
+    - defaultPolicy.period
+    - defaultPolicy.quotaTokens
+    - defaultPolicy.status
+    - defaultPolicy.unlimited
+    - orgPolicy.period
+    - orgPolicy.periodStartAt
+    - orgPolicy.remainingTokens
+    - orgPolicy.resetAt
+    - orgPolicy.status
+    - orgPolicy.timezone
+    - orgPolicy.totalTokens
+    - orgPolicy.unlimited
+    - orgPolicy.usedTokens
+    - projectAssignedTokens
+    - teamAssignedTokens
+  traffic_allocations_users:
+    - departmentName
+    - loginName
+    - quotaTokens
+    - remainingTokens
+    - resetAt
+    - usedTokens
+    - userId
+  trust_ratings_distribution:
+    - data.L1
+    - data.L2
+    - data.L3
+    - data.L4
+  trust_ratings_list:
+    - data.items
+    - data.items[].asset_key
+    - data.items[].asset_type
+    - data.items[].below_streak_days
+    - data.items[].level
+    - data.items[].owner_id
+    - data.items[].previous_level
+    - data.items[].reason
+    - data.items[].tenant_id
+    - data.items[].updated_at
+chat-api:
+  accept_skill_share:
+    - data.duplicate
+    - data.enabled
+    - data.id
+    - data.name
+    - data.type
+    - data.version
+  append_session_messages:
+    - data.id
+    - data.message_count
+  apply_portal_asset:
+    - request.request_id
+    - request.status
+  auth_login:
+    - data.candidates
+    - data.candidates[].displayName
+    - data.candidates[].orgName
+    - data.candidates[].tenantId
+    - data.candidates[].userId
+    - data.candidates[].username
+    - data.challengeToken
+    - data.profile
+    - data.profile.agentPolicy
+    - data.profile.availableTenants
+    - data.profile.billingEnabled
+    - data.profile.canAccessAdmin
+    - data.profile.edition
+    - data.profile.memberLimit
+    - data.profile.name
+    - data.profile.orgName
+    - data.profile.spaceType
+    - data.profile.tenantId
+    - data.profile.userId
+    - data.requiresTenantSelection
+    - data.token
+  auth_login_select_tenant:
+    - data.profile
+    - data.profile.availableTenants
+    - data.profile.billingEnabled
+    - data.profile.canAccessAdmin
+    - data.profile.edition
+    - data.profile.name
+    - data.profile.spaceType
+    - data.profile.tenantId
+    - data.profile.userId
+    - data.token
+  auth_logout:
+    - data.success
+  auth_me:
+    - data.agentPolicy
+    - data.availableTenants
+    - data.avatar
+    - data.billingEnabled
+    - data.canAccessAdmin
+    - data.edition
+    - data.email
+    - data.memberLimit
+    - data.name
+    - data.orgName
+    - data.phone
+    - data.spaceType
+    - data.tenantId
+    - data.userId
+    - data.username
+  auth_me_refresh_tenants:
+    - data.availableTenants
+  auth_portal_exchange:
+    - data.candidates
+    - data.challengeToken
+    - data.profile
+    - data.requiresTenantSelection
+    - data.token
+  auth_register:
+    - data.profile
+    - data.token
+  auth_registerable_departments:
+    - data.departments
+    - data.departments[].code
+    - data.departments[].depth
+    - data.departments[].id
+    - data.departments[].name
+    - data.departments[].parentId
+  auth_registerable_tenants:
+    - data.tenants
+    - data.tenants[].orgName
+    - data.tenants[].tenantId
+  auth_switch_tenant:
+    - data.profile
+    - data.profile.canAccessAdmin
+    - data.profile.spaceType
+    - data.profile.tenantId
+    - data.profile.userId
+    - data.token
+  chat_message_events:
+    - data.events
+    - data.live
+    - data.next_cursor
+    - data.next_index
+    - data.status
+  chat_upload_document:
+    - data.content_type
+    - data.filename
+    - data.object_path
+    - data.signed_url
+    - data.size
+    - data.url
+  chat_upload_image:
+    - data.content_type
+    - data.filename
+    - data.object_path
+    - data.signed_url
+    - data.size
+    - data.url
+  check_script_plugin:
+    - data.errors
+    - data.llm
+    - data.message
+    - data.pass
+    - data.rulePass
+    - data.source
+    - data.warnings
+  check_workflow_nodes:
+    - data.conclusion
+    - data.coverage
+    - data.logic
+    - data.logic.label
+    - data.logic.level
+    - data.logic.summary
+    - data.pass
+    - data.readiness
+    - data.suggestions
+  create_session:
+    - data.created_at
+    - data.id
+    - data.message_count
+    - data.title
+    - data.updated_at
+  create_skill:
+    - data.enabled
+    - data.id
+    - data.name
+    - data.type
+  create_skill_share:
+    - data.childCount
+    - data.description
+    - data.expiresAt
+    - data.fileCount
+    - data.name
+    - data.shareId
+    - data.token
+    - data.type
+    - data.version
+  create_tool:
+    - data.id
+    - data.name
+    - data.status
+    - data.type
+  delete_session:
+    - data.id
+  delete_skill:
+    - data.id
+  fetch_effective_shortcuts:
+    - data.configured
+    - data.defaultOrder
+    - data.entries
+    - data.entries[].categoryKey
+    - data.entries[].categoryLabel
+    - data.entries[].enabled
+    - data.entries[].favorite
+    - data.entries[].hidden
+    - data.entries[].iconKey
+    - data.entries[].iconSvg
+    - data.entries[].id
+    - data.entries[].label
+    - data.entries[].locked
+    - data.entries[].personal
+    - data.entries[].prompt
+    - data.entries[].resourceId
+    - data.entries[].type
+    - data.groups
+    - data.groups[].key
+    - data.groups[].label
+    - data.preferences
+    - data.schemeKey
+  fetch_personal_knowledge:
+    - data.items
+    - data.items[].accessStatus
+    - data.items[].activeDocumentId
+    - data.items[].canReshare
+    - data.items[].canShare
+    - data.items[].createdAt
+    - data.items[].deleted
+    - data.items[].description
+    - data.items[].directoryId
+    - data.items[].error
+    - data.items[].feedback
+    - data.items[].grantedBy
+    - data.items[].grantedByUserId
+    - data.items[].id
+    - data.items[].isOwner
+    - data.items[].name
+    - data.items[].owner
+    - data.items[].owner.displayName
+    - data.items[].ownerUserId
+    - data.items[].seen
+    - data.items[].share
+    - data.items[].sharedAt
+    - data.items[].status
+    - data.items[].tags
+    - data.items[].updatedAt
+    - data.page
+    - data.pageSize
+    - data.total
+  get_ontology_grants_mine:
+    - data.count
+    - data.degraded
+    - data.disabledCount
+    - data.ontologies
+    - data.ontologies[].accessMode
+    - data.ontologies[].ontologyId
+    - data.ontologies[].priority
+    - data.ontologies[].remark
+    - data.ontologies[].subjectType
+    - data.ontologies[].updatedAt
+    - data.ontologies[].visible
+    - data.tenantId
+    - data.userId
+    - data.visibleCount
+  get_session:
+    - data.created_at
+    - data.id
+    - data.message_count
+    - data.messages
+    - data.messages[].content
+    - data.messages[].created_at
+    - data.messages[].documents
+    - data.messages[].execution_events
+    - data.messages[].images
+    - data.messages[].message_id
+    - data.messages[].plan
+    - data.messages[].progress
+    - data.messages[].role
+    - data.messages[].scheduled_job_id
+    - data.messages[].scheduled_run_id
+    - data.messages[].trigger_source
+    - data.title
+    - data.updated_at
+  get_skill:
+    - data.config
+    - data.createdAt
+    - data.description
+    - data.enabled
+    - data.id
+    - data.lifecycle
+    - data.name
+    - data.package
+    - data.packageSource
+    - data.scenario
+    - data.type
+    - data.updatedAt
+  install_shared_skill:
+    - data.duplicate
+    - data.enabled
+    - data.id
+    - data.name
+    - data.type
+    - data.version
+  install_skill_update:
+    - data.duplicate
+    - data.enabled
+    - data.id
+    - data.name
+    - data.type
+    - data.version
+  install_skill_zip:
+    - data.childCount
+    - data.children
+    - data.compatibility
+    - data.compatibility.declaredTools
+    - data.compatibility.referencedTools
+    - data.compatibility.status
+    - data.compatibility.warnings
+    - data.description
+    - data.digest
+    - data.duplicate
+    - data.enabled
+    - data.fileCount
+    - data.id
+    - data.name
+    - data.slug
+    - data.type
+    - data.updated
+    - data.upgrade
+    - data.upgrade.action
+    - data.upgrade.currentName
+    - data.upgrade.currentVersion
+    - data.upgrade.incomingVersion
+    - data.version
+    - data.warnings
+  list_chat_models:
+    - data[].capabilities
+    - data[].displayName
+    - data[].healthStatus
+    - data[].id
+    - data[].isDefault
+    - data[].modelName
+    - data[].providerName
+    - data[].providerType
+    - data[].runtimeKind
+  list_image_models:
+    - data[].capabilities
+    - data[].displayName
+    - data[].healthStatus
+    - data[].id
+    - data[].isDefault
+    - data[].modelName
+    - data[].providerName
+    - data[].providerType
+  list_my_portal_requests:
+    - items[].applied_at
+    - items[].approver_id
+    - items[].asset_key
+    - items[].asset_name
+    - items[].asset_type
+    - items[].decided_at
+    - items[].decided_reason
+    - items[].expires_at
+    - items[].granted_at
+    - items[].is_expired
+    - items[].is_terminal
+    - items[].reason
+    - items[].request_id
+    - items[].revoked_at
+    - items[].status
+  list_my_tools:
+    - data[].config
+    - data[].createdAt
+    - data[].description
+    - data[].discoveredTools
+    - data[].id
+    - data[].lastTestAt
+    - data[].lastTestMessage
+    - data[].lastTestStatus
+    - data[].name
+    - data[].ownerUserId
+    - data[].scope
+    - data[].status
+    - data[].tags
+    - data[].tenantId
+    - data[].type
+    - data[].updatedAt
+    - data[].usageHint
+  list_orchestrations:
+    - data[].detail
+    - data[].detail.edgeCount
+    - data[].detail.nodeCount
+    - data[].mode
+    - data[].orchestrationId
+    - data[].status
+    - data[].updatedAt
+    - data[].version
+  list_portal_catalog:
+    - items[].asset_key
+    - items[].asset_type
+    - items[].category
+    - items[].description
+    - items[].effect
+    - items[].effect.avg_latency_ms
+    - items[].effect.effect_score
+    - items[].effect.samples
+    - items[].endpoint
+    - items[].is_low_quality
+    - items[].kind
+    - items[].name
+    - items[].owner
+    - items[].owner_role
+    - items[].published_at
+    - items[].rating
+    - items[].rating.level
+    - items[].rating.score
+    - items[].state
+    - items[].tags
+  list_resource_feedback:
+    - data.commentCount
+    - data.focus
+    - data.hasMore
+    - data.items
+    - data.items[].author
+    - data.items[].author.displayName
+    - data.items[].author.userId
+    - data.items[].content
+    - data.items[].createdAt
+    - data.items[].id
+    - data.items[].likedByMe
+    - data.items[].likes
+    - data.items[].mine
+    - data.items[].parentId
+    - data.items[].replyTo
+    - data.items[].rootId
+    - data.likedByMe
+    - data.likes
+    - data.nextCursor
+  list_scheduled_jobs:
+    - data[].id
+  list_selectable_skills:
+    - data.hasMore
+    - data.items
+    - data.items[].description
+    - data.items[].enabled
+    - data.items[].id
+    - data.items[].name
+    - data.items[].scenario
+    - data.items[].sourceScope
+    - data.items[].tenantId
+    - data.items[].type
+    - data.items[].updatedAt
+    - data.nextCursor
+  list_sessions:
+    - data[].active_run
+    - data[].active_run.message_id
+    - data[].active_run.run_id
+    - data[].active_run.source
+    - data[].active_run.status
+    - data[].code_project
+    - data[].created_at
+    - data[].execution_location
+    - data[].id
+    - data[].last_message_at
+    - data[].last_message_preview
+    - data[].last_scheduled_run
+    - data[].message_count
+    - data[].model_instance_id
+    - data[].pending_approval_count
+    - data[].runtime_preset_id
+    - data[].scheduled_unread
+    - data[].title
+    - data[].updated_at
+    - data[].user_id
+  list_site_profiles:
+    - data[].auth_method
+    - data[].created_at
+    - data[].domain
+    - data[].entry_url
+    - data[].hints
+    - data[].id
+    - data[].name
+    - data[].owner_user_id
+    - data[].updated_at
+    - data[].visibility
+  list_skill_releases:
+    - data.items
+    - data.items[].createdAt
+    - data.items[].digest
+    - data.items[].id
+    - data.items[].releaseNotes
+    - data.items[].version
+  list_skill_share_inbox:
+    - data.hasMore
+    - data.items
+    - data.items[].alreadyInstalled
+    - data.items[].deliveryId
+    - data.items[].description
+    - data.items[].existingSkillId
+    - data.items[].expiresAt
+    - data.items[].fileCount
+    - data.items[].hasConflict
+    - data.items[].name
+    - data.items[].sender
+    - data.items[].sender.displayName
+    - data.items[].sender.email
+    - data.items[].sender.username
+    - data.items[].shareId
+    - data.items[].sharedAt
+    - data.items[].type
+    - data.items[].version
+    - data.nextCursor
+    - data.pendingCount
+  list_skill_updates:
+    - data.items
+    - data.items[].changes
+    - data.items[].createdAt
+    - data.items[].currentVersion
+    - data.items[].id
+    - data.items[].localModified
+    - data.items[].name
+    - data.items[].newVersion
+    - data.items[].releaseNotes
+    - data.items[].skillId
+    - data.pendingCount
+  list_skills:
+    - data[].config
+    - data[].createdAt
+    - data[].description
+    - data[].distributionId
+    - data[].enabled
+    - data[].feedback
+    - data[].id
+    - data[].lifecycle
+    - data[].locallyModified
+    - data[].name
+    - data[].package
+    - data[].packageSource
+    - data[].scenario
+    - data[].tenantId
+    - data[].type
+    - data[].updatedAt
+  list_token_usage:
+    - data.has_more
+    - data.items
+    - data.items[].completion_tokens
+    - data.items[].end_time
+    - data.items[].intent
+    - data.items[].model_id
+    - data.items[].model_name
+    - data.items[].node_id
+    - data.items[].prompt
+    - data.items[].prompt_tokens
+    - data.items[].push_error
+    - data.items[].push_status
+    - data.items[].request_id
+    - data.items[].request_title_en
+    - data.items[].request_title_zh
+    - data.items[].session_id
+    - data.items[].stage
+    - data.items[].start_time
+    - data.items[].status
+    - data.items[].tenant_id
+    - data.items[].total_tokens
+    - data.items[].trace_id
+    - data.items[].user_id
+    - data.limit
+    - data.offset
+    - data.summary
+    - data.summary.avg_tokens
+    - data.summary.completion_tokens
+    - data.summary.internal_calls
+    - data.summary.last_24h_calls
+    - data.summary.last_24h_internal_calls
+    - data.summary.last_24h_tokens
+    - data.summary.last_called_at
+    - data.summary.prompt_tokens
+    - data.summary.top_models
+    - data.summary.top_models[].calls
+    - data.summary.top_models[].model_name
+    - data.summary.top_models[].tokens
+    - data.summary.total_calls
+    - data.summary.total_tokens
+    - data.total
+  patch_session:
+    - data.id
+    - data.title
+  preview_skill_share:
+    - data.alreadyInstalled
+    - data.childCount
+    - data.description
+    - data.existingSkillId
+    - data.expiresAt
+    - data.fileCount
+    - data.hasConflict
+    - data.name
+    - data.shareId
+    - data.type
+    - data.version
+  publish_orchestration:
+    - data.orchestrationId
+    - data.status
+    - data.version
+  publish_skill:
+    - data.release
+    - data.release.createdAt
+    - data.release.digest
+    - data.release.id
+    - data.release.releaseNotes
+    - data.release.version
+    - data.skill
+    - data.skill.id
+    - data.skill.name
+  save_orchestration_draft:
+    - data.orchestrationId
+    - data.status
+    - data.version
+  save_shortcut_preferences:
+    - data.configured
+    - data.entries
+    - data.groups
+    - data.preferences
+  search_sessions:
+    - items[].id
+    - items[].match_type
+    - items[].matched_message_count
+    - items[].snippets
+    - items[].title
+  set_skill_enabled:
+    - data.enabled
+    - data.id
+  update_skill:
+    - data.enabled
+    - data.id
+    - data.name
+    - data.type
+document-parser:
+  batch_document_parse:
+    - results[].documentId
+    - results[].error
+    - results[].jobId
+    - results[].ok
+  create_document_index_job:
+    - jobId
+  create_document_parse_job:
+    - jobId
+  create_preview_convert_job:
+    - jobId
+  delete_document_vectors:
+    - collectionName
+    - documentId
+    - vectorStoreType
+  parse_document_markdown:
+    - markdownChars
+    - ragChunks
+    - rawChunks
+  search_retrieval:
+    - items[].chunkId
+    - items[].chunkStage
+    - items[].contentType
+    - items[].contextualText
+    - items[].distance
+    - items[].documentId
+    - items[].ordinal
+    - items[].pageNo
+    - items[].rerankScore
+    - items[].score
+    - items[].sourceChunkIds
+    - items[].text
+    - items[].titlePath
+    - retrievalMode
+    - topN

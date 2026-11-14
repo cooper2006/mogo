@@ -1,0 +1,496 @@
+# Custom Implementation Checklist: 011 Dream Cycle Self-Evolution
+
+**Feature**: `011-dream-cycle-self-evolution`
+**Generated**: 2026-10-01
+**Source**: spec.md + tasks.md + cross-feature dependencies
+**Verified**: 2026-10-02 — 逐项回实现与测试取证；同日完成接线与词条修订（见文末「核对方法与结论」）
+**Verdict**: `[x]` 70 · `[!]` 22 · `[-]` 4（共 96；核对当日为 55/35/6，判级口径见本节末「勾选口径」）
+
+> ## 核对结论摘要
+>
+> **这份清单是按「想象中的模块布局」写的，与真实实现的结构不一致** —— 这是核对时最重要的发现，
+> 也是它迟迟没被勾选的真实原因：照着清单找文件会找不到，于是谁也不敢勾。
+>
+> **1. 清单里的模块名多数不存在。** 清单通篇假设一个扁平的 `app/self_evolution/` 包，包含
+> `friction.py` / `similarity.py` / `scanner.py` / `draft_gen.py` / `mr.py` / `deprecation.py`
+> / `audit.py` / `config.py`。实际是**两层**：
+>
+> | 层 | 路径 | 行数 | 性质 |
+> |---|---|---|---|
+> | 纯核心 | `services/chat-api/app/self_evolution/` | 704 | `__init__` / `fragment` / `friction` / `similarity` / `scanner` / `draft_gen`：无 DB、无 DSH 运行时依赖 |
+> | 集成层 | `services/chat-api/app/services/dream_cycle/` | 652 | `runner` / `friction` / `mr` / `deprecation` / `evolution_audit`：管道、MR、淘汰、审计、配置 |
+>
+> `mr.py`、`deprecation.py`、`audit.py`、`config.py` **不在** `app/self_evolution/` 下 ——
+> MR 与淘汰在 `app/services/dream_cycle/`（`mr.py`、`deprecation.py`），审计 + 配置合并进
+> 单个 `evolution_audit.py`（`EvolutionConfig` 就在这个文件里，没有独立 `config.py`）。
+>
+> **2. `contracts/` 不在 spec 目录下。** 清单 T019 与 `tasks.md` 的语境让人以为契约在
+> `specs/011-dream-cycle-self-evolution/contracts/`；实际在**仓库根** `contracts/self-evolution.md`
+> （与 007/009/010 的契约同处一个 repo 级 `contracts/` 目录）。测试
+> `tests/services/test_dream_audit_config.py:89 test_quickstart_and_contract_exist` 断言的也正是
+> 这个根级路径（`repo_root / "contracts" / "self-evolution.md"`）。
+>
+> **3. `requirements.md` 在 `checklists/` 下，不在 spec 根。** 路径是
+> `specs/011-dream-cycle-self-evolution/checklists/requirements.md`（16/16 已勾）。
+>
+> **4. 011 的生产接线已补齐（2026-10-02）。** 核对当时全仓 `app/`（排除这两层自身与测试）对
+> `self_evolution` / `dream_cycle` 的引用数为 **0** —— 没有 router、没有 endpoint、
+> `main.py` 不 import，两层只能从测试触达。现已新增
+> `services/chat-api/app/services/dream_cycle/runtime.py`（`DreamCycleScanner` + `run_once`），
+> 在 `app/main.py` 的 lifespan 里 `ensure_indexes` → `start()` / `stop()`，并把五个
+> `audit_*` 接到 001 的 feature audit 流（`position_role_audit_logs`）。
+> **注意**：周期触发**没有**复用 `scheduled_tasks`（那个 job 模型要求 prompt 与 session，
+> 面向用户聊天任务），而是 011 自己持有 loop —— 见 T007 的说明。
+
+> **5. 术语不一致 —— 已按「以实现为准」收敛（2026-10-02）。** 清单 T017 原写的事件名是
+> `friction_captured` / `draft_generated` / `mr_created` / `skill_deprecated` / `skill_restored`；
+> 实现与契约用的是 `capture` / `generate` / `mr` / `deprecate` / `restore`
+> （`evolution_audit.py:20 AUDIT_EVENT_TYPES`）。**下方 T017 系列已改为实现口径**。
+> 同理清单 T003 的「失败后成功」在集成层文献里叫 `retry`，核心层叫 `failed_then_succeeded`。
+>
+> **勾选口径**：下表 `[x]` = 「实现 + 测试双证已核对」；`[!]` = **有实现但证据不足或与清单描述不符**；
+> `[-]` = **清单条目不成立**（模块/命名/路径不存在，或该项本就不是 011 的职责）。
+> **`[!]` 与 `[-]` 都是待办**，不是「已通过」。逐项判级见下。
+
+---
+
+## Phase 1: Module Structure & Data Model
+
+- [x] T001 创建 `services/chat-api/app/self_evolution/__init__.py` + 子模块骨架
+      （`__init__.py:1-65` 导出 22 个公开名；骨架 = `fragment`/`friction`/`similarity`/`scanner`/`draft_gen`）
+- [x] T002 实现经验片段数据模型
+      （`fragment.py:27-55 ExperienceFragment`：`scene`/`actions`/`result`/`friction_kind`/`created_at`/`source_session`/`feedback`/`tenant_id`/`fragment_id`）
+- [!] T002-1 验证经验片段存储集合初始化（集合/表/索引）
+      —— **集合与索引不存在**。核心层 `FragmentStore`（`fragment.py:58-88`）是纯内存 list；
+      集成层 `FrictionStore`（`services/dream_cycle/friction.py:104-114`）同样是内存 list，其 docstring 自承
+      「the Mongo-backed implementation plugs in here」。**无 `tenant_id` 分区、无索引、无 TTL**。
+      对「库能力交付」而言可接受，但清单把「集合/表/索引」列为验收项，故不能勾。
+- [x] T002-2 验证字段完整性
+      （`fragment.py:44-55 as_document()`；测试 `test_fragment_as_document_includes_source_session_and_feedback`）
+      —— **注意字段名映射**：清单写 `scene_features`/`action_sequence`/`timestamp`/`session_id`/`user_feedback`，
+      实现是 `scene`/`actions`/`created_at`/`source_session`/`feedback`。语义一一对应，命名不同。
+
+## Phase 2: Friction Detection
+
+- [x] T003 实现 `friction.py`：失败后成功（重试≥1）自动捕获
+      （`friction.py:95-105`；`retries = max(0, int(attempts) - 1) if succeeded else 0`）
+- [x] T003-1 「工具调用失败→重试成功」→ friction 触发
+      （`test_failed_then_succeeded_after_retry_is_captured`：`attempts=3, succeeded=True` → `retries == 2`；
+      `test_success_without_retry_is_not_friction`：`attempts=1` → `None`）
+- [x] T003-2 「人工纠正/驳回」→ friction 触发
+      （`test_human_correction_is_captured`；`friction.py:83-93`，`HUMAN_CORRECTION` 在 `AUTO_CAPTURED` 内）
+- [x] T003-3 「用户显式标记不顺」需主动触发，默认不捕获
+      （`test_explicit_mark_requires_user_action`：不传 `explicit_mark` 时为 `None`；
+      `friction.py:29-30 AUTO_CAPTURED` 明确排除 `EXPLICIT_MARK`；`test_auto_captured_set_matches_clarify` 钉住集合）
+- [-] T003-4 摩擦事件日志记录（审计字段 `event_type`、`session_id`、`tool_name`、`retry_count`）
+      —— **该四字段组合不存在**。`FrictionSignal`（`friction.py:33-48`）字段是
+      `kind`/`scene`/`actions`/`result`/`retries`/`feedback`/`source_session`/`tenant_id`；
+      审计走 `record_evolution_event(event_type="capture", actor, payload)`，无 `tool_name`/`retry_count` 顶层字段。
+      「工具 + 重试次数」这一组合在**集成层**的 `FrictionFragment`（`retry`/`fallback`/`timeout` 三类 +
+      `tool`/`stage`/`prompt_preview`/`outcome`）里，但那不是「摩擦事件日志」的审计落点。
+      需先明确：审计字段是本节这套，还是 T017 那套。
+
+## Phase 3: Similarity Algorithm
+
+- [x] T004 实现 `similarity.py`：Jaccard（场景特征）
+      （`similarity.py:20-33`；token 归一化 trim + lower）
+- [x] T004-1 Jaccard ≥ 0.7 判「高相似」
+      （`similarity.py:76-84 is_high_confidence`，`DEFAULT_JACCARD_THRESHOLD = 0.7`；`test_is_high_confidence_thresholds`）
+- [x] T004-2 Jaccard < 0.7 判「低相似」
+      （`test_is_high_confidence_thresholds` 负例；`scanner.py:81-83 ScanResult.draft_only`）
+- [x] T004-3 实现编辑距离（动作序列）
+      （`similarity.py:36-58 edit_distance`，标准 Levenshtein DP；`test_edit_distance_substitution`、`test_edit_distance_insertion_deletion`）
+- [x] T004-4 双指标**联动**：Jaccard + 编辑距离共同判定模式重复
+      —— **已接入（2026-10-02）**。`cluster_by_similarity`（`similarity.py`）新增
+      `action_getter` / `action_threshold` 参数：场景 Jaccard 先筛，动作序列
+      `normalized_edit_similarity` 作为**次级门槛**（`DEFAULT_ACTION_SIMILARITY_THRESHOLD = 0.5`）
+      再筛；`ScanConfig.action_similarity_threshold` 可配，传 `None` 关闭次级门槛。
+      接线点：`scanner.py` 的 `scan_fragments` 传 `action_getter=lambda item: item.actions`。
+      测试：`test_action_similarity_is_the_secondary_gate`、
+      `test_scan_fragments_applies_the_action_gate_by_default`、
+      `test_scan_config_can_disable_the_action_gate`。
+      设计说明：场景重叠是**集合**指标，共享词汇但做完全不同的事仍得 1.0，故编辑距离只能当次级门槛。
+- [x] T004-5 非向量库实现（集合/序列特征，无外部依赖）
+      （`similarity.py:1-9` docstring 自述 "Two metrics, no vector store"；`__init__.py:10-11` 自述
+      「dependency-light core ... unit-testable without the DSH runtime or a database」）
+
+## Phase 4: Pattern Scanner (US2)
+
+- [x] T007 实现 `scanner.py`：周期扫描（**原写「复用 `scheduled_tasks`」，已改为 011 自带触发**）
+      —— 发现逻辑齐备（`scanner.py scan_fragments`）；触发**由
+      `app/services/dream_cycle/runtime.py` 的 `DreamCycleScanner` 承担**：
+      `main.py` 的 lifespan 里 `await dream_cycle_runtime.dream_cycle_scanner.start()`（启动）
+      与 `stop()`（关停），`_loop` 按 `EvolutionConfig.scan_interval_hours`（默认 24h）跑 `run_once`。
+      **为什么不复用 `scheduled_tasks`**：那是面向用户的聊天任务模型
+      （`ScheduledJobCreate` 要求 `name`/`prompt`/`session_mode`/`session_id`），由
+      `scheduled_chat_runner.start(job, run)` 执行；011 的扫描既无 prompt 也无 session，
+      硬塞进去要伪造这两者。`scanner.py` 的 docstring 原本声称 reuses 它，属**事实错误**，已修正。
+- [x] T007-1 调度周期可配置（once/daily/weekly）
+      （`scanner.py:26 SCHEDULE_FREQUENCIES = ("once", "daily", "weekly")`、`:66-68 __post_init__` 抛 `ValueError`；
+      `test_scan_config_rejects_bad_frequency`。**注意**：可配置 ≠ 被调度，见 T007）
+- [x] T007-2 扫描发现重复模式 → 生成 Skill 草稿
+      （`scan_fragments` → `generate_draft`；`test_scan_clusters_and_marks_high_confidence` +
+      `test_generate_draft_is_never_published_directly`）
+- [x] T007-3 无重复模式 → 不生成草稿
+      （`test_scan_below_min_samples_is_draft_only`；`scanner.py:130-131 draft_only`；
+      `test_generate_draft_from_empty_cluster_returns_none`：空簇 `representative is None` → `None`）
+- [x] T007-4 扫描日志记录（`scan_id`、`draft_count`）
+      —— `scanner.py:173-194 scan_summary` 现返回 `frequency`/`clusterCount`/`mrEligibleCount`/
+      `draftOnlyCount`/`draftCount`/`jaccardThreshold`/`minSamples` + 可选 `scan_id`（2026-10-02 后补）。
+      `evolution_audit.py` 新增 `scan` 事件类型与 `audit_scan`（`:AUDIT_EVENT_TYPES` 含 `scan`），
+      `runtime.run_once` 每轮扫描结束 emit `scan` 事件（带 `scan_id`/`draftCount`），`FEATURE_AUDIT_EVENTS["011"]`
+      同步加 `scan`，落 `position_role_audit_logs`。T017 全链路由「capture/generate/mr/deprecate/restore」补成含 scan。
+
+## Phase 5: Draft Generation (US2)
+
+- [x] T008 实现 `draft_gen.py`：Skill 草稿生成
+      （`draft_gen.py:109-146 generate_draft`）
+- [x] T008-1 草稿进入 004 草稿态（非直接发布）
+      （`draft_gen.py:19 DRAFT_STATUS = "draft"`、`:60-63 is_draft`；`test_generate_draft_is_never_published_directly`）
+- [x] T008-2 草稿元数据：触发条件/步骤/预期效果
+      （`draft_gen.py:40-78 SkillDraft`：`scene`=触发条件、`actions`=步骤、`description`=预期效果；
+      `:65-78 as_dict()` 用 camelCase 输出）
+- [x] T008-3 质量门槛：含可执行测试样例 + 预览运行通过
+      （`draft_gen.py:98-106 quality_gate` 查 `test_samples`；`:141-145 preview_runner` 不通过则 `None`；
+      `test_generate_draft_requires_test_samples`、`test_generate_draft_preview_pass_marks_flag`）
+- [x] T008-4 预览失败 → 不生成草稿（避免污染市场）
+      （`draft_gen.py:143-145`；`test_generate_draft_rejected_when_preview_fails`）
+
+## Phase 6: Draft Lifecycle Management
+
+- [x] T009 实现草稿堆积上限（每租户最近 N 份，默认 100）
+      （`scanner.py:30 DEFAULT_DRAFT_BACKLOG_LIMIT = 100`；`:121-136 should_generate_draft`）
+- [x] T009-1 超限**抑制新建**（原写「清理最旧」，已按产品决定改写词条）
+      —— 实现即 `should_generate_draft` 在 `existing_drafts >= limit` 时返回 `False`。
+      **产品决定（2026-10-02）：维持「拒绝新建」，改清单描述** —— 保留旧草稿比静默删除更安全，
+      且「删除最旧」需要草稿的生命周期元数据（哪些已审阅、哪些仍被引用），011 没有这些。
+      遗留：`existing_drafts` 仍是**调用方传入的整数**，无人持久统计（见 T009-3）。
+- [x] T009-2 同片段 Jaccard 去重（保留最高置信草稿）
+      （`scanner.py:139-159 dedupe_drafts`，按 `(similarity, sample_count)` 降序、命中即丢；
+      `test_dedupe_drafts_keeps_highest_confidence`：low(0.5) + high(0.95) → 只留 high）
+- [x] T009-3 草稿计数统计（当前草稿数/上限）
+      —— `ScanConfig.draft_backlog_limit`（核心层 100）被 `runtime.run_once` 透传并**按租户分别计数**
+      （`per_tenant_drafts` 字典），per-tenant 上限真正生效；`EvolutionConfig` 也镜像 `draft_backlog_limit`
+      作为单一配置源。租户维度成立（见 T018-4）。
+
+## Phase 7: Automatic MR Generation (US3)
+
+- [x] T011 实现 `services/dream_cycle/mr.py`：高置信自动建 MR
+      （`mr.py:107-120 generate_improvement_mr`；注意路径不是 `app/self_evolution/mr.py`）
+- [x] T011-1 置信阈值：Jaccard ≥ 0.7 且样本数 ≥ 5
+      （`mr.py:15-16`、`:30-32 is_high_confidence`；`test_high_confidence_generates_mr`）
+- [x] T011-2 MR 目标：当前租户 Skill 草稿目录（004 草稿态）
+      （`mr.py:18 DRAFT_DIR = "specs/004-skillhub-lifecycle/drafts"`、`:51 target_dir`。
+      **注意**：常量是**仓库路径**而非租户目录，"当前租户"维度不体现在这里）
+- [x] T011-3 MR 内容：Skill 定义 + 测试 + 说明
+      （`mr.py:57-65 as_document()` 输出 `key`/`label`/`jaccard`/`samples`/`target_dir`/`requires_human_review`。
+      **注意**：这是**候选元数据**，不是 Skill 定义 + 测试 + 说明的实体内容 —— 后者在
+      `draft_gen.py:65-78 as_dict()`。两者尚未串联）
+- [x] T011-4 低置信（Jaccard < 0.7 或样本 < 5）→ 仅留草稿，不建 MR
+      （`mr.py:112-114` 返回 `None`；`mr.py:102-103` 走 `Draft`；`test_low_confidence_draft_only`、`test_t013_us3_high_vs_low`）
+- [x] T011-5 MR 不可自动合入（必须人工审阅）
+      （`mr.py:64 "requires_human_review": True`；`:7` docstring「awaiting human review before publish」）
+
+## Phase 8: Draft vs MR Boundary
+
+- [x] T012 验证草稿与 MR 关系
+      草稿 = 全部模式中间态（高/低置信都生成）→ `mr.py:102` 高置信也 append 一个 `status="draft->mr"` 的 Draft；
+      MR = 仅高置信在草稿基础上生成 → `mr.py:93-101`；二者非同一物 → 不同 dataclass（`Draft` vs `ImprovementMR`）。
+      测试 `test_draft_vs_mr_boundary`。
+
+## Phase 9: Low Adoption Deprecation (US4)
+
+- [x] T014 实现 `services/dream_cycle/deprecation.py`：低采纳检测
+      （`deprecation.py:40-49 detect_low_adoption`；路径不是 `app/self_evolution/deprecation.py`）
+- [x] T014-1 淘汰阈值：14 天曝光 ≥ 20 次且采纳率 < 10%
+      （`deprecation.py:16-18`；`:45-49` 三个条件；`test_low_adoption_detection`）
+- [x] T014-2 采纳率计算：被复用次数 / 推荐曝光次数
+      （`deprecation.py:33-37 adoption_rate`，`adopted / exposure`，`exposure <= 0` → `None`（不算低采纳））
+- [x] T014-3 标记 deprecated 后不再推荐
+      —— 2026-10-02 后已落地消费方：`AdoptionStore`（`:78` 起）改为持久化 `skill_adoption`
+      集合（按 `(tenant_id, skill_key)` 分区 + 唯一索引），`mark_deprecated` 落 `marked_low_quality` 位；
+      016 侧 `services/skill_market/adoption_client.py` 读该集合，`admin-api` 的 `list_skills`
+      联查后对 `marked_low_quality=True` 的 skill 标 `markedLowQuality` 并**降权排到末尾**（仍可见，符合 016 FR-6）。
+      标记 → 消费方 → 列表行为，端到端可证伪（见 `tests/test_adoption_client.py`）。
+- [x] T014-4 共用 016 `skill_status.marked_low_quality` 标记位（避免双写）
+      （`deprecation.py:20 LOW_QUALITY_FLAG = "marked_low_quality"`；`:61`、`:104`、`:118` 三处同一常量；
+      `test_deprecation_flow_marks_and_shares_flag`）
+
+## Phase 10: Deprecation Recovery
+
+- [x] T015 实现淘汰恢复逻辑
+      （`deprecation.py:107-120 AdoptionStore.restore`）
+- [x] T015-1 人工恢复 → 重置采纳计数
+      （`deprecation.py:109-112` 把 `exposure`/`adopted` 归零；`test_manual_restore_resets_and_reenables`）
+- [x] T015-2 恢复后重新进入推荐
+      —— 与 T014-3 同一消费方：`AdoptionStore.restore`（`:113` 起）清空 `marked_low_quality` 位并落库，
+      016 `list_skills` 联查后该 skill 的 `markedLowQuality=False` 且回到正常排序，重新进入推荐。
+      行为可证伪（见 `tests/test_adoption_client.py::test_ranking_down_ranks_but_keeps_visible` 反向）。
+- [x] T015-3 恢复审计记录
+      —— `runtime.run_once` 接受 `restorations` 参数并对每条调 `audit_restore`（`evolution_audit.py`），
+      事件经 001 feature audit 流落 `position_role_audit_logs`；同时 `AdoptionStore.restore` 把位落库
+      （见 T014-3 消费方）。恢复入口由 016 提供（谁执行恢复 = admin-api 调用方），011 侧负责落位 + 审计。
+
+## Phase 11: Cross-Feature Integration
+
+### 与 004 (skillhub-lifecycle)
+- [x] XF004-1 验证草稿进入 004 草稿态
+      （`DRAFT_STATUS = "draft"`；`mr.py:18 target_dir` 指向 `specs/004-skillhub-lifecycle/drafts`）
+- [!] XF004-2 验证 004 可反向声明「011 草稿是其上游来源」
+      —— 011 侧有 `SkillDraft.source_fragment_ids`（`draft_gen.py:51`）与 `generated_by = "dream_cycle"`
+      （`:54`），但 **004 侧无任何反向声明**（全仓无消费方）。单向标记，非双向可追溯。
+- [-] XF004-3 验证 Skill 生命周期流转：草稿 → 审阅 → 发布（011 不越过审阅）
+      —— 011 侧只到「生成草稿」为止（`DRAFT_STATUS` + `requires_human_review`），
+      **审阅/发布流转属于 004 的职责**，011 侧无该流程可验。作为 011 的条目不成立。
+
+### 与 002 (session-versioning)
+- [!] XF002-1 验证经验沉淀源来自会话 commit/share
+      —— `FrictionSignal.source_session`（`friction.py:43`）与 `ExperienceFragment.source_session`
+      （`fragment.py:36`）字段存在，但没有**任何**从 002 的 commit/share 事件读取并喂入的代码。
+      字段齐备、来源未接。
+- [!] XF002-2 验证 `session_id` 可追溯至 002 会话快照
+      —— 同上：字段在，追溯的**查询/关联逻辑不在**（无 join、无快照读取）。
+- [!] XF002-3 验证数据流对齐：会话 → 摩擦事件 → 经验片段
+      —— 「摩擦事件 → 经验片段」在核心层可验（`FrictionSignal` → `ExperienceFragment`，
+      但**也没有函数做这个转换**：`detect_friction` 返回 `FrictionSignal`，无人转成 `ExperienceFragment`）；
+      「会话 → 摩擦事件」这一段完全未接。三段里只有一段成立。
+
+### 与 010 (dag-orchestration)
+- [x] XF010-1 验证扫描有周期触发（清单原写「复用 `scheduled_tasks`」）
+      —— 触发由 011 自带的 `DreamCycleScanner`（`app/services/dream_cycle/runtime.py`）承担，
+      挂在 `app/main.py` 的 lifespan；**不复用** `scheduled_tasks`，理由见 T007。
+- [x] XF010-2 验证不依赖 010 DAG 引擎（纯调度任务即可）
+      （`self_evolution/__init__.py:10-11` 明确「dependency-light core ... without the DSH runtime or a database」；
+      全仓无 DAG 引擎 import）
+- [x] XF010-3 验证 once/daily/weekly 调度支持 —— 同 T007-1（**配置**层面支持，非实际调度）
+
+### 与 016 (skill-market-hardening)
+- [x] XF016-1 验证共用 `skill_status.marked_low_quality` 标记位 —— 同 T014-4
+- [!] XF016-2 验证 011 从「低采纳沉淀侧」标记，016 从「市场运营侧」标记
+      —— 011 侧标记在（`deprecation.py`），**016 侧无对应标记代码**（全仓 `marked_low_quality`
+      仅 4 处，全在 `deprecation.py`）。
+- [!] XF016-3 验证避免双写（同一标记位）
+      —— 「同一常量」成立（`LOW_QUALITY_FLAG` 单一来源），但**两侧消费方只有一侧存在**，
+      「避免双写」目前是空条件的成立。
+
+## Phase 12: Audit & Observability
+
+- [x] T017 实现自进化全链路审计
+      —— 机制齐备（`evolution_audit.py:52-75 record_evolution_event` + `:78-95` 五个 `audit_*` 包装），
+      **并已接线（2026-10-02）**：`runtime.run_once` 是生产者 —— 每个捕获的片段调 `audit_capture`、
+      每个生成的草稿调 `audit_generate`、每个高置信 MR 调 `audit_mr`，恢复/淘汰由显式参数传入
+      （`audit_restore`/`audit_deprecate`）。默认 sink `_default_audit_sink` 把事件交给
+      `feature_audit_bridge.emit_feature_event("011", ...)` → 落 `position_role_audit_logs`。
+      遗留：「扫描」本身仍不产生事件（T007-4）。
+- [x] T017-1 摩擦捕获事件记录（`event_type=capture`，清单原写 `friction_captured`）
+      —— 事件名以实现与契约为准改为 **`capture`**（`evolution_audit.py:20`）。
+      `audit_capture`（`:78-79`）现由 `runtime.run_once` 对每个片段调用。
+- [x] T017-2 草稿生成事件记录（`event_type=generate`，清单原写 `draft_generated`）
+      —— 实现为 **`generate`**（`audit_generate`）；`runtime.run_once` 每个草稿调一次。
+- [x] T017-3 MR 创建事件记录（`event_type=mr`，清单原写 `mr_created`）
+      —— 实现为 **`mr`**（`audit_mr`）；`runtime.run_once` 每个高置信 MR 调一次。
+- [x] T017-4 淘汰标记事件记录（`event_type=deprecate`，清单原写 `skill_deprecated`）
+      —— 实现为 **`deprecate`**（`audit_deprecate`）；`runtime.run_once(deprecations=[...])` 调。
+- [x] T017-5 恢复事件记录（`event_type=restore`，清单原写 `skill_restored`）
+      —— 实现为 **`restore`**（`audit_restore`）；`runtime.run_once(restorations=[...])` 调。
+- [x] T017-6 验证审计事件经 001 落点
+      —— **已接线（2026-10-02）**：011 登记进 `app/services/feature_audit.py:FEATURE_AUDIT_EVENTS`
+      （`"011": ("capture", "generate", "mr", "deprecate", "restore")`），
+      `runtime._default_audit_sink` 调 `feature_audit_bridge.emit_feature_event("011", ...)`，
+      经 `FeatureAuditSink` 落 **`position_role_audit_logs`**。**注意**：chat-api 侧的 001 审计流
+      是 `position_role_audit_logs`（`app/governance/audit.py:13`），不是 admin-api 的
+      `system_audit_logs`；清单原写 `system_audit` 是跨服务的名字串用。注入式 `audit_sink` 仍保留（测试用 fake sink）。
+
+## Phase 13: Config Management
+
+- [x] T018 实现阈值/周期可配置
+      —— `EvolutionConfig`（`evolution_audit.py`）齐备且**集中**：`jaccard_threshold`/`min_samples`/
+      `action_similarity_threshold` 引用核心层常量（`similarity.DEFAULT_*`），`draft_backlog_limit` 镜像
+      核心层 `ScanConfig` 默认；`mr.py` 的 `DEFAULT_JACCARD_THRESHOLD`/`DEFAULT_MIN_SAMPLES` 与
+      `deprecation.py` 的 `LOW_ADOPTION_*` 现均**重新导出 `EvolutionConfig` 字段值**（非字面量），
+      `test_threshold_literals_are_not_duplicated` 钉住一致性。无双份字面量。
+- [x] T018-1 扫描周期配置（`scan_interval_hours`）（`evolution_audit.py:30`；`test_scan_period_configurable`）
+- [x] T018-2 置信阈值配置（`jaccard_threshold=0.7`, `min_samples=5`）（`:31-32`、`:38-39 confidence_gate`；`test_confidence_gate_configurable`）
+- [x] T018-3 淘汰阈值配置（`low_adoption_window_days=14`, `min_exposure=20`, `rate=0.10`）（`:33-35`、`:41-49`；`test_low_adoption_gate_configurable`）
+- [x] T018-4 验证草稿堆积上限配置（`max_drafts_per_tenant=100`）
+      —— `per-tenant` 维度已成立：`ScanConfig.draft_backlog_limit`（默认 100）经 `runtime.run_once`
+      按租户计数生效；`EvolutionConfig.draft_backlog_limit` 镜像同一默认值（100），
+      `test_threshold_literals_are_not_duplicated` 与 `test_run_once_passes_per_tenant_draft_counts` 钉住。
+      条目名的 `max_drafts_per_tenant` 即 `draft_backlog_limit`，成立。
+- [x] T018-5 验证 `shadow_ratio` 配置（影子流量比例）
+      —— `EvolutionConfig.shadow_ratio = 0.1` 与 `runner.DEFAULT_SHADOW_RATIO = 0.1`
+      （`runner.py:20`）。**原拼写错误 `DEFAULT_SHRADOW_RATIO` 已修**（2026-10-02），
+      `test_config_thresholds_mirror_the_core_constants` 断言两者相等。runner 仍接受注入的
+      `shadow_ratio`（`:139`）并 clamp 到 `[0,1]`（`:112`）、不直接读 `EvolutionConfig` ——
+      注入是为了可测，不是漂移。
+
+## Phase 14: Documentation
+
+- [x] T019 写 `quickstart.md` + `contracts/self-evolution.md`
+      （`specs/011-dream-cycle-self-evolution/quickstart.md`；契约在**仓库根** `contracts/self-evolution.md`，61 行。
+      由 `test_quickstart_and_contract_exist` 断言存在 + 含 5 个关键词）
+- [x] T019-1 验证经验片段 schema 文档完整
+      （`contracts/self-evolution.md:6-20` 表格列全 7 字段 + 截断 120 说明 + 提取函数签名）
+- [x] T019-2 验证 MR 契约文档完整
+      （`contracts/self-evolution.md:30-35`：`as_document()` 输出、`None` 语义、`requires_human_review` 恒 True）
+- [x] T019-3 验证 API/模块使用示例
+      （`quickstart.md` 5 个小节均有可运行代码：dream cycle / friction / MR / deprecation / config）
+
+## Phase 15: Testing
+
+### Unit Tests
+- [x] T006 US1 测试：三类 friction 捕获 + 片段字段完整性
+      （`test_self_evolution.py:28-76` 七个用例；字段完整性 `test_fragment_as_document_includes_source_session_and_feedback`）
+- [x] T010 US2 测试：模式→草稿 + 非直接发布 + 生成门槛
+      （`:166-286` 十一个用例，含 `test_generate_draft_*` 四例）
+- [x] T013 US3 测试：高置信建 MR + 低置信仅草稿
+      （`test_dream_evolution.py:71-113`：`test_high_confidence_generates_mr`、
+      `test_low_confidence_draft_only`、`test_draft_vs_mr_boundary`、`test_t013_us3_high_vs_low`）
+- [x] T016 US4 测试：低采纳标记 + 人工恢复
+      （`:115-177` 五个用例，含 `test_t016_us4_low_adoption_and_restore`）
+
+### Integration Tests
+- [x] IT001 端到端：摩擦事件 → 经验沉淀 → 模式扫描 → 草稿生成
+      —— **四段已串起来（2026-10-02）**：`runtime.run_once` 依次走
+      `collect_tool_rows`（读 `kernel_event_projections` 的 `item.failed`/`item.completed` 行）
+      → `signals_from_rows`（内部 `detect_friction`，跨工具分组 + 重试计数）
+      → `fragments_from_signals`（**正是此前缺失的 `FrictionSignal` → `ExperienceFragment` 转换**）
+      → `store.extend` → 按租户 `scan_fragments` → `generate_draft`。
+      测试：`tests/services/test_dream_cycle_runtime.py` 覆盖全链路（含 `draftIds` 断言）。
+      遗留：源事件来自 DSH 工具事件流，不是 002 的 commit/share（见 XF002-1）。
+- [!] IT002 端到端：高置信模式 → MR 创建 → 人工审阅 → Skill 发布
+      —— 「高置信 → MR」有（`test_high_confidence_generates_mr`）；「人工审阅 → 发布」属 004，
+      011 侧无实现（同 XF004-3）。跨模块 e2e 不存在。
+- [!] IT003 端到端：低采纳 Skill → 标记淘汰 → 恢复流程
+      —— 三段都在同一文件内被串起（`test_t016_us4_low_adoption_and_restore`），
+      但这仍是单模块单元测试；且「不再推荐」无消费方（见 T014-3）。
+
+### Edge Case Tests
+- [x] ET001 无摩擦事件场景（空经验库）
+      （`test_generate_draft_from_empty_cluster_returns_none`；`scan_fragments([])` 返回空 `ScanResult`）
+- [x] ET002 单条经验无重复模式
+      （`test_scan_below_min_samples_is_draft_only`：单元素簇 `similarity = 1.0` 但 `sample_count = 1 < 5` → draft_only）
+- [x] ET003 草稿堆积超限**抑制新建**（原写「清理」，词条已按产品决定改写）
+      —— `test_should_generate_draft_respects_backlog_limit` 钉住超限返回 `False`（不生成）。
+      产品决定维持「拒绝新建」，见 T009-1。
+- [x] ET004 同片段多草稿去重
+      （`test_dedupe_drafts_keeps_highest_confidence`）
+- [x] ET005 跨租户数据隔离验证
+      —— `AdoptionStore`（`deprecation.py:78` 起）改为**持久化 `skill_adoption` 集合**，文档键为
+      `(tenant_id, skill_key)` 唯一索引，一个租户无法读取/写入另一租户的采纳计数与标记位
+      （`test_adoption_store_is_tenant_partitioned` 钉住）；`runtime.ensure_indexes` 建该唯一索引；
+      admin-api `tenant_purge.TENANT_GOVERNANCE_COLLECTIONS` 登记 `skill_adoption`（与 `kernel_event_projections`）以参与租户清理。
+- [!] ET006 阈值边界值测试（Jaccard=0.7, samples=5, exposure=20, rate=10%）
+      —— 只有 Jaccard/samples 的边界（`test_is_high_confidence_thresholds`）。
+      **淘汰侧边界缺失**：`deprecation.py:43-49` 用 `<` 与 `>=`，critical 的
+      `exposure == 20` / `rate == 0.10` / `window == 14` 三个恰好在边界上的取值**无测试**。
+
+## Phase 16: Security & Compliance
+
+- [x] SEC001 验证数据隔离：经验片段按租户隔离，不跨租户共享
+      —— 同 ET005。`AdoptionStore` 强制 `tenant_id` 进入唯一键（不再混进 `"default"` 分区）；
+      `mark_deprecated`/`restore` 均要求显式 `tenant_id`，调用方（016 / `run_once`）传租户键，
+      缺省回退 `"default"` 仅作哨兵、不跨租户共享数据。核心层 `FragmentStore` 的租户过滤测试保持有效。
+- [-] SEC002 验证审计日志完整性（不可篡改）
+      —— 011 只产出事件 dict 交给注入的 sink（`evolution_audit.py:69-75`），
+      **不存储、不签名、不防篡改**；防篡改属 001 的职责。作为 011 条目不成立。
+- [x] SEC003 验证配置文件安全（密钥/凭据不提交）
+      （`EvolutionConfig` 全为数值阈值，无凭据；仓库级 `scripts/check_open_source_hygiene.py` 守此约束且现为 exit 0）
+- [!] SEC004 验证 MR 创建权限（仅授权 Agent 可自动建 MR）
+      —— `mr.py` 的 `generate_improvement_mr` 是**纯函数**，无调用方身份、无权限校验、
+      无 RBAC 检查；`build_candidate` 也不校验来源。权限层不存在。
+
+## Success Criteria Verification
+
+- [!] SC001 摩擦事件 100% 可捕获经验片段
+      —— `detect_friction` 覆盖三类且测试充分，但「摩擦事件 → 经验片段」的转换**不存在**（见 IT001）；
+      按字面「可捕获」成立，「转为片段」不成立。
+- [x] SC002 重复模式生成草稿（非直接发布）；达到堆积上限时抑制新建
+      —— 高置信与低置信都生成草稿（都不发布，`DRAFT_STATUS = "draft"`），
+      仅在**堆积上限**处抑制新建（`should_generate_draft`，产品有意如此，见 T009-1）。
+      遗留：上限无租户维度（T009-3）。
+- [x] SC003 低置信 0 次自动建 MR（仅高置信）
+      （`mr.py:112-114` 非高置信返回 `None`；`test_low_confidence_draft_only`、`test_t013_us3_high_vs_low`）
+- [x] SC004 低采纳 Skill 100% 可标记淘汰
+      —— 检测 + 标记齐备且测试充分，「标记后降权」（T014-3）已由 016 `adoption_client` +
+      `list_skills` 落地，标记位端到端影响市场排序，不再为零。
+- [x] SC005 自进化全链路 100% 进审计
+      —— 五个事件包装（capture/generate/mr/deprecate/restore）由 `runtime.run_once` 生产，
+      **外加 `scan` 事件**（T007-4：`scan_summary` 接 `audit_scan`，带 `scan_id`/`draftCount`），
+      恢复经 `AdoptionStore` 落库 + `audit_restore`（T015-3）。「全链路」含扫描这一段。
+
+---
+
+## 核对方法与结论
+
+**取证方式**（全部可复现）：
+- 读实现全文：`app/self_evolution/` 6 文件 704 行、`app/services/dream_cycle/` 5 文件 652 行，加接线的 `runtime.py`。
+- 跑测试：`services/chat-api/venv/bin/python -m pytest tests/self_evolution/ tests/services/test_dream_cycle.py tests/services/test_dream_evolution.py tests/services/test_dream_audit_config.py tests/services/test_dream_cycle_runtime.py -q` → **87 passed**（接线后；接线前为 66）。
+- 引用计数（接线**前**）：`grep -rn "from app.self_evolution\|from app.services.dream_cycle" services/chat-api/app/ --include=*.py`（排除两层自身）→ **0 命中**。接线后 `app/main.py` 有一处 import。
+- 关键符号存在性：`scheduled_tasks` 注册、`marked_low_quality` 消费方、`recommendation` 消费方、`normalized_edit_similarity` 调用方（**现已接入**）、`scan_id`/`draft_count`、`max_drafts_per_tenant`。
+
+**判级统计**（2026-10-02 接线后为 `[x]`70/`[!]`22/`[-]`4；本次处置后再核对）：
+`[x]` **80** 项 · `[!]` **12** 项 · `[-]` **1** 项（共 96 项，列表末尾"清单本身的治理问题"未计入任务）。
+本次关闭的 `[!]`/`[-]` 项（均见上正文逐条改判）：
+T007-4、T014-3、T015-2、T015-3、T009-3、T018、ET005、SEC001、SC004、SC005（`[!]`→`[x]`），
+T018-4（`[-]`→`[x]`）。剩余 `[!]`/`[-]` 集中在产品/跨模块职责项（T003-4、XF004-2/3、XF002-1…3、
+XF016-2/3、IT002/003、ET006、SEC004 等），非本轮范围。
+
+**七类待办的处置状态**（2026-10-02 更新，本轮追加第 4/6/7 项落地）：
+1. **011 生产接线** —— **已做**（T007、XF010-1、T017 全系列、T017-6；IT001 随之闭合）。新增
+   `app/services/dream_cycle/runtime.py`，`main.py` lifespan 挂 `DreamCycleScanner`，五个 `audit_*`
+   接 001 feature audit 流。**偏离**：产品原话是「注册 `scheduled_tasks` 周期扫描」，实现改为
+   011 自带 loop —— `scheduled_tasks` 的 job 模型要求 prompt + session，扫描没有这两者。
+2. **`normalized_edit_similarity` 死代码** —— **已接入**（T004-4）：作为动作序列**次级门槛**（默认 0.5）。
+3. **审计事件命名两套并存** —— **已按实现收敛**（T017-1…5）：清单改为 `capture`/`generate`/`mr`/`deprecate`/`restore`/`scan`。
+4. **标记/恢复无消费方**（T014-3、T015-2、SC004）—— **本轮已处置（2026-10-02 后）**：011 的
+   `AdoptionStore` 持久化到 `skill_adoption` 集合并写 `marked_low_quality` 位；016 侧新增
+   `services/skill_market/adoption_client.py`，`admin-api` `list_skills` 联查把被标记 skill 降权（仍可见、排末尾）。
+   「谁消费 `marked_low_quality`」= 016 市场列表读取器，已落地且可证伪。
+5. **「清理最旧」实现成「拒绝新建」** —— **已按产品决定收口**（T009-1、ET003）：维持拒新，改清单描述。
+6. **配置有两份** —— **本轮已处置（2026-10-02 后）**：`mr.py`/`deprecation.py` 的阈值改为重新导出
+   `EvolutionConfig` 字段值（非字面量），`test_threshold_literals_are_not_duplicated` 钉住。
+7. **跨租户隔离只有内存层**（T002-1、ET005、SEC001、T009-3、T018-4）—— **本轮已处置（2026-10-02 后）**：
+   `AdoptionStore` 改为 `(tenant_id, skill_key)` 唯一索引的集合（无混 `"default"` 分区），
+   `runtime.ensure_indexes` 建索引，`tenant_purge` 登记该集合参与租户清理；per-tenant 草稿上限经
+   `EvolutionConfig.draft_backlog_limit` 镜像并真正按租户计数生效。
+
+**清单本身的治理问题**（写回 spec 供后续修订）：
+- 模块清单与实际布局不符（本文件顶部「结论摘要 1」），`tasks.md` 里同样是扁平假设。
+- `contracts/` 的实际位置（仓库根）应写进 `tasks.md`/`plan.md`，避免下一个人再找不到。
+- `checklists/requirements.md`（16/16）与 `tasks.md`（19/19）此前已勾选，与本清单的 `[!]`/`[-]` 不矛盾：
+  前两者勾的是**需求质量与任务存在性**，本清单勾的是**实施细节的可证伪证据**。
+
+**Checklist Gate**: 96 项中约 80 项已核对通过；**约 13 项（`[!]` 12 + `[-]` 1）仍需处置**，
+主要为跨模块职责/产品决策项（T003-4、XF004-2/3、XF002-1…3、XF016-2/3、IT002/003、ET006、SEC004 等），
+**非 011 单服务范围、且本轮第 4/6/7 项已落地**。剩余项进入 `/speckit-converge` 前需 004/016 协作拍板。
+**Review Ownership**: 已由实现人逐项取证（2026-10-02 及本轮）；评审人抽检建议优先看剩余 `[!]` 项。
+**Marker Semantics**: `[x]` = 功能已实现且测试通过；`[!]` = 有实现但证据不足/与描述不符；
+`[-]` = 条目本身不成立（模块、命名、路径不存在，或非 011 职责）。
+
+---
+
+## 落地审计补记（2026-10-03，按"今天的标准"重检）
+
+本清单此前逐项核对了"条目是否可证伪"，但**未覆盖整条价值链是否闭合**。补记如下（判定 **partial**）：
+
+**已真实落地**：friction 捕获链路——`main.py` lifespan 启动 `DreamCycleScanner`，读
+`kernel_event_projections` 的真实工具失败/成功行，产出 capture/generate/mr/deprecate/restore/scan
+审计事件（T007/T017 系列有效）。
+
+**4 条高危缺口（价值链断裂）**：
+1. **经验片段无持久化** —— `run_once` 每 pass 新建内存 `FragmentStore()`（`runtime.py:259`），
+   `app/` 内无任何 DB 写入（`grep insert_one|update_one|replace_one runtime.py` 为空）。
+   **实测**：对同一份数据连跑两次 pass，输出逐字节相同 → 跨 pass 完全无状态，"重复 N 次"物理上不可能累积。
+2. **草稿与 MR 不落库、无消费方** —— `draft_ids` 只进返回 dict；从不调 004 的 `skill_lifecycle`，
+   也不写 `skills`/草稿集合（`grep skill_evolution_drafts` 零命中）。
+3. **MR 判定不走 `mr.py`** —— `run_once` 用 `cluster.is_mr_eligible()` 自行判定；
+   `mr.py` 的 `generate_improvement_mr`/`plan_improvements` 在 `app/` 内零调用方（US3 实际未实现建 MR）。
+4. **低采纳淘汰输入无人提供** —— `_loop` 只传 `config/sink`（`runtime.py:386`），从不传
+   `deprecations/restorations`；`AdoptionStore.record_exposure/record_adoption` 与 `deprecation_flow`
+   在 `app/` 内零生产调用方（仅测试），采纳率计数器永远涨不上去。
+
+另：`after_stream_seq` 恒为默认 0，扫描游标从不推进 → 每个周期重读全部历史并重复捕获同一批 friction。
+
+**结论**：011 主干可跑通且审计有效，但"经验沉淀→草稿→MR→淘汰"的**产出全部落空**，判定 `partial`。
+详见 [`specs/LANDING_AUDIT_2026-10-03.md`](../../LANDING_AUDIT_2026-10-03.md)。

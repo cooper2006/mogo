@@ -5,7 +5,7 @@ import secrets
 from pathlib import Path
 
 
-_SECRET_DIR = ".movo"
+_SECRET_DIR = ".mogo"
 _SECRET_FILE = "file-url-signing.key"
 _MIN_SECRET_LENGTH = 32
 

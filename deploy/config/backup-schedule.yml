@@ -1,0 +1,33 @@
+# 024 T067/T069/T070 (FR-034/FR-036)：备份调度与保留策略配置。
+# deploy/cli/backup-schedule.sh 读取本文件；`./mogo backup-schedule install` 使用。
+
+version: 1
+
+# 周期：cron 表达式（分 时 日 月 周）。默认每天 02:00。
+schedule:
+  cron: "0 2 * * *"
+  # 目标窗口：备份 MUST 在这个本地时区时间窗内完成（FR-034）
+  window: "02:00-05:00"
+  timezone: "Asia/Shanghai"
+
+# 保留策略：双重策略（FR-036），两者同时生效，任一满足即保留。
+# 清理后剩余份数 MUST 仍满足恢复需求（至少保留 retain_count 份，且覆盖 retain_days 天）。
+retention:
+  retain_count: 7
+  retain_days: 14
+  # prune 清理时保留的最少份数（安全下限，即使都超过 retain_days 也不低于此数）
+  min_keep: 3
+
+# 失败告警（FR-034/FR-070）：结构化错误 + 通知。
+# channel 取值：log（默认，写 MOGO_ALERT_LOG 或 stderr）| webhook（MOGO_ALERT_WEBHOOK_URL）| 两者皆可
+alert:
+  channel: "log"
+  webhook_url: ""
+  # 连续失败告警阈值：连续 N 次失败才升级告警（避免单次抖动刷屏）
+  consecutive_fail_threshold: 2
+
+# 备份命令：调度器实际执行的命令（默认 `./mogo backup`）
+backup_command: "./mogo backup"
+
+# 备份目录（相对仓库根或绝对路径）
+backup_dir: "backups"
