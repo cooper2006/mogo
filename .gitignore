@@ -474,3 +474,6 @@ deploy/k8s/generated/03-secrets.yaml
 # 待确认清单中的明文密钥与离线构建中间物（不入库）
 docs/pending-review/*.real-secrets
 docs/pending-review/amd64-build-*/
+
+# 本地部署状态记录（deployment.json / image-ids.txt），由 movo_record_deployment 生成
+.movo-runtime/
