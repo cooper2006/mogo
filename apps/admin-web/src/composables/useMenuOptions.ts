@@ -134,8 +134,15 @@ export function useMenuOptions() {
   // 仅在已认证后拉取菜单覆盖层：avoid 在 token 尚未就绪（SSO 换票 / 会话校验
   // 进行中）或会话已过期时，向后端发无 Authorization 头的请求，
   // 否则 /settings/menus 返回 401，并触发全局拦截器把已登录用户弹回登录页。
+  //
+  // 平台租户（__platform__）必须跳过：菜单覆盖层是租户级配置，055 §9 用
+  // get_current_admin_user 做平台租户反向闸门，平台管理员请求恒 403；而
+  // axios 响应拦截器把 403 与 401 同等视为「会话失效」，会 clearSession()
+  // 把刚登录成功的平台管理员弹回登录页 —— 表现为「平台管理员登录失败」。
+  // 平台管理员本就没有租户级菜单覆盖层，跳过即可。
   function loadMenuPlanIfAuthenticated() {
     if (!authStore.isAuthenticated) return;
+    if (authStore.isPlatformAdmin) return;
     void menuStore.load(tenantKey.value);
   }
 
