@@ -1,0 +1,27 @@
+# ④ 前端 dist 卷挂载覆盖（可选，默认不启用）。
+#
+# 用途：本地原生构建好前端 dist 后，把它直接挂进 web 容器的 nginx 静态根
+#       （/usr/share/nginx/html），跳过「重新打镜像」即可让改动生效，便于快速调试验证。
+#
+# 关键约束：
+#   - 容器是 read_only: true 且非 root（uid 10001），所以挂载一律 :ro（只读），
+#     与既有加固策略一致；nginx 仅读取静态资源，无需写权限。
+#   - 覆盖文件的相对路径以本仓库根目录（docker-compose.yml 所在目录）为基准解析，
+#     因此必须从仓库根目录执行 docker compose。
+#
+# 启用方式（显式 -f 引入；未引入时本文件完全不生效，等效于「默认不挂载」）：
+#   docker compose -f docker-compose.yml -f docker-compose.dev-dist.yml up -d user-web admin-web
+#
+# 前置：先在本机构建 dist（否则挂载一个不存在的目录会把站点目录清空）：
+#   pnpm --filter user-web build
+#   pnpm --filter admin-web build
+#   # 产物分别在 apps/user-web/dist 与 apps/admin-web/dist
+
+services:
+  user-web:
+    volumes:
+      - ./apps/user-web/dist:/usr/share/nginx/html:ro
+
+  admin-web:
+    volumes:
+      - ./apps/admin-web/dist:/usr/share/nginx/html:ro
