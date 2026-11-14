@@ -41,12 +41,12 @@ class OfflineMode(BaseModel):
 
 @router.get("")
 async def inventory(operator: dict = Depends(get_system_operator)) -> dict:
-    return await attach_skill_names(_json("GET", ""), str(operator.get("main_id") or ""))
+    return await attach_skill_names(_json("GET", ""), str(operator.get("tenant_id") or ""))
 
 
 @router.put("/mode")
 async def mode(value: OfflineMode, operator: dict = Depends(get_system_operator)) -> dict:
-    return await attach_skill_names(_json("PUT", "/mode", value.model_dump()), str(operator.get("main_id") or ""))
+    return await attach_skill_names(_json("PUT", "/mode", value.model_dump()), str(operator.get("tenant_id") or ""))
 
 
 @router.get("/export")
@@ -85,6 +85,6 @@ async def import_archive(request: Request, operator: dict = Depends(get_system_o
             if response.status_code == 400:
                 raise HTTPException(status_code=400, detail=response.json().get("detail", "invalid_package_archive"))
             response.raise_for_status()
-            return await attach_skill_names(response.json(), str(operator.get("main_id") or ""))
+            return await attach_skill_names(response.json(), str(operator.get("tenant_id") or ""))
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=503, detail="offline_package_store_unavailable") from exc

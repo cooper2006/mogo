@@ -5,6 +5,8 @@ from __future__ import annotations
 import hmac
 import os
 import threading
+from uuid import uuid4
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
@@ -12,14 +14,30 @@ from .docker_engine import DockerEngine
 from .jobs import ScriptJobs
 from .plugin_runtimes import PluginRuntimes
 from .skill_environments import DependencyPreparationError
+from .skill_build_records import SkillBuildRecords
 from .task_containers import TaskContainers
+from .offline_routes import router as offline_router
+from .image_archive_routes import router as image_archive_router
 
 
-app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # 上次进程退出时处于 preparing 的准备记录，重启后应标记为 interrupted，
+    # 否则前端会一直停在「准备中」。
+    SkillBuildRecords().recover_interrupted()
+    yield
+
+
+app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+# 离线包导入导出与 Sandbox 镜像归档：A1 合并时这两组路由被回退，
+# 导致 /v1/offline-packages 与 /v1/sandbox-images 全部 404。
+app.include_router(offline_router)
+app.include_router(image_archive_router)
 _jobs: ScriptJobs | None = None
 _plugins: PluginRuntimes | None = None
 _tasks: TaskContainers | None = None
 _jobs_lock = threading.Lock()
+_instance_id = uuid4().hex
 
 
 def jobs() -> ScriptJobs:
@@ -87,6 +105,27 @@ def health(authorization: str | None = Header(default=None)) -> dict:
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Docker Engine unavailable") from exc
     return {"ok": True, **jobs().status(), **plugins().status()}
+
+
+@app.get("/v1/readiness")
+def readiness(authorization: str | None = Header(default=None)) -> dict:
+    _authorize(authorization)
+    from .readiness import script_readiness
+    return script_readiness()
+
+
+@app.get("/v1/skill-environments/base")
+def skill_environment_base(authorization: str | None = Header(default=None)) -> dict:
+    _authorize(authorization)
+    image = (
+        os.environ.get("MOGO_SANDBOX_SCRIPT_IMAGE")
+        or os.environ.get("MOVO_SANDBOX_SCRIPT_IMAGE", "")
+    ).strip()
+    engine = DockerEngine()
+    try:
+        return {"instanceId": _instance_id, "baseImageId": engine.image_id(image) if image else ""}
+    finally:
+        engine.client.close()
 
 
 @app.post("/v1/script-jobs")

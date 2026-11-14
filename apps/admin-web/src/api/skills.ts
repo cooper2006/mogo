@@ -231,8 +231,32 @@ export async function installSkillZip(file: File, confirmReplace = false): Promi
 // environment prepared for it; this reports where that build currently stands
 // so the installer can poll until it settles.
 export async function fetchSkillDependencyStatus(id: string): Promise<{ status: string }> {
-  const { data } = await apiClient.get(`/api/skills/${encodeURIComponent(id)}/dependency-status`);
+  const { data } = await apiClient.get(`/api/v1/skills/${encodeURIComponent(id)}/dependency-status`);
   return dataOf<{ status: string }>(data);
+}
+
+// Skill 环境准备记录：SkillPreparationDrawer.vue 依赖这三个符号，
+// A1 合并时被删掉导致该组件一旦接入路由就编译失败。
+export interface SkillPreparationRecord {
+  id: string;
+  digest: string;
+  baseImageId: string;
+  status: 'preparing' | 'ready' | 'failed' | 'interrupted';
+  startedAt: string;
+  finishedAt: string;
+  attempts: Array<{ source: string; exitCode: number }>;
+  truncated: boolean;
+  log?: string;
+}
+
+export async function fetchSkillPreparationRecords(id: string): Promise<SkillPreparationRecord[]> {
+  const { data } = await apiClient.get(`/api/v1/skills/${encodeURIComponent(id)}/dependency-records`);
+  return data.items || [];
+}
+
+export async function fetchSkillPreparationRecord(id: string, recordId: string): Promise<SkillPreparationRecord> {
+  const { data } = await apiClient.get(`/api/v1/skills/${encodeURIComponent(id)}/dependency-records/${encodeURIComponent(recordId)}`);
+  return data;
 }
 
 export async function generateWorkflowSteps(payload: {

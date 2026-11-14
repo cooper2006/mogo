@@ -6,11 +6,95 @@ import { orchestrationMessages } from './orchestrationMessages'
 import { pluginEnvironmentMessages } from './pluginEnvironmentMessages'
 import { reviewWorkflowMessages } from './reviewWorkflowMessages'
 import { legacyMessages } from './legacyMessages'
+// A1 合并回退修复：以下 locale 模块此前从未接入聚合入口。
+// 放在 spread 最前，让已有条目保持优先。
+import { additionalMessages } from './additionalMessages'
+import { appShellMessages } from './appShellMessages'
+import { authResponseMessages } from './authResponseMessages'
+import { browserAutomationNodeMessages } from './browserAutomationNodeMessages'
+import { browserInterventionMessages } from './browserInterventionMessages'
+import { browserMiniViewMessages } from './browserMiniViewMessages'
+import { browserSurfaceMessages } from './browserSurfaceMessages'
+import { chatChromeMessages } from './chatChromeMessages'
+import { chatComposerMessages } from './chatComposerMessages'
+import { chatFilePreviewMessages } from './chatFilePreviewMessages'
+import { chatRuntimeMessages } from './chatRuntimeMessages'
+import { changeStatusMessages } from './codePresentationMessages'
+import { commitSuggestionMessages } from './codePresentationMessages'
+import { durationMessages } from './codePresentationMessages'
+import { codeRuntimeErrorMessages } from './codeRuntimeErrorMessages'
+import { workspaceChoiceMessages } from './codeWorkspaceMessages'
+import { branchContextMessages } from './codeWorkspaceMessages'
+import { workspacePreviewMessages } from './codeWorkspaceMessages'
+import { taskReviewMessages } from './codeWorkspaceMessages'
+import { gitPublishMessages } from './codeWorkspaceMessages'
+import { taskChangeCardMessages } from './codeWorkspaceMessages'
+import { conversationPluginMessages } from './conversationPluginMessages'
+import { desktopChromeMessages } from './desktopChromeMessages'
+import { desktopCompatibilityMessages } from './desktopCompatibilityMessages'
+import { gitCommitMessages } from './gitWorkspaceMessages'
+import { gitBranchMessages } from './gitWorkspaceMessages'
+import { workspaceChangesMessages } from './gitWorkspaceMessages'
+import { imagePreviewMessages } from './imagePreviewMessages'
+import { internalToolMessages } from './internalToolMessages'
+import { knowledgeMentionMessages } from './knowledgeMentionMessages'
+import { projectDialogMessages } from './projectDialogMessages'
+import { recordingReviewMessages } from './recordingReviewMessages'
+import { recordingReviewUi } from './recordingReviewMessages'
+import { scheduledTaskErrorMessages } from './scheduledTaskErrorMessages'
+import { schemaDescriptionMessages } from './schemaDescriptionMessages'
+import { scriptAttemptMessages } from './scriptAttemptMessages'
+import { skillDependencyMessages } from './skillDependencyMessages'
+import { skillWorkflowEditorMessages } from './skillWorkflowEditorMessages'
+import { toolActivationMessages } from './toolActivationMessages'
+import { workflowNodeUsageMessages } from './workflowNodeUsageMessages'
+import { workspaceContextMessages } from './workspaceContextMessages'
 
 export type Locale = 'zh' | 'en'
 export type MessageValue = string | Record<Locale, string>
 
 export const messages = {
+  ...additionalMessages,
+  ...appShellMessages,
+  ...authResponseMessages,
+  ...browserAutomationNodeMessages,
+  ...browserInterventionMessages,
+  ...browserMiniViewMessages,
+  ...browserSurfaceMessages,
+  ...chatChromeMessages,
+  ...chatComposerMessages,
+  ...chatFilePreviewMessages,
+  ...chatRuntimeMessages,
+  ...changeStatusMessages,
+  ...commitSuggestionMessages,
+  ...durationMessages,
+  ...codeRuntimeErrorMessages,
+  ...workspaceChoiceMessages,
+  ...branchContextMessages,
+  ...workspacePreviewMessages,
+  ...taskReviewMessages,
+  ...gitPublishMessages,
+  ...taskChangeCardMessages,
+  ...conversationPluginMessages,
+  ...desktopChromeMessages,
+  ...desktopCompatibilityMessages,
+  ...gitCommitMessages,
+  ...gitBranchMessages,
+  ...workspaceChangesMessages,
+  ...imagePreviewMessages,
+  ...internalToolMessages,
+  ...knowledgeMentionMessages,
+  ...projectDialogMessages,
+  ...recordingReviewMessages,
+  ...recordingReviewUi,
+  ...scheduledTaskErrorMessages,
+  ...schemaDescriptionMessages,
+  ...scriptAttemptMessages,
+  ...skillDependencyMessages,
+  ...skillWorkflowEditorMessages,
+  ...toolActivationMessages,
+  ...workflowNodeUsageMessages,
+  ...workspaceContextMessages,
   ...uncoveredMessages,
   ...pluginEnvironmentMessages,
   ...knowledgeMessages,

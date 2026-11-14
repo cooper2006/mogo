@@ -14,7 +14,7 @@ async def attach_skill_names(inventory: dict, main_id: str) -> dict:
     if not digests:
         return inventory
     rows = await get_db().skills.find(
-        {"main_id": main_id, "deleted_at": None, "package_digest": {"$in": list(digests)}},
+        {"tenant_id": main_id, "deleted_at": None, "package_digest": {"$in": list(digests)}},
         {"_id": 1, "name": 1, "package_digest": 1},
     ).to_list(length=2000)
     names = {str(row.get("package_digest") or ""): {"skillId": str(row["_id"]),

@@ -61,6 +61,36 @@ for (const app of ['admin-web', 'user-web']) {
   const sourceFiles = files(sourceRoot).filter(file => /\.(ts|tsx|vue)$/.test(file))
   const catalogKeys = new Set()
 
+  // A locale module that is never spread into messages.ts is invisible at
+  // runtime: t() falls back to returning the raw key. The catalogue scan below
+  // would still see its keys, so this wiring check must run separately.
+  const aggregator = path.join(sourceRoot, 'locales', 'messages.ts')
+  const aggregatorSource = fs.readFileSync(aggregator, 'utf8')
+  for (const file of sourceFiles.filter(f => f.includes(`${path.sep}locales${path.sep}`) && f.endsWith('.ts') && f !== aggregator)) {
+    const source = fs.readFileSync(file, 'utf8')
+    const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true)
+    let isLocaleModule = false
+    for (const statement of tree.statements) {
+      if (!ts.isVariableStatement(statement) || !statement.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword)) continue
+      for (const declaration of statement.declarationList.declarations) {
+        let initializer = declaration.initializer
+        while (initializer && (ts.isAsExpression(initializer) || ts.isSatisfiesExpression(initializer) || ts.isParenthesizedExpression(initializer))) initializer = initializer.expression
+        if (!initializer || !ts.isObjectLiteralExpression(initializer) || !initializer.properties.length) continue
+        let localeShaped = 0
+        for (const property of initializer.properties) {
+          if (!ts.isPropertyAssignment(property) || !ts.isObjectLiteralExpression(property.initializer)) continue
+          const fields = new Set(property.initializer.properties.map(p => p.name?.getText(tree).replace(/^['"]|['"]$/g, '')))
+          if (fields.has('zh') || fields.has('zh-CN') || fields.has('en') || fields.has('en-US')) localeShaped++
+        }
+        if (localeShaped > 0 && localeShaped >= initializer.properties.length * 0.5) isLocaleModule = true
+      }
+    }
+    if (!isLocaleModule) continue
+    const stem = path.basename(file, '.ts')
+    const imported = new RegExp(`from\\s+['\"][^'\"]*${stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['\"]`).test(aggregatorSource)
+    if (!imported) failures.push(`${path.relative(root, file)}: locale module is never imported by locales/messages.ts`)
+  }
+
   for (const file of sourceFiles.filter(file => file.includes(`${path.sep}locales${path.sep}`) && file.endsWith('.ts'))) {
     const source = fs.readFileSync(file, 'utf8')
     const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true)

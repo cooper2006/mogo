@@ -16,9 +16,9 @@ router = APIRouter()
 
 @router.get("/scope-departments")
 async def scope_departments(current_user: dict = Depends(get_current_admin_user)) -> list[dict[str, Any]]:
-    main_id = str(current_user.get("main_id") or "default")
+    main_id = str(current_user.get("tenant_id") or "default")
     rows = await get_db()[DEPARTMENT_COLLECTION].find(
-        {"main_id": main_id}, {"name": 1, "parent_id": 1}
+        {"tenant_id": main_id}, {"name": 1, "parent_id": 1}
     ).sort("name", 1).to_list(length=50000)
     nodes = {str(row["_id"]): {"id": str(row["_id"]), "name": str(row.get("name") or ""), "children": []} for row in rows}
     roots: list[dict[str, Any]] = []
@@ -37,9 +37,9 @@ async def scope_users(
     page: int = Query(default=1, ge=1),
     pageSize: int = Query(default=20, ge=1, le=100),
 ) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
+    main_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
-    query: dict[str, Any] = {"main_id": main_id, "status": {"$ne": "deleted"}}
+    query: dict[str, Any] = {"tenant_id": main_id, "status": {"$ne": "deleted"}}
     if departmentId.strip():
         ids = await department_user_ids(db, main_id, departmentId)
         query["_id"] = {"$in": [ObjectId(item) for item in ids if ObjectId.is_valid(item)]}

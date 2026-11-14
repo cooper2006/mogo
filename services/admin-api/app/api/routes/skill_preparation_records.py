@@ -18,7 +18,7 @@ router = APIRouter()
 
 async def _skill_build_digests(skill_id: str, current_user: dict) -> list[str]:
     row = await get_db().skills.find_one({
-        "_id": skill_id, "main_id": str(current_user.get("main_id") or "default"), "deleted_at": None,
+        "_id": skill_id, "tenant_id": str(current_user.get("tenant_id") or "default"), "deleted_at": None,
     }, {"package_digest": 1, "pending_package": 1})
     if not row:
         raise HTTPException(status_code=404, detail="skill_not_found")
@@ -45,7 +45,7 @@ async def skill_dependency_record(skill_id: str, record_id: str, current_user: d
             raise
         try:
             await SystemAuditRepository().record_management_operation({
-                "main_id": str(current_user.get("main_id") or "default"),
+                "tenant_id": str(current_user.get("tenant_id") or "default"),
                 "actor": str(current_user.get("username") or ""),
                 "category": "management", "module": "skills", "module_label": MODULE_LABELS["skills"],
                 "action": "view_preparation_log", "method": "GET",

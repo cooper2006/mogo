@@ -494,7 +494,7 @@ async def skill_dependency_status(
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
     return organization_skill_dependency_status(
-        main_id=str(current_user.get("main_id") or "default"),
+        main_id=str(current_user.get("tenant_id") or "default"),
         skill_id=skill_id,
     )
 

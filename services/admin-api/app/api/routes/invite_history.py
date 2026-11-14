@@ -23,8 +23,8 @@ async def list_org_invites(
     statusFilter: str | None = Query(None, pattern="^(active|expired|revoked|used)$"),
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict:
-    main_id = str(current_user.get("main_id", "default"))
-    query = {"main_id": main_id, "purpose": "register", "user_id": None}
+    main_id = str(current_user.get("tenant_id", "default"))
+    query = {"tenant_id": main_id, "purpose": "register", "user_id": None}
     if departmentId:
         query["default_department_id"] = departmentId
     now = datetime.now(timezone.utc)
@@ -66,7 +66,7 @@ async def revoke_org_invite(invite_id: str, current_user: dict = Depends(get_cur
     except InvalidId as exc:
         raise HTTPException(status_code=400, detail="邀请ID无效") from exc
     result = await get_db()[USER_INVITE_COLLECTION].update_one(
-        {"_id": oid, "main_id": str(current_user.get("main_id", "default")), "purpose": "register", "user_id": None, "status": "active"},
+        {"_id": oid, "tenant_id": str(current_user.get("tenant_id", "default")), "purpose": "register", "user_id": None, "status": "active"},
         {"$set": {"status": "revoked", "updated_at": datetime.now(timezone.utc)}},
     )
     if not result.matched_count:

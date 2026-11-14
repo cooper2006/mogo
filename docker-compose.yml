@@ -1014,7 +1014,12 @@ services:
     environment:
       ASKAI_ADMIN_APP_ENV: production
       # sandbox（P1 移植）：管理端读取 sandbox-manager 健康/配置；默认空即不启用。
-      MOGO_SANDBOX_MANAGER_URL: ${MOGO_SANDBOX_MANAGER_URL:-}
+      # MOVO_* 是 movo 侧代理路由（deployment_status / offline_packages /
+      # sandbox_images / sandbox_settings / skill_preparation_records）实际读取的
+      # 前缀，A1 合并只注入了 MOGO_*，导致这些接口一律 503。
+      MOGO_SANDBOX_MANAGER_URL: ${MOGO_SANDBOX_MANAGER_URL:-http://sandbox-manager:8300}
+      MOVO_SANDBOX_MANAGER_URL: ${MOGO_SANDBOX_MANAGER_URL:-http://sandbox-manager:8300}
+      MOVO_DEPLOYMENT_STATUS_URL: ${MOGO_DEPLOYMENT_STATUS_URL:-http://deployment-observer:8400}
       MOGO_SANDBOX_PLUGIN_IDLE_SECONDS: ${MOGO_SANDBOX_PLUGIN_IDLE_SECONDS:-900}
       # 与 chat-api / document-parser 复用同一组 mongo 连接别名（MONGODB_URI/DB），
       # 不再给 admin-api 单独的 ASKAI_ADMIN_ 前缀：admin-api 的 effective_mongodb_uri/db

@@ -33,11 +33,11 @@ async def attach(status: dict, main_id: str) -> dict:
         return status
     db = get_db()
     skills = await db.skills.find(
-        {"main_id": main_id, "deleted_at": None, "package_digest": {"$exists": True}},
+        {"tenant_id": main_id, "deleted_at": None, "package_digest": {"$exists": True}},
         {"_id": 1, "name": 1, "package_digest": 1},
     ).to_list(length=2000)
     plugins = await db.dsh_plugin_installations.find(
-        {"main_id": main_id, "owner_user_id": "", "engine": "dsh"},
+        {"tenant_id": main_id, "owner_user_id": "", "engine": "dsh"},
         {"_id": 1, "name": 1},
     ).to_list(length=2000)
     by_digest: dict[str, list[dict]] = {}

@@ -5,12 +5,57 @@ import { taskAdmissionMessages } from './modules/taskAdmission';
 import { modelGroupMessages } from './modules/modelGroup';
 import { legacyMessages } from './modules/legacyMessages';
 import { adminUiMessages } from './modules/adminUiMessages';
+// A1 合并回退修复：以下 locale 模块此前从未接入聚合入口，
+// 导致 t('deployment.refresh') 等直接回显原始 key。放在 spread 最前，
+// 让本文件内联条目与我方补充模块保持优先，不改变任何现有译文。
+import { additionalMessages } from './additionalMessages';
+import { auditExportMessages } from './modules/auditExport';
+import { deepseekSearchMessages } from './modules/deepseekSearch';
+import { departmentImportMessages } from './modules/departmentImport';
+import { deploymentStatusMessages } from './modules/deploymentStatus';
+import { knowledgeMessages } from './modules/knowledge';
+import { modelAccessMessages } from './modules/modelAccess';
+import { modelMessages } from './modules/models';
+import { offlinePackageMessages } from './modules/offlinePackages';
+import { ontologyMessages } from './modules/ontology';
+import { organizationMessages } from './modules/organization';
+import { presentationAvailabilityMessages } from './modules/presentationAvailability';
+import { resourceAccessMessages } from './modules/resourceAccess';
+import { reviewWorkflowMessages } from './modules/reviewWorkflow';
+import { runtimeMessages } from './modules/runtime';
+import { sandboxSettingsMessages } from './modules/sandboxSettings';
+import { settingsMessages } from './modules/settings';
+import { shortcutMessages } from './modules/shortcuts';
+import { skillWorkflowMessages } from './modules/skillWorkflow';
+import { skillWorkflowEditorMessages } from './modules/skillWorkflowEditor';
+import { schemaDescriptionMessages } from './schemaDescriptionMessages';
 
 export type Locale = 'zh-CN' | 'en-US';
 export type MessageKey = keyof typeof messages;
 export type LabelMap = Record<Locale, string>;
 
 export const messages = {
+  ...additionalMessages,
+  ...auditExportMessages,
+  ...deepseekSearchMessages,
+  ...departmentImportMessages,
+  ...deploymentStatusMessages,
+  ...knowledgeMessages,
+  ...modelAccessMessages,
+  ...modelMessages,
+  ...offlinePackageMessages,
+  ...ontologyMessages,
+  ...organizationMessages,
+  ...presentationAvailabilityMessages,
+  ...resourceAccessMessages,
+  ...reviewWorkflowMessages,
+  ...runtimeMessages,
+  ...sandboxSettingsMessages,
+  ...settingsMessages,
+  ...shortcutMessages,
+  ...skillWorkflowMessages,
+  ...skillWorkflowEditorMessages,
+  ...schemaDescriptionMessages,
   ...uncoveredMessages,
   ...dshPluginMessages,
   ...skillDependencyMessages,

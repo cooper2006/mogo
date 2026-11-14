@@ -19,19 +19,19 @@ async def list_invite_members(
     if not ObjectId.is_valid(invite_id):
         raise HTTPException(status_code=400, detail="邀请ID无效")
     db = get_db()
-    main_id = str(current_user.get("main_id", "default"))
+    main_id = str(current_user.get("tenant_id", "default"))
     invite = await db[USER_INVITE_COLLECTION].find_one(
-        {"_id": ObjectId(invite_id), "main_id": main_id, "purpose": "register", "user_id": None}
+        {"_id": ObjectId(invite_id), "tenant_id": main_id, "purpose": "register", "user_id": None}
     )
     if invite is None:
         raise HTTPException(status_code=404, detail="邀请不存在")
 
-    query = {"main_id": main_id, "invite_id": invite_id}
+    query = {"tenant_id": main_id, "invite_id": invite_id}
     collection = db[USER_INVITE_ACCEPTANCE_COLLECTION]
     total = await collection.count_documents(query)
     accepted = await collection.find(query).sort("accepted_at", -1).skip((page - 1) * pageSize).limit(pageSize).to_list(length=pageSize)
     ids = [ObjectId(row["user_id"]) for row in accepted if ObjectId.is_valid(row.get("user_id", ""))]
-    users = await db[USER_COLLECTION].find({"main_id": main_id, "_id": {"$in": ids}}).to_list(length=pageSize) if ids else []
+    users = await db[USER_COLLECTION].find({"tenant_id": main_id, "_id": {"$in": ids}}).to_list(length=pageSize) if ids else []
     user_map = {str(user["_id"]): user for user in users}
     return {
         "items": [

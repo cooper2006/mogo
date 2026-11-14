@@ -59,7 +59,7 @@ class KnowledgeSourcePayload(BaseModel):
 async def _require_tool(payload: KnowledgeSourcePayload, main_id: str) -> None:
     if payload.mode != "external":
         return
-    tool = await get_db().external_tools.find_one({"_id": payload.toolId, "main_id": main_id, "scope": {"$ne": "user"}})
+    tool = await get_db().external_tools.find_one({"_id": payload.toolId, "tenant_id": main_id, "scope": {"$ne": "user"}})
     if not tool or tool.get("status") != "active":
         raise HTTPException(status_code=400, detail="请先选择本企业已启用的工具")
     if tool.get("type") == "mcp":
@@ -76,8 +76,8 @@ async def _require_tool(payload: KnowledgeSourcePayload, main_id: str) -> None:
 
 @router.get("/source")
 async def get_source_settings(current_user: dict = Depends(get_current_admin_user)) -> dict:
-    main_id = str(current_user.get("main_id") or "default")
-    doc = await get_db()[COLLECTION].find_one({"main_id": main_id})
+    main_id = str(current_user.get("tenant_id") or "default")
+    doc = await get_db()[COLLECTION].find_one({"tenant_id": main_id})
     return KnowledgeSourcePayload.model_validate((doc or {}).get("config") or {}).model_dump()
 
 
@@ -86,12 +86,12 @@ async def save_source_settings(
     payload: KnowledgeSourcePayload,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict:
-    main_id = str(current_user.get("main_id") or "default")
+    main_id = str(current_user.get("tenant_id") or "default")
     await _require_tool(payload, main_id)
     await get_db()[COLLECTION].update_one(
-        {"main_id": main_id},
+        {"tenant_id": main_id},
         {"$set": {"config": payload.model_dump(), "updated_at": datetime.now(timezone.utc)},
-         "$setOnInsert": {"main_id": main_id}},
+         "$setOnInsert": {"tenant_id": main_id}},
         upsert=True,
     )
     return payload.model_dump()

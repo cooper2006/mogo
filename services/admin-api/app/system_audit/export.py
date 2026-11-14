@@ -41,8 +41,8 @@ def workbook_bytes(items, language):
     return output.getvalue()
 
 
-async def export_audit(*, main_id, category, keyword, result, module, language):
-    page = await SystemAuditQuery().list_logs(main_id=main_id, category=category, page=1,
+async def export_audit(*, tenant_id, category, keyword, result, module, language):
+    page = await SystemAuditQuery().list_logs(tenant_id=tenant_id, category=category, page=1,
         page_size=MAX_EXPORT_ROWS + 1, keyword=keyword, result=result, module=module)
     if page["total"] > MAX_EXPORT_ROWS or len(page["items"]) > MAX_EXPORT_ROWS:
         raise HTTPException(status_code=413, detail="audit_export_limit_exceeded")

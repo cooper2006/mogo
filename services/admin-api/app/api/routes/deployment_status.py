@@ -32,6 +32,6 @@ def _read_status() -> dict:
 async def status(admin=Depends(get_current_admin_user)) -> dict:
     try:
         data = await asyncio.to_thread(_read_status)
-        return await attach(data, str(admin.get("main_id") or "default"))
+        return await attach(data, str(admin.get("tenant_id") or "default"))
     except (RuntimeError, OSError, urllib.error.URLError, ValueError) as exc:
         raise HTTPException(status_code=503, detail="deployment_status_unavailable") from exc

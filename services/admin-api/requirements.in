@@ -30,3 +30,5 @@ opentelemetry-sdk>=1.25
 opentelemetry-exporter-otlp>=1.25
 prometheus-client>=0.20
 pybreaker>=1.2
+# openpyxl —— 层级部门 Excel 导入（api/routes/directory_import.py → services/department_import.py）
+openpyxl>=3.1.5,<4

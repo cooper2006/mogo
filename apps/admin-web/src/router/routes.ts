@@ -15,6 +15,7 @@ import { SystemAuditIcon } from '@/icons/SystemAuditIcon';
 import { HookRulesIcon } from '@/icons/HookRulesIcon';
 import { OntologyIcon } from '@/icons/OntologyIcon';
 import { ResourceCenterIcon } from '@/icons/ResourceCenterIcon';
+import { ArchiveOutline, PulseOutline } from '@vicons/ionicons5';
 
 export const appRoutes: RouteRecordRaw[] = [
   {
@@ -382,6 +383,20 @@ export const appRoutes: RouteRecordRaw[] = [
         meta: { hideInMenu: true },
       },
       {
+        // 部署状态与诊断：服务 / 镜像 / Sandbox 镜像 / 源码版本 + 复制诊断内容
+        path: '/system/status',
+        name: 'DeploymentStatus',
+        component: () => import('@/views/deployment-status/DeploymentStatusPage.vue'),
+        meta: { title: '部署状态', icon: PulseOutline, menuGroup: 'operations' },
+      },
+      {
+        // 离线包与 Sandbox 镜像的导入导出管理（仅系统运维可见）
+        path: '/system/offline-packages',
+        name: 'OfflinePackages',
+        component: () => import('@/views/offline-packages/OfflinePackagesPage.vue'),
+        meta: { title: '离线包管理', icon: ArchiveOutline, menuGroup: 'operations', systemOperatorOnly: true },
+      },
+      {
         path: '/egress/allowlist',
         redirect: '/audit/egress-allowlist',
         meta: { hideInMenu: true },
@@ -453,6 +468,12 @@ export const appRoutes: RouteRecordRaw[] = [
         name: 'TopicAdmissionSettings',
         component: () => import('@/views/settings/ExternalSearchSettingsPage.vue'),
         meta: { title: '任务准入', hideInMenu: true },
+      },
+      {
+        path: '/settings/sandbox',
+        name: 'SandboxSettings',
+        component: () => import('@/views/settings/ExternalSearchSettingsPage.vue'),
+        meta: { title: '沙箱设置', hideInMenu: true },
       },
     ],
   },

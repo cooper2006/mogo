@@ -289,6 +289,7 @@ from app.api.endpoints import (
     sessions,
     session_live,
     session_shares,
+    session_snapshots,
     site_profiles,
     skills,    skill_package_install,
     skill_lifecycle,
@@ -305,6 +306,12 @@ from app.api.endpoints import (
     portal,
     plaza_templates,
     user_questions,
+    chat_file_preview,
+    desktop_question_answers,
+    desktop_release,
+    dsh_plugin_ui,
+    knowledge_references,
+    knowledge_source_config,
 )
 from app.scheduled_tasks import scheduled_task_scheduler
 from app.services.dream_cycle import runtime as dream_cycle_runtime
@@ -313,6 +320,15 @@ from app.browser import ws_endpoint as browser_ws_endpoint
 
 app.include_router(dsh_chat.router, prefix="/api/v1")
 app.include_router(dsh_session_versioning.router, prefix="/api/v1")
+# 以下 7 组路由在 A1 全量合并中被整体回退：模块文件仍在，但从未挂到 app 上，
+# 因此对应接口一律 404。按当前 /api/v1 前缀约定恢复注册。
+app.include_router(chat_file_preview.router, prefix="/api/v1")
+app.include_router(desktop_release.router, prefix="/api/v1")
+app.include_router(desktop_question_answers.router, prefix="/api/v1")
+app.include_router(knowledge_references.router, prefix="/api/v1")
+app.include_router(knowledge_source_config.router, prefix="/api/v1")
+app.include_router(session_snapshots.router, prefix="/api/v1")
+app.include_router(dsh_plugin_ui.router, prefix="/api/v1")
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(debug.router, prefix="/api/v1")
 app.include_router(documents.router, prefix="/api/v1")

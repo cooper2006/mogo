@@ -17,7 +17,7 @@ router = APIRouter()
 
 async def _root_and_departments(main_id: str):
     db = get_db()
-    rows = await db[DEPARTMENT_COLLECTION].find({"main_id": main_id}).to_list(length=5000)
+    rows = await db[DEPARTMENT_COLLECTION].find({"tenant_id": main_id}).to_list(length=5000)
     root = next((row for row in rows if row.get("code") == "root"), None)
     if root is None:
         raise HTTPException(status_code=409, detail="root_missing")
@@ -35,13 +35,13 @@ async def _uploaded_bytes(file: UploadFile) -> bytes:
 
 @router.get("/departments/import-template")
 async def department_import_template(current_user: dict = Depends(get_current_admin_user), accept_language: str = Header(default="en")):
-    root, _ = await _root_and_departments(str(current_user.get("main_id") or "default"))
+    root, _ = await _root_and_departments(str(current_user.get("tenant_id") or "default"))
     return Response(template_bytes(str(root.get("name") or "root"), accept_language), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": 'attachment; filename="department-import-template.xlsx"', "Cache-Control": "no-store"})
 
 
 @router.post("/departments/import-preview")
 async def department_import_preview(file: UploadFile = File(...), current_user: dict = Depends(get_current_admin_user)):
-    main_id = str(current_user.get("main_id") or "default")
+    main_id = str(current_user.get("tenant_id") or "default")
     content = await _uploaded_bytes(file)
     root, existing = await _root_and_departments(main_id)
     try:
@@ -53,7 +53,7 @@ async def department_import_preview(file: UploadFile = File(...), current_user: 
 
 @router.post("/departments/import-commit")
 async def department_import_commit(file: UploadFile = File(...), digest: str = File(...), current_user: dict = Depends(get_current_admin_user)):
-    main_id = str(current_user.get("main_id") or "default")
+    main_id = str(current_user.get("tenant_id") or "default")
     content = await _uploaded_bytes(file)
     if hashlib.sha256(content).hexdigest() != digest:
         raise HTTPException(status_code=409, detail="file_changed")
@@ -76,17 +76,17 @@ async def department_import_commit(file: UploadFile = File(...), digest: str = F
             parent_path, name = path.rsplit("/", 1)
             parent = by_path[parent_path]
             parent_id = str(parent["_id"])
-            if await db[DEPARTMENT_COLLECTION].find_one({"main_id": main_id, "parent_id": parent_id, "name": name}):
+            if await db[DEPARTMENT_COLLECTION].find_one({"tenant_id": main_id, "parent_id": parent_id, "name": name}):
                 raise HTTPException(status_code=409, detail="preview_outdated")
             new_id = ObjectId()
             now = datetime.now(timezone.utc)
-            document = {"_id": new_id, "main_id": main_id, "name": name, "code": f"import_{new_id}", "parent_id": parent_id, "path_ids": [*parent.get("path_ids", []), parent_id], "path_names": [*parent.get("path_names", []), parent.get("name", "")], "status": "active", "source": "local", "source_dept_id": "", "created_at": now, "updated_at": now}
+            document = {"_id": new_id, "tenant_id": main_id, "name": name, "code": f"import_{new_id}", "parent_id": parent_id, "path_ids": [*parent.get("path_ids", []), parent_id], "path_names": [*parent.get("path_names", []), parent.get("name", "")], "status": "active", "source": "local", "source_dept_id": "", "created_at": now, "updated_at": now}
             await db[DEPARTMENT_COLLECTION].insert_one(document)
             inserted.append(new_id)
             by_path[path] = document
     except Exception:
         if inserted:
-            await db[DEPARTMENT_COLLECTION].delete_many({"main_id": main_id, "_id": {"$in": inserted}})
+            await db[DEPARTMENT_COLLECTION].delete_many({"tenant_id": main_id, "_id": {"$in": inserted}})
         raise
-    await db[AUDIT_LOG_COLLECTION].insert_one({"main_id": main_id, "operator": str(current_user.get("username") or ""), "action": "import", "target_type": "department", "target_id": "", "payload": {"created": len(inserted), "skipped": plan["skipCount"]}, "created_at": datetime.now(timezone.utc)})
+    await db[AUDIT_LOG_COLLECTION].insert_one({"tenant_id": main_id, "operator": str(current_user.get("username") or ""), "action": "import", "target_type": "department", "target_id": "", "payload": {"created": len(inserted), "skipped": plan["skipCount"]}, "created_at": datetime.now(timezone.utc)})
     return {"created": len(inserted), "skipped": plan["skipCount"]}

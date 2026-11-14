@@ -29,7 +29,7 @@ async def test_knowledge_model_instance(
     payload: KnowledgeModelTestPayload,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, object]:
-    main_id = str(current_user.get("main_id", "default"))
+    main_id = str(current_user.get("tenant_id", "default"))
     try:
         instance = await find_instance_by_id(instance_id, main_id)
     except InvalidId as exc:
