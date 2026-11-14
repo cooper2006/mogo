@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from app.api.principal import ApiPrincipal, require_end_user_principal
 from app.core.db import get_db
-from app.core.tenant import add_main_scope
+from app.core.tenant import add_tenant_scope
 from app.dsh_runtime.bindings.repository import KernelBindingRepository
 from app.services.session_identity_projection import resolve_author_projections
 from app.services.session_sharing.links import portal_link
@@ -39,7 +39,7 @@ async def create_snapshot_share(
     if not ObjectId.is_valid(session_id):
         raise HTTPException(status_code=404, detail="session_not_found")
     db = get_db()
-    session = await db.chat_sessions.find_one(add_main_scope({"_id": ObjectId(session_id), "user_id": principal.user_id}, principal.main_id))
+    session = await db.chat_sessions.find_one(add_tenant_scope({"_id": ObjectId(session_id), "user_id": principal.user_id}, principal.main_id))
     if session is None:
         raise HTTPException(status_code=404, detail="session_not_found")
     binding = await KernelBindingRepository(db).current(session_id, tenant_id=principal.main_id, user_id=principal.user_id)
@@ -47,7 +47,7 @@ async def create_snapshot_share(
         raise HTTPException(status_code=409, detail="snapshot_requires_desktop_code")
     token = create_token()
     link = portal_link(request, token, snapshot=True)
-    rows = await db.chat_messages.find(add_main_scope({"session_id": ObjectId(session_id)}, principal.main_id), {
+    rows = await db.chat_messages.find(add_tenant_scope({"session_id": ObjectId(session_id)}, principal.main_id), {
         "role": 1, "content": 1, "created_at": 1, "message_type": 1, "user_id": 1,
     }).sort([("seq", 1), ("created_at", 1)]).limit(5001).to_list(length=5001)
     if len(rows) > 5000:
@@ -84,7 +84,7 @@ async def read_snapshot_share(token: str, principal: ApiPrincipal = Depends(requ
         token_hash = hash_token(token)
     except SessionShareError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail()) from exc
-    doc = await get_db()[COLLECTION].find_one(add_main_scope({"token_hash": token_hash}, principal.main_id))
+    doc = await get_db()[COLLECTION].find_one(add_tenant_scope({"token_hash": token_hash}, principal.main_id))
     if doc is None:
         raise HTTPException(status_code=404, detail="snapshot_not_found")
     if not snapshot_active(doc, _now()):
@@ -96,7 +96,7 @@ async def read_snapshot_share(token: str, principal: ApiPrincipal = Depends(requ
 async def revoke_snapshot_share(snapshot_id: str, principal: ApiPrincipal = Depends(require_end_user_principal)) -> dict:
     if not ObjectId.is_valid(snapshot_id):
         raise HTTPException(status_code=404, detail="snapshot_not_found")
-    result = await get_db()[COLLECTION].update_one(add_main_scope({"_id": ObjectId(snapshot_id), "owner_user_id": principal.user_id}, principal.main_id), {"$set": {"revoked_at": _now()}})
+    result = await get_db()[COLLECTION].update_one(add_tenant_scope({"_id": ObjectId(snapshot_id), "owner_user_id": principal.user_id}, principal.main_id), {"$set": {"revoked_at": _now()}})
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="snapshot_not_found")
     return {"code": 0, "data": {"revoked": True}}

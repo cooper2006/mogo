@@ -14,12 +14,31 @@ RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
       sed -i "s|http://deb.debian.org/debian-security|${MOGO_APT_MIRROR%/}/debian-security|g; s|http://deb.debian.org/debian|${MOGO_APT_MIRROR%/}/debian|g" /etc/apt/sources.list.d/debian.sources; \
     fi
 
-COPY requirements.txt /tmp/requirements.txt
-RUN if [ -n "${MOGO_PIP_INDEX_URL}" ]; then \
-      python -m pip install --no-cache-dir --index-url "${MOGO_PIP_INDEX_URL}" -r /tmp/requirements.txt; \
+# The sandbox script itself only uses the standard library (it shells out to
+# pip / npm / apt-get to install whatever a Skill declares), so this image
+# does NOT need the chat-api dependency closure. Installing it here was both
+# slow and, once the closure moved to Python 3.13, impossible on this 3.10
+# base image (numpy>=2.5 requires >=3.12). What the image actually needs is a
+# working pip and a working apt, so those are all that get installed.
+#
+# pip's vendored CA bundle does not know the TLS-terminating proxy's root CA,
+# so pip needs a bundle that includes it. See the longer note in
+# services/sandbox-manager/Dockerfile; the file is mounted (not COPYed) and
+# follows the same bundle contract -- run `bash scripts/proxy_ca_bundle.sh
+# pack` once after cloning.
+ARG TARGETARCH
+RUN --mount=type=bind,source=proxy-root.crt,target=/tmp/proxy-root.crt \
+    set -eux; \
+    pip_cert_args=""; \
+    if [ -s /tmp/proxy-root.crt ]; then \
+        cat /etc/ssl/certs/ca-certificates.crt /tmp/proxy-root.crt > /tmp/combined-ca.crt; \
+        pip_cert_args="--cert /tmp/combined-ca.crt"; \
+        echo "Using system CA bundle plus the proxy root for pip"; \
     else \
-      python -m pip install --no-cache-dir -r /tmp/requirements.txt; \
-    fi
+        echo "No proxy root CA in the build context; pip uses its own bundle."; \
+    fi; \
+    python -m pip install --no-cache-dir --upgrade ${pip_cert_args} pip setuptools wheel; \
+    rm -f /tmp/combined-ca.crt
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
 COPY sandbox_script /opt/mogo-sandbox

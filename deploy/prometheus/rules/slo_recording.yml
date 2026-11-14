@@ -29,5 +29,8 @@ groups:
         expr: mogo:slo:availability:error_rate / 0.001
 
       # 错误预算剩余（按 30 天窗口估算）
+      # 下界截断用 clamp_max(向量, 标量)：max() 是聚合函数，只接受 1 个参数，
+      # `max(0, expr)` 会被解析成 "wrong number of arguments for aggregate
+      # expression provided, expected 1, got 2"。
       - record: mogo:slo:availability:budget_remaining_ratio
-        expr: max(0, 1 - mogo:slo:availability:burn_rate / (30 * 24 * 60 / 5))
+        expr: clamp_max(1 - mogo:slo:availability:burn_rate / (30 * 24 * 60 / 5), 0)

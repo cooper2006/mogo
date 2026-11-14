@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.db import get_db
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 from app.product.extensions import get_product_extension
 from app.services.personal_knowledge.access import PersonalKnowledgeAccessService
 
@@ -56,7 +56,7 @@ async def read_knowledge_document(
         raise ValueError("knowledge_source_id_required")
     if offset < 0 or char_offset < 0:
         raise ValueError("knowledge_cursor_invalid")
-    tenant_id = resolve_main_id(tenant_id)
+    tenant_id = resolve_tenant_id(tenant_id)
     max_chars = max(1000, min(max_chars, 5000))
     document = await _resolve_document(
         tenant_id=tenant_id, user_id=user_id, scope=scope, source_id=source_id, require_parsed=False,

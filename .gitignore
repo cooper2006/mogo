@@ -435,6 +435,15 @@ apps/admin-web/pnpm-store-bundle.tar.gz
 apps/user-web/pnpm-store-bundle.tar.gz
 services/chat-api/dsh/runtime-host/pnpm-store-bundle.tar.gz
 
+# 代理根 CA (scripts/proxy_ca_bundle.sh). Same contract as the bundles above:
+# the CA is captured from the host's TLS-terminating proxy, cached under
+# base-images/ca/ (ignored via /base-images/) and copied into the build
+# contexts locally. Not committed, because it is a property of the build
+# host's network path, not of the repository.
+base-images/ca/
+services/sandbox-manager/proxy-root.crt
+services/chat-api/proxy-root.crt
+
 # TLS 证书（自签名，本地开发用，不入库）
 server.crt
 server.key

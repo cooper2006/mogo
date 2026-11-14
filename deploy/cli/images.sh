@@ -15,6 +15,15 @@ MOGO_IMAGE_SERVICES=(
   MOGO_USER_WEB_IMAGE:user-web
   MOGO_ADMIN_WEB_IMAGE:admin-web
   MOGO_GATEWAY_IMAGE:gateway
+  # The sandbox trio is built from source as well (docker-compose.build.yml
+  # has a target for each), so it has to be exported here too. Without these
+  # three, compose falls back to its ghcr.io/mogoai default for the sandbox
+  # services while every other service resolves to the local build -- a local
+  # `./mogo up` would then pull a stale registry image for the sandbox and mix
+  # it with freshly built ones.
+  MOGO_SANDBOX_MANAGER_IMAGE:sandbox-manager
+  MOGO_SANDBOX_EGRESS_IMAGE:sandbox-egress
+  MOGO_SANDBOX_SCRIPT_IMAGE:sandbox-script
 )
 
 # True when MOGO_DATA_BACKEND selects the PanWeiDB backend.

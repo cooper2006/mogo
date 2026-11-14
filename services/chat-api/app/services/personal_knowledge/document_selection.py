@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 from app.core.db import get_db
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 
 from .access import GRANT_COLLECTION, RESOURCE_COLLECTION, PersonalKnowledgeAccessService
 from .service import PersonalKnowledgeService
@@ -29,7 +29,7 @@ async def search_selectable_documents(
     keyword: str, page: int, page_size: int,
 ) -> dict[str, Any]:
     db = get_db()
-    tenant_id = resolve_main_id(main_id)
+    tenant_id = resolve_tenant_id(main_id)
     offset = (page - 1) * page_size
     service = PersonalKnowledgeService()
     ready = {

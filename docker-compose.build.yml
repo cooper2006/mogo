@@ -5,8 +5,8 @@ services:
       context: ./services/chat-api
       dockerfile: Dockerfile.sandbox-script
       args:
-        MOVO_PIP_INDEX_URL: ${MOVO_PIP_INDEX_URL:-}
-        MOVO_APT_MIRROR: ${MOVO_APT_MIRROR:-}
+        MOGO_PIP_INDEX_URL: ${MOGO_PIP_INDEX_URL:-}
+        MOGO_APT_MIRROR: ${MOGO_APT_MIRROR:-}
 
   sandbox-manager:
     pull_policy: build
@@ -14,7 +14,7 @@ services:
       context: ./services/sandbox-manager
       dockerfile: Dockerfile
       args:
-        MOVO_PIP_INDEX_URL: ${MOVO_PIP_INDEX_URL:-}
+        MOGO_PIP_INDEX_URL: ${MOGO_PIP_INDEX_URL:-}
 
   deployment-observer:
     pull_policy: build
@@ -22,7 +22,7 @@ services:
       context: ./services/sandbox-manager
       dockerfile: Dockerfile
       args:
-        MOVO_PIP_INDEX_URL: ${MOVO_PIP_INDEX_URL:-}
+        MOGO_PIP_INDEX_URL: ${MOGO_PIP_INDEX_URL:-}
 
   sandbox-egress:
     pull_policy: build

@@ -11,7 +11,6 @@ import uuid
 import yaml
 from pydantic import BaseModel, Field, ValidationError
 
-from app.core.tenant import add_main_scope, resolve_main_id
 from app.core.db import get_db
 from app.services.skill_assets.publish_channels import publish_channel_registry
 from app.services.skill_assets.composite_task import parse_composite_skill

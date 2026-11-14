@@ -1,5 +1,5 @@
 import { computed, ref, watch, type Ref } from 'vue'
-import productUiExtension from '@movo-product-extension'
+import productUiExtension from '@mogo-product-extension'
 import { t, type Locale } from '../../composables/i18n'
 import type { AgentPresentation } from '../../product/contracts'
 

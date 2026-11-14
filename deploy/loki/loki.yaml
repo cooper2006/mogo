@@ -2,6 +2,14 @@
 # Loki 日志后端：接收 OTel Collector 的 logs push，以及 span 摘要日志。
 # 存储：本地文件系统，保留 15 天（OQ-7 RPO 15min 口径：Loki 可丢，不
 # 在数据面范围内）。
+#
+# 键名说明：Loki 的 schema / limits 段是 `schema_config` / `limits_config`
+# （顶层 `schema:` / `limits:` 不是合法键，解析会直接报
+# "field schema not found in type loki.ConfigWrapper"）。compactor 的保留期
+# 在 3.x 是扁平字段 retention_enabled / retention_period / retention_delete_delay，
+# 没有嵌套的 retention: 段。
+auth_enabled: false
+
 server:
   http_listen_port: 3100
   grpc_listen_port: 9096
@@ -21,13 +29,20 @@ common:
       store: inmemory
 
 compactor:
-  enabled: true
-  retention:
-    enable: true
-    period: 15d
-    resolution: 5m
+  working_directory: /loki/compactor
+  compaction_interval: 10m
+  # 保留期的「开关 + 延迟」在 3.x 是 compactor 的扁平字段；保留「时长」
+  # 由 limits_config.retention_period 决定（compactor.retention_period 是
+  # 3.4+ 才有的字段，写在这里 Loki 3.2 会报
+  # "field retention_period not found in type compactor.Config"）。
+  retention_enabled: true
+  retention_delete_delay: 2h
+  # 开启保留期后必须指定 delete-request 的存储后端，否则启动即报
+  # "compactor.delete-request-store should be configured when retention is
+  # enabled"。单机部署复用 common.storage.filesystem。
+  delete_request_store: filesystem
 
-schema:
+schema_config:
   configs:
     - from: "2026-01-01"
       store: tsdb
@@ -35,10 +50,11 @@ schema:
       schema: v13
       index:
         prefix: index_
-        period: 27h
+        # tsdb 的 index 周期固定为 24h（Loki 校验："tsdb must always have
+        # periodic config for index set to 24h"）。
+        period: 24h
 
-limits:
-  allow_template: true
+limits_config:
   reject_old_samples: true
   retention_period: 15d
   max_query_series: 5000

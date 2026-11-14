@@ -68,7 +68,12 @@ class PrepareSkillRequest(BaseModel):
 
 
 def _authorize(authorization: str | None) -> None:
-    token = os.environ["MOGO_SANDBOX_MANAGER_TOKEN"]
+    # MOVO_ 是 MOGO_ 的历史别名，两个前缀指向同一个密钥（bootstrap 同步写入）。
+    # 用 .get 而不是 os.environ[...]：密钥缺失时返回 401 而不是抛 KeyError 变 500。
+    token = (
+        os.environ.get("MOGO_SANDBOX_MANAGER_TOKEN")
+        or os.environ.get("MOVO_SANDBOX_MANAGER_TOKEN", "")
+    )
     supplied = (authorization or "").removeprefix("Bearer ")
     if not token or not hmac.compare_digest(supplied, token):
         raise HTTPException(status_code=401, detail="Unauthorized")

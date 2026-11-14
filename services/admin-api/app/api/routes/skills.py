@@ -20,7 +20,10 @@ from app.services.skill_market.adoption_client import (
     apply_low_quality_ranking,
     fetch_marked_skill_keys,
 )
-from app.services.skill_package_proxy import install_organization_skill_zip
+from app.services.skill_package_proxy import (
+    install_organization_skill_zip,
+    organization_skill_dependency_status,
+)
 from app.services.skill_lifecycle import OrganizationSkillLifecycle, RELEASE_COLLECTION
 from app.services.trust_rating.skill_visibility import (
     L1SkillNotVisible,
@@ -478,6 +481,21 @@ async def install_skill_zip(
         filename=filename,
         content=content,
         confirm_replace=confirm_replace,
+    )
+
+
+# Where the isolated build environment for a Skill's declared dependencies
+# currently stands. A Skill that ships requirements.txt / package.json /
+# apt-packages.txt gets one prepared for it in the background; the installer
+# UI polls this endpoint until the status settles.
+@router.get("/{skill_id}/dependency-status")
+async def skill_dependency_status(
+    skill_id: str,
+    current_user: dict = Depends(get_current_admin_user),
+) -> dict[str, Any]:
+    return organization_skill_dependency_status(
+        main_id=str(current_user.get("main_id") or "default"),
+        skill_id=skill_id,
     )
 
 

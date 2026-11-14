@@ -46,6 +46,7 @@ export interface SkillInstallResult {
     warnings: Array<{ code: string; message: string; tool?: string; packageVersion?: string; skillVersion?: string }>
   }
   upgrade?: SkillUpgradeInfo
+  dependencyPreparation?: 'disabled' | 'not_required' | 'preparing' | 'ready' | 'failed' | 'unavailable'
 }
 
 export interface SkillUpgradeInfo {
@@ -371,6 +372,15 @@ export async function installPersonalSkillZip(file: File, confirmReplace = false
     headers: { 'Content-Type': 'multipart/form-data' }, timeout: 90000,
   })
   return dataOf<SkillInstallResult>(res)
+}
+
+// Dependency preparation status for an installed Skill. A Skill that declares
+// requirements.txt / package.json / apt-packages.txt gets an isolated build
+// environment prepared for it; this reports where that build currently stands
+// so the installer can poll until it settles.
+export async function fetchSkillDependencyStatus(id: string): Promise<{ status: string }> {
+  const res = await api.get(`/skills/${encodeURIComponent(id)}/dependency-status`)
+  return dataOf<{ status: string }>(res)
 }
 
 export async function publishSkill(id: string, version = '', releaseNotes = ''): Promise<{ skill: SkillItem; release: { id: string; version: string; digest: string; releaseNotes: string; createdAt: string } }> {

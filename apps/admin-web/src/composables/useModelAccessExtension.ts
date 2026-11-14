@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import adminProductUiExtension from '@movo-admin-product-extension'
+import adminProductUiExtension from '@mogo-admin-product-extension'
 
 export function useModelAccessExtension() {
   const extension = adminProductUiExtension.modelAccess

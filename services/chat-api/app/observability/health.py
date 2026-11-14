@@ -49,16 +49,25 @@ async def _check_mongodb() -> dict[str, Any]:
 async def _check_redis() -> dict[str, Any]:
     payload: dict[str, Any] = {"redis": "skipped"}
     try:
-        from app.dsh_runtime.runtime_lock import get_runtime_lock
+        from app.core.config import settings
 
-        lock = get_runtime_lock()
-        client = getattr(lock, "_redis", None)
-        if client is None:
+        # `RuntimeLock` 自 023 起改为在 `application.py` 里按需构造，不再提供
+        # 全局单例，因此这里直接按配置的 URL 建立一次性探针客户端。
+        redis_url = settings.DSH_KERNEL_REDIS_URL
+        if not redis_url:
             payload["redis"] = "not_configured"
             return payload
+
+        import redis as redis_mod
+
         from app.core import resilience
 
-        resilience.register_redis_pool(client)
+        client = redis_mod.Redis.from_url(
+            redis_url,
+            socket_timeout=2,
+            socket_connect_timeout=2,
+            decode_responses=True,
+        )
         result = resilience.probe_redis(client)
         payload["redis"] = "ok" if result["ok"] else "unreachable"
         payload["redis_reason"] = result["reason"]

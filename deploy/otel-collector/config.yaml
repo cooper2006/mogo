@@ -17,6 +17,8 @@ receivers:
         endpoint: 0.0.0.0:4318
 
   # 内部 metrics（collector 自身健康），供 prometheus 抓 otel-collector:8889。
+  # 监听地址由 service.telemetry 决定（见文件末尾），prometheus receiver
+  # 本身没有 endpoint 键。
   prometheus:
     config:
       scrape_configs:
@@ -26,52 +28,73 @@ receivers:
 
 processors:
   memory_limiter:
-    # 容器内限 OOM；0.70/0.90 为 soft/hard 阈值（相对容器内存上限）。
-    soft_limit_percentage: 70
+    # 容器内限 OOM：limit_percentage 是硬上限（70% 容器内存），
+    # spike_limit_percentage 是软限制的触发点，必须**小于** limit_percentage
+    # （校验："spike_limit_percentage must be smaller than limit_percentage"）。
+    # 键名是 limit_percentage（不是 soft_limit_percentage）：collector 的
+    # memory_limiter 只有 limit_percentage / spike_limit_percentage 这一组
+    # 百分比键，写 soft_limit_percentage 会报 "has invalid keys"。
+    # 用百分比时必须显式给出 check_interval，否则报
+    # "'check_interval' must be greater than zero"。
+    check_interval: 1s
+    limit_percentage: 70
     spike_limit_percentage: 30
   batch:
     timeout: 5s
     send_batch_max_size: 110000
-    metadata:
-      cardinality_limit: 5000
+    # batch 的 metadata 基数限制（metadata.cardinality_limit）是 collector
+    # 0.123+ 才有的键，0.120 会报 "has invalid keys: metadata"。防 OOM 由上面的
+    # memory_limiter 承担，这里保留 batch 的既有批量参数。
 
 exporters:
   debug:
     verbosity: basic
 
-  # Tempo OTLP 直连（tempo 提供 /tmp/ 的 OTLP 端点；2.6.x 的 tempo
-  # 支持 OTLP 接收）。
-  tempo:
-    otlp:
-      endpoint: tempo:4317
-      tls:
-        insecure: true
+  # Tempo OTLP 直连（tempo 的 OTLP gRPC 接收端在 4317）。
+  # 用标准的 otlp exporter：collector 的 `tempo` exporter 只在 0.116–0.117
+  # 这一小段窗口存在，之后被移除（与 otlp exporter 能力重复），配置里用
+  # tempo exporter 会直接报 "unknown type: tempo"。
+  otlp:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
 
   # Loki：trace span 转日志（OQ-1 决策：日志后端 = Loki）。
   # Phase 4 之后业务 JSON 日志也会经 collector 进 Loki（T025–T030 落地
   # 时把 pipeline 的 logs 接上 collector logs receiver），这里先做
   # span -> Loki log line，让 Tempo 查询侧可用 trace_id 反查。
+  #
+  # 租户与静态标签：loki exporter 在 0.120 没有 tenant_id / external_labels
+  # 这两个键（报 "invalid keys: external_labels, tenant_id"），租户改用
+  # Loki 的标准头 X-Scope-OrgID 传递。
   loki:
     endpoint: http://loki:3100/loki/api/v1/push
-    tenant_id: mogo
+    headers:
+      X-Scope-OrgID: mogo
     tls:
       insecure: true
-    external_labels:
-      stack: mogo
 
 service:
+  telemetry:
+    metrics:
+      # collector 自身的 /metrics 端点默认只绑 localhost:8889，同网络的
+      # prometheus 容器抓不到（target 一直 down）。这里显式绑 0.0.0.0。
+      address: 0.0.0.0:8889
   pipelines:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [tempo]
+      exporters: [otlp]
 
-    # 把 trace 摘要写成日志行推 Loki（trace -> log 互跳，023 T041）；
-    # 调试期保留 debug exporter。
-    trace-logs:
-      receivers: [otlp]
-      processors: [memory_limiter, batch]
-      exporters: [loki, debug]
+    # 023 T041 原本还有一条「trace 摘要转日志行推 Loki」的 pipeline
+    # （原 id 写作 trace-logs）。它无法在 collector 内实现：loki exporter
+    # 只接受 logs 信号，把 traces 喂给它会报
+    # "failed to create \"loki\" exporter for data type \"traces\":
+    # telemetry type is not supported"；而 pipeline id 也只允许已知信号名
+    # 或 `type/name` 形式，自定义单词会被判为 "unknown signal"。
+    # 因此该 pipeline 已移除：traces 走 Tempo（otlp exporter），
+    # logs 走 Loki。若后续需要 span → log，需由业务侧或 spanmetrics
+    # 处理器产出 logs 信号后再走 logs pipeline。
 
     # 业务日志（logs receiver 尚未在 receivers 里启用，Phase 4 T025–T030
     # 落地 structured logging 后追加 `otlp` 到下面 pipelines.logs.receivers，

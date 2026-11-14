@@ -930,9 +930,9 @@ async def get_org_details(
     org = await get_or_create_organization(tenant_id, default_org_name=current_user.get("org_name") or "个人空间", owner_id=str(current_user["_id"]))
     
     current_members = await db[USER_COLLECTION].count_documents({"tenant_id": tenant_id})
-    from app.core.product_edition import organization_capability_payload
+    from app.core.product_edition import product_edition_fields
 
-    capabilities = organization_capability_payload(org)
+    capabilities = product_edition_fields(org)
     total_points = int(org.get("total_points") or 0)
     used_points = int(org.get("used_points") or 0)
     

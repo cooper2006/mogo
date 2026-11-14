@@ -1,4 +1,4 @@
-import productUiExtension from '@movo-product-extension'
+import productUiExtension from '@mogo-product-extension'
 import type { UserEntry } from '../product/contracts'
 import type { AppView } from './useAppNavigation'
 

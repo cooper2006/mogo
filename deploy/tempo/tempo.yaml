@@ -1,47 +1,41 @@
 # 023 observability-resilience (T011)
 # Tempo 分布式追踪后端：接收 OTel Collector 推送的 OTLP traces。
 # 存储：本地文件（/var/lib/tempo），容器卷持久化。
+#
+# 段位说明：OTLP receiver 挂在 `distributor.receivers.otlp.protocols.grpc`
+# （`server.otel_grpc` 不是 Tempo 的字段，会报 "field otel_grpc not found in
+# type server.Config"）；租户级限流走 `overrides.defaults.ingestion`，
+# 顶层 `limits:` 段不存在；`web:` 段在 Tempo 里也没有。
 server:
   http_listen_port: 3200
   grpc_listen_port: 9095
-  # OTLP 直连（collector 侧使用 tempo:4317）
-  otel_grpc:
-    enabled: true
-    endpoint: 0.0.0.0:4317
-    tls:
-      cert_file: ""
-      key_file: ""
-    insecure: true
 
 distributor:
   receivers:
     otlp:
-      enabled: true
+      protocols:
+        # OTLP 直连（collector 侧使用 tempo:4317）
+        grpc:
+          endpoint: 0.0.0.0:4317
 
 compactor:
   compaction:
     block_retention: 72h
-    enable_dedup: false
-    idle_timeout: 2m
 
 storage:
   trace:
     backend: local
     local:
       path: /var/lib/tempo/traces
-    wal:
-      dir: /var/lib/tempo/wal
+    # WAL 的落盘目录在 Tempo 2.6 起由 local backend 自行推导（<path>/wal），
+    # `storage.trace.wal` 段只剩 checkpoint_duration / flush_to_disk，
+    # 写 dir / enabled 会被拒（"field dir not found in type wal.Config"）。
+    # 推导出的路径为 /var/lib/tempo/wal，正在持久化卷内。
     pool:
-      max_concurrent: 20
+      max_workers: 20
 
-limits:
-  per_tenant:
-    default:
-      ingestion_burst_bytes: 10MB
-      ingestion_rate_bytes: 5MB
-
-# 调试端点（健康检查）
-web:
-  api:
-    remote_read:
-      enabled: false
+overrides:
+  defaults:
+    ingestion:
+      rate_limit_bytes: 5242880   # 5MB/s
+      burst_size_bytes: 10485760  # 10MB

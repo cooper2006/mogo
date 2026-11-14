@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.api.endpoints.auth import _resolve_session_user
 from app.core.db import get_db
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 from app.dsh_runtime.bindings import KernelBindingRepository
 from app.dsh_runtime.conversation.question_answers import record_question_answer
 
@@ -30,7 +30,7 @@ async def record_desktop_question_answer(
     authorization: str | None = Header(default=None),
 ) -> dict[str, bool]:
     resolved = await _resolve_session_user(authorization)
-    tenant_id = resolve_main_id(resolved["main_id"])
+    tenant_id = resolve_tenant_id(resolved["main_id"])
     user_id = str(resolved["user"]["_id"])
     db = get_db()
     binding = await KernelBindingRepository(db).by_kernel_session(
