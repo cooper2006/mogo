@@ -31,7 +31,6 @@ const ts = loadTypeScript()
 const listMissing = process.argv.includes('--list')
 
 const root = path.resolve(__dirname, '..')
-const nonAscii = /[^\x20-\x7e]/
 const failures = []
 const missingByApp = new Map()
 
@@ -101,7 +100,8 @@ for (const app of ['admin-web', 'user-web']) {
         if (ts.isObjectLiteralExpression(node.initializer)) {
           const fields = new Set(node.initializer.properties.map(property => property.name?.getText(tree).replace(/^['"]|['"]$/g, '')))
           if (fields.has('zh') || fields.has('zh-CN')) {
-            if (nonAscii.test(key)) failures.push(`${path.relative(root, file)}: non-ASCII catalog key ${JSON.stringify(key)}`)
+            // 用中文原文作 key 是本项目既定风格（3000+ 条目），不是错误。
+            // 真正需要守卫的是「有没有配英文」以及「t() 的 key 能否命中」。
             catalogKeys.add(key)
             if (!fields.has(app === 'admin-web' ? 'en-US' : 'en')) {
               failures.push(`${path.relative(root, file)}: missing English translation for ${JSON.stringify(key)}`)
@@ -139,10 +139,17 @@ for (const app of ['admin-web', 'user-web']) {
     const calls = /\bt\(\s*(['"`])((?:\\.|(?!\1)[\s\S])*?)\1/g
     let match
     while ((match = calls.exec(source))) {
+      // 字符串字面量中的转义序列要还原成运行时值，才能与 catalog 的 key
+      // （TS AST 读出的也是运行时值）正确比对。
       const key = match[2]
+        .replace(/\\n/g, '\n')
+        .replace(/\\t/g, '\t')
+        .replace(/\\(['"`\\])/g, '$1')
       const line = source.slice(0, match.index).split('\n').length
-      if (nonAscii.test(key)) failures.push(`${path.relative(root, file)}:${line}: non-ASCII t() key ${JSON.stringify(key)}`)
-      else if (!key.includes('${') && !/^\s*\+/.test(source.slice(calls.lastIndex)) && !catalogKeys.has(key)) {
+      // 中文 key 同样要校验 catalog：过去 non-ASCII 分支会直接跳过，
+      // 让 752 个「中文界面回显原文看似正常、英文界面漏翻译」的 key
+      // 长期潜伏。现在所有 key 走同一条校验路径。
+      if (!key.includes('${') && !/^\s*\+/.test(source.slice(calls.lastIndex)) && !catalogKeys.has(key)) {
         failures.push(`${path.relative(root, file)}:${line}: missing translation for ${JSON.stringify(key)}`)
         if (!missingByApp.has(app)) missingByApp.set(app, new Map())
         const byKey = missingByApp.get(app)
@@ -154,7 +161,9 @@ for (const app of ['admin-web', 'user-web']) {
 }
 
 if (listMissing) {
+  const allMissing = new Set()
   for (const [app, byKey] of missingByApp) {
+    for (const key of byKey.keys()) allMissing.add(key)
     const namespaces = new Map()
     for (const [key, locations] of byKey) {
       const namespace = key.split('.')[0]
@@ -168,6 +177,11 @@ if (listMissing) {
         console.log(`  ${entry.key}   [${entry.locations.length}x ${entry.locations[0]}]`)
       }
     }
+  }
+  // Machine-readable dump for bulk backfilling translations; keeps the exact
+  // runtime key (including embedded newlines) instead of a lossy text parse.
+  if (process.env.I18N_DUMP_MISSING) {
+    fs.writeFileSync(process.env.I18N_DUMP_MISSING, JSON.stringify([...allMissing], null, 1))
   }
   console.log('')
 }
