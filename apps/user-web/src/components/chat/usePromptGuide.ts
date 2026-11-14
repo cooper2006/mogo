@@ -37,9 +37,9 @@ export function usePromptGuide(options: PromptGuideOptions) {
   } | null>(null)
   let promptGuideCloseTimer: ReturnType<typeof setTimeout> | null = null
 
-  const visiblePromptGuideCategories = computed(() => effectivePromptGuideCategories.value
+  const visiblePromptGuideCategories = computed(() => (effectivePromptGuideCategories.value ?? [])
     .map((category) => category.key === 'favorites'
-      ? { ...category, items: category.items.filter(item =>
+      ? { ...category, items: (category.items ?? []).filter(item =>
         (item.categoryKey !== 'content' || allowContent.value)
         && (item.categoryKey !== 'internal' || allowKnowledge.value)
         && (item.categoryKey !== 'systems' || allowTools.value)) }
@@ -48,14 +48,14 @@ export function usePromptGuide(options: PromptGuideOptions) {
           ...category,
           label: knowledgeSourceSummary.value.displayName,
           requiresConfig: false,
-          items: category.items,
+          items: category.items ?? [],
         }
         : category)
     .filter((category) => {
       if (category.key === 'content') return allowContent.value
       if (category.key === 'internal') return allowKnowledge.value
       if (category.key === 'systems') return allowTools.value
-      return category.items.length > 0
+      return (category.items ?? []).length > 0
     }))
   const activePromptGuideCategory = computed(() => (
     visiblePromptGuideCategories.value.find((item) => item.key === activePromptGuideKey.value) || null

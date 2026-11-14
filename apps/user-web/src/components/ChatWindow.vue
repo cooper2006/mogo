@@ -114,11 +114,11 @@ const allowKnowledge = computed(() => props.agentPolicy?.capabilities.internal_k
 const allowContent = computed(() => props.agentPolicy?.capabilities.content_generation !== false)
 const allowSkills = computed(() => {
   const policy = props.agentPolicy
-  return !policy || policy.skillAccessMode === 'all' || policy.skillIds.length > 0
+  return !policy || policy.skillAccessMode === 'all' || (policy.skillIds?.length ?? 0) > 0
 })
 const allowTools = computed(() => {
   const policy = props.agentPolicy
-  return !policy || policy.toolAccessMode === 'all' || policy.toolIds.length > 0
+  return !policy || policy.toolAccessMode === 'all' || (policy.toolIds?.length ?? 0) > 0
 })
 const emit = defineEmits<{
   (e: 'open-skills'): void
@@ -414,9 +414,9 @@ const promptGuideNotice = ref<{
 } | null>(null)
 let promptGuideCloseTimer: ReturnType<typeof setTimeout> | null = null
 
-const visiblePromptGuideCategories = computed(() => effectivePromptGuideCategories.value
+const visiblePromptGuideCategories = computed(() => (effectivePromptGuideCategories.value ?? [])
   .map((category) => category.key === 'favorites'
-    ? { ...category, items: category.items.filter(item =>
+    ? { ...category, items: (category.items ?? []).filter(item =>
       (item.categoryKey !== 'content' || allowContent.value)
       && (item.categoryKey !== 'internal' || allowKnowledge.value)
       && (item.categoryKey !== 'systems' || allowTools.value)) }
@@ -425,7 +425,7 @@ const visiblePromptGuideCategories = computed(() => effectivePromptGuideCategori
     if (category.key === 'content') return allowContent.value
     if (category.key === 'internal') return allowKnowledge.value
     if (category.key === 'systems') return allowTools.value
-    return category.items.length > 0
+    return (category.items ?? []).length > 0
   }))
 const activePromptGuideCategory = computed(() => (
   visiblePromptGuideCategories.value.find((item) => item.key === activePromptGuideKey.value) || null
