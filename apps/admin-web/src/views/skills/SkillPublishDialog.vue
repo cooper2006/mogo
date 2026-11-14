@@ -11,7 +11,7 @@
       </div>
       <div v-if="!recent.passed && recent.blockedReason" class="eval-blocked">{{ recent.blockedReason }}</div>
     </n-alert>
-    <n-alert v-else type="info" style="margin-bottom:12px">032-eval-gate：本 Skill 尚无评测报告，发布将进入 fail-closed 评测门禁（无测试集 / 样本不足 / LLM 超时都会阻断）。</n-alert>
+    <n-alert v-else type="info" style="margin-bottom:12px">{{ t('032-eval-gate：本 Skill 尚无评测报告，发布将进入 fail-closed 评测门禁（无测试集 / 样本不足 / LLM 超时都会阻断）。') }}</n-alert>
     <template #footer>
       <n-space justify="space-between">
         <n-button :loading="dryBusy" :disabled="!props.skill" @click="dryRun">{{ t('试运行评测') }}</n-button>

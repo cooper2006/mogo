@@ -198,7 +198,7 @@
           </n-grid-item>
           <n-grid-item v-if="isAzureProvider">
             <n-form-item label="API Version">
-              <n-input v-model:value="form.apiVersion" placeholder="如: 2024-10-21" />
+              <n-input v-model:value="form.apiVersion" :placeholder="t('如: 2024-10-21')" />
             </n-form-item>
           </n-grid-item>
           <n-grid-item>

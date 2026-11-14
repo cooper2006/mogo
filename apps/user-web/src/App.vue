@@ -2709,9 +2709,9 @@ onBeforeUnmount(() => {
     />
     <!-- SIDEBAR -->
     <aside class="app-sidebar w-[260px] bg-[#f8fafc] flex flex-col border-r border-gray-200 shadow-[1px_0_0_rgba(0,0,0,0.02)]">
-      <div v-if="!capabilities.isDesktop" class="flex h-14 items-center gap-2.5 px-5" aria-label="墨攻">
+      <div v-if="!capabilities.isDesktop" class="flex h-14 items-center gap-2.5 px-5" :aria-label="t('墨攻')">
         <img src="/mogo-logo.png" alt="" class="h-8 w-10 object-contain" />
-        <span class="text-[15px] font-extrabold tracking-[0.14em] text-slate-800">墨攻</span>
+        <span class="text-[15px] font-extrabold tracking-[0.14em] text-slate-800">{{ t('墨攻') }}</span>
       </div>
       <!-- Workspace Section：项目为顶层分组，会话缩进在项目下 -->
       <div

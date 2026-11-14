@@ -146,7 +146,7 @@
                                 :loading="toolOptionsLoading"
                                 :options="toolOptions"
                                 class="node-tool-select"
-                                placeholder="选择我的 Tool / MCP"
+                                :placeholder="t('选择我的 Tool / MCP')"
                                 @update:value="(val: any) => handleToolSelect(step, val)"
                               />
                             </div>

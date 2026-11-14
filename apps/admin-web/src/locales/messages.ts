@@ -3,6 +3,8 @@ import { dshPluginMessages } from './modules/dshPlugins';
 import { skillDependencyMessages } from './modules/skillDependencies';
 import { taskAdmissionMessages } from './modules/taskAdmission';
 import { modelGroupMessages } from './modules/modelGroup';
+import { legacyMessages } from './modules/legacyMessages';
+import { adminUiMessages } from './modules/adminUiMessages';
 
 export type Locale = 'zh-CN' | 'en-US';
 export type MessageKey = keyof typeof messages;
@@ -14,6 +16,8 @@ export const messages = {
   ...skillDependencyMessages,
   ...taskAdmissionMessages,
   ...modelGroupMessages,
+  ...legacyMessages,
+  ...adminUiMessages,
   // === 路由与侧边栏菜单 ===
   '工作台': { 'zh-CN': '工作台', 'en-US': 'Dashboard' },
   // 055 菜单管理
@@ -220,7 +224,7 @@ export const messages = {
   '通知详情页待接入': { 'zh-CN': '通知详情页待接入', 'en-US': 'Notification details page is coming soon' },
   '个人中心待接入': { 'zh-CN': '个人中心待接入', 'en-US': 'Profile page is coming soon' },
   '语言已切换为简体中文': { 'zh-CN': '语言已切换为简体中文', 'en-US': 'Language switched to Chinese' },
-  'Language switched to English': { 'zh-CN': 'Language switched to English', 'en-US': 'Language switched to English' },
+  'Language switched to English': { 'zh-CN': '已切换为英文', 'en-US': 'Language switched to English' },
 
   // === 仪表盘页面 (DashboardPage.vue) ===
   '管理员工作台': { 'zh-CN': '管理员工作台', 'en-US': 'Admin Dashboard' },

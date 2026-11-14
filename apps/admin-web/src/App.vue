@@ -1,5 +1,5 @@
 <template>
-  <a href="#main-content" class="skip-link">跳转到主内容</a>
+  <a href="#main-content" class="skip-link">{{ t('跳转到主内容') }}</a>
   <n-config-provider
     :theme="themeInstance"
     :theme-overrides="naiveOverrides"

@@ -20,6 +20,10 @@ _ENGLISH_DETAILS = {
     "当前岗位未开通代码生成能力，本次任务未执行": "Code generation is unavailable for your role. This task was not run.",
     "请选择 ZIP 格式的 Skill 安装包": "Select a Skill package in ZIP format",
     "只有企业管理后台可以安装企业 Skill": "Only the organization admin console can install organization Skills",
+    "员工不存在或不可用": "The employee does not exist or is unavailable",
+    "员工未开通或已停用": "The employee is not provisioned or has been disabled",
+    "当前岗位不能创建新的工具连接": "The current position role cannot create new tool connections",
+    "当前岗位未开通该工具": "The current position role does not have access to this tool",
 }
 
 _STATUS_FALLBACKS = {

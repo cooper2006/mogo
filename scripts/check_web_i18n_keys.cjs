@@ -1,11 +1,39 @@
 #!/usr/bin/env node
 const fs = require('node:fs')
 const path = require('node:path')
-const ts = require(path.join(__dirname, '../apps/admin-web/node_modules/typescript'))
+
+// The catalogue is parsed with the TypeScript AST on purpose: locale values
+// may contain braces (e.g. "{capabilities}；{tools}"), so a regex cannot
+// tell an entry body from a nested object and would silently drop keys.
+function loadTypeScript() {
+  const candidates = [
+    process.env.I18N_TYPESCRIPT_PATH,
+    path.join(__dirname, '../apps/admin-web/node_modules/typescript'),
+    path.join(__dirname, '../node_modules/typescript'),
+  ].filter(Boolean)
+  for (const candidate of candidates) {
+    try {
+      return require(candidate)
+    } catch (error) {
+      if (error.code !== 'MODULE_NOT_FOUND') throw error
+    }
+  }
+  console.error(
+    'The TypeScript parser is required to read the locale catalogues.\n' +
+      'Install it first:\n\n' +
+      '  npm --prefix apps/admin-web install --no-save typescript@5.6.3\n\n' +
+      'Or point I18N_TYPESCRIPT_PATH at an existing installation.',
+  )
+  process.exit(2)
+}
+
+const ts = loadTypeScript()
+const listMissing = process.argv.includes('--list')
 
 const root = path.resolve(__dirname, '..')
 const nonAscii = /[^\x20-\x7e]/
 const failures = []
+const missingByApp = new Map()
 
 function files(dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
@@ -61,9 +89,32 @@ for (const app of ['admin-web', 'user-web']) {
       if (nonAscii.test(key)) failures.push(`${path.relative(root, file)}:${line}: non-ASCII t() key ${JSON.stringify(key)}`)
       else if (!key.includes('${') && !/^\s*\+/.test(source.slice(calls.lastIndex)) && !catalogKeys.has(key)) {
         failures.push(`${path.relative(root, file)}:${line}: missing translation for ${JSON.stringify(key)}`)
+        if (!missingByApp.has(app)) missingByApp.set(app, new Map())
+        const byKey = missingByApp.get(app)
+        if (!byKey.has(key)) byKey.set(key, [])
+        byKey.get(key).push(`${path.relative(root, file)}:${line}`)
       }
     }
   }
+}
+
+if (listMissing) {
+  for (const [app, byKey] of missingByApp) {
+    const namespaces = new Map()
+    for (const [key, locations] of byKey) {
+      const namespace = key.split('.')[0]
+      if (!namespaces.has(namespace)) namespaces.set(namespace, [])
+      namespaces.get(namespace).push({ key, locations })
+    }
+    console.log(`\n===== ${app} — ${byKey.size} missing keys =====`)
+    for (const [namespace, entries] of [...namespaces.entries()].sort((a, b) => b[1].length - a[1].length)) {
+      console.log(`\n### ${namespace} (${entries.length})`)
+      for (const entry of entries) {
+        console.log(`  ${entry.key}   [${entry.locations.length}x ${entry.locations[0]}]`)
+      }
+    }
+  }
+  console.log('')
 }
 
 if (failures.length) {

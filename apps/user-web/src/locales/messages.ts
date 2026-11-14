@@ -5,6 +5,7 @@ import { ontologyGrantMessages } from './ontologyGrantMessages'
 import { orchestrationMessages } from './orchestrationMessages'
 import { pluginEnvironmentMessages } from './pluginEnvironmentMessages'
 import { reviewWorkflowMessages } from './reviewWorkflowMessages'
+import { legacyMessages } from './legacyMessages'
 
 export type Locale = 'zh' | 'en'
 export type MessageValue = string | Record<Locale, string>
@@ -17,6 +18,7 @@ export const messages = {
   ...ontologyGrantMessages,
   ...orchestrationMessages,
   ...reviewWorkflowMessages,
+  ...legacyMessages,
   'chat.question.title': { zh: '需要你的回答', en: 'Your input is needed' },
   'chat.question.subtitle': { zh: '回答后，助手会继续处理当前问题', en: 'The assistant will continue after you answer' },
   'chat.question.other': { zh: '填写其他答案', en: 'Enter another answer' },
