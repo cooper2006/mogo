@@ -368,6 +368,13 @@ export const appRoutes: RouteRecordRaw[] = [
             meta: { title: '出站审计日志' },
           },
           {
+            // ③: Sandbox 执行记录（每步 call 的扁平审计轨迹）
+            path: 'sandbox-executions',
+            name: 'SandboxExecutions',
+            component: () => import('@/views/sandbox/ExecutionRecordsPage.vue'),
+            meta: { title: 'Sandbox 执行记录' },
+          },
+          {
             // Token 统计归入「系统审计」二级菜单，绝对路径保留 /token-stats 既有 URL
             path: '/token-stats',
             name: 'TokenStats',

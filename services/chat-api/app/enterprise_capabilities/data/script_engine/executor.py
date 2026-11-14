@@ -194,7 +194,8 @@ class ScriptPluginExecutor(BaseExecutor):
                 if task_scope:
                     record_call(call_dir, action_id=run_id, skill_digest=skill_digest,
                                 duration_ms=int((time.monotonic() - started) * 1000),
-                                status="failed", error=str(exc), started_ns=started_ns)
+                                status="failed", error=str(exc), started_ns=started_ns,
+                                agent_id=node.assigned_agent)
                 raise
             duration_ms = int((time.monotonic() - started) * 1000)
             stdout = (completed.stdout or "")[: self._MAX_STDOUT_BYTES]
@@ -217,12 +218,14 @@ class ScriptPluginExecutor(BaseExecutor):
                     record_call(call_dir, action_id=run_id, skill_digest=skill_digest,
                                 duration_ms=duration_ms, status="failed", stdout=stdout,
                                 stderr=stderr, error=str(exc), started_ns=started_ns,
-                                image_ref=image_ref)
+                                image_ref=image_ref, agent_id=node.assigned_agent,
+                                exit_code=completed.returncode)
                 raise
             if task_scope:
                 record_call(call_dir, action_id=run_id, skill_digest=skill_digest,
                             duration_ms=duration_ms, status="succeeded", stdout=stdout,
-                            stderr=stderr, started_ns=started_ns, image_ref=image_ref)
+                            stderr=stderr, started_ns=started_ns, image_ref=image_ref,
+                            agent_id=node.assigned_agent, exit_code=completed.returncode)
             return artifacts
 
     def _materialize_input_files(self, *, input_dir: Path, node: CapabilityTask, inputs: CapabilityInputs) -> List[Dict[str, Any]]:

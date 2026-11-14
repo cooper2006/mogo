@@ -15,7 +15,7 @@ from .script_backend import task_workspace
 def record_call(
     call_dir: Path, *, action_id: str, skill_digest: str, duration_ms: int,
     status: str, stdout: str = "", stderr: str = "", error: str = "",
-    started_ns: int = 0, image_ref: str = "",
+    started_ns: int = 0, image_ref: str = "", agent_id: str = "", exit_code: int | None = None,
 ) -> None:
     task_root = call_dir.parents[2]
     audit_dir = task_root / "audit" / call_dir.name
@@ -39,19 +39,26 @@ def record_call(
         shutil.copy2(path, target)
         snapshots.append({"path": relative.as_posix(), "size": size,
                           "sha256": hashlib.sha256(target.read_bytes()).hexdigest()})
+    started_at = (
+        datetime.fromtimestamp(started_ns / 1_000_000_000, tz=timezone.utc).isoformat()
+        if started_ns else ""
+    )
     (audit_dir / "audit.json").write_text(json.dumps({
         "action_id": action_id,
         "skill_digest": skill_digest,
         "image_ref": image_ref,
+        "agent_id": agent_id,
+        "started_at": started_at,
         "completed_at": datetime.now(timezone.utc).isoformat(),
         "duration_ms": duration_ms,
         "status": status,
+        "exit_code": exit_code,
         "error": error[:8000],
         "files": snapshots,
     }, ensure_ascii=False), encoding="utf-8")
 
 
-def record_rejected_code(message_id: str, action_id: str, code: str, error: str) -> None:
+def record_rejected_code(message_id: str, action_id: str, code: str, error: str, agent_id: str = "") -> None:
     workspace = task_workspace(message_id)
     workspace.mkdir(parents=True, exist_ok=True)
     (workspace / "work").mkdir(exist_ok=True)
@@ -59,4 +66,4 @@ def record_rejected_code(message_id: str, action_id: str, code: str, error: str)
     call_dir.mkdir(parents=True)
     (call_dir / "source.py").write_text(code, encoding="utf-8")
     record_call(call_dir, action_id=action_id, skill_digest="", duration_ms=0,
-                status="rejected", error=error)
+                status="rejected", error=error, agent_id=agent_id)

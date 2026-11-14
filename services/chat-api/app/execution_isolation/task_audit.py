@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
+from pymongo import UpdateOne
 
 from app.core.db import get_db
 from app.utils.oss_uploader import AliyunOSSUploader
@@ -84,6 +85,30 @@ async def finalize_task_audit(*, message_id: str, tenant_id: str, user_id: str,
             storage.upload_bytes_with_path, archive, user_id, f"task-{task_key(message_id)}-audit.zip",
             "application/zip",
         )
+        # ③ Sandbox 执行记录：把每次 call 落为可查询的扁平文档
+        # （区别于 sandbox_task_audits 的 message 级嵌套 calls[]）。
+        flat = get_db().sandbox_execution_records
+        flat_ops = []
+        for c in calls:
+            flat_ops.append(UpdateOne(
+                {"_id": f"{tenant_id}:{message_id}:{c.get('call_id')}"},
+                {"$set": {
+                    "tenant_id": tenant_id, "user_id": user_id,
+                    "agent_id": c.get("agent_id") or "", "message_id": message_id,
+                    "conversation_id": conversation_id, "call_id": c.get("call_id"),
+                    "started_at": c.get("started_at") or "",
+                    "finished_at": c.get("completed_at") or "",
+                    "duration_ms": c.get("duration_ms") or 0,
+                    "exit_code": c.get("exit_code"),
+                    "status": c.get("status") or "",
+                    "rejected": (c.get("status") == "rejected"),
+                    "skill_digest": c.get("skill_digest") or "",
+                    "image_ref": c.get("image_ref") or "",
+                }},
+                upsert=True,
+            ))
+        if flat_ops:
+            await flat.bulk_write(flat_ops)
         await collection.update_one(
             {"_id": audit_id},
             {"$set": {

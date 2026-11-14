@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.routes import analytics, auth, approval_todos, capability_assets, connector_market, dashboard, deployment_status, directory, directory_import, directory_scope, dsh_plugins, egress, employees, external_search, gatekeeper_internal, governance, hooks, invite_history, invite_members, knowledge_directories, knowledge_documents, knowledge_settings, knowledge_source_settings, memories, menu_settings, models, offline_packages, ontologies, ontology_permission_internal, organizations, page_collection, personal_knowledge_internal, position_roles, portal_admin, presentation_settings, sandbox_images, sandbox_settings, setup, shortcut_settings, skill_canary, skill_eval, skill_lifecycle, skill_monitoring, skill_preparation_records, skills, system, system_audit, templates, tools, topic_admission, traffic_allocations, trust_ratings, compatibility
+from app.api.routes import analytics, auth, approval_todos, capability_assets, connector_market, dashboard, deployment_status, directory, directory_import, directory_scope, dsh_plugins, egress, employees, external_search, gatekeeper_internal, governance, hooks, invite_history, invite_members, knowledge_directories, knowledge_documents, knowledge_settings, knowledge_source_settings, memories, menu_settings, models, offline_packages, ontologies, ontology_permission_internal, organizations, page_collection, personal_knowledge_internal, position_roles, portal_admin, presentation_settings, sandbox_executions, sandbox_images, sandbox_settings, setup, shortcut_settings, skill_canary, skill_eval, skill_lifecycle, skill_monitoring, skill_preparation_records, skills, system, system_audit, templates, tools, topic_admission, traffic_allocations, trust_ratings, compatibility
 from app.api.routes.platform import tenants as platform_tenants
 
 api_router = APIRouter()
@@ -57,6 +57,7 @@ api_router.include_router(trust_ratings.router, tags=["trust-rating"])
 api_router.include_router(portal_admin.router, tags=["portal"])
 api_router.include_router(hooks.router, tags=["hooks"])
 api_router.include_router(egress.router, tags=["egress"])
+api_router.include_router(sandbox_executions.router, tags=["sandbox-executions"])  # ③ Sandbox 执行记录
 api_router.include_router(external_search.router, prefix="/settings/external-search", tags=["external-search"])
 api_router.include_router(page_collection.router, prefix="/settings/page-collection", tags=["page-collection"])
 api_router.include_router(presentation_settings.router, prefix="/settings/presentation", tags=["presentation-settings"])

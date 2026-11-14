@@ -467,6 +467,10 @@ async def startup_event() -> None:
     await db.chat_sessions.create_index([("tenant_id", 1), ("user_id", 1), ("updated_at", -1), ("_id", -1)])
     await db.chat_messages.create_index([("tenant_id", 1), ("user_id", 1), ("session_id", 1), ("seq", 1)])
     await db.execution_logs.create_index([("tenant_id", 1), ("session_id", 1), ("message_id", 1)])
+    # ③ Sandbox 执行记录：按租户 + 结束时间 / 状态 / 代理做列表过滤。
+    await db.sandbox_execution_records.create_index([("tenant_id", 1), ("finished_at", -1)])
+    await db.sandbox_execution_records.create_index([("tenant_id", 1), ("status", 1)])
+    await db.sandbox_execution_records.create_index([("tenant_id", 1), ("agent_id", 1)])
     await db.user_skills.create_index([("tenant_id", 1), ("user_id", 1), ("created_at", -1)])
     await db.user_skills.create_index(
         [("tenant_id", 1), ("user_id", 1), ("package_slug", 1)],

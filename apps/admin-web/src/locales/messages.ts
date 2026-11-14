@@ -29,6 +29,7 @@ import { shortcutMessages } from './modules/shortcuts';
 import { skillWorkflowMessages } from './modules/skillWorkflow';
 import { skillWorkflowEditorMessages } from './modules/skillWorkflowEditor';
 import { schemaDescriptionMessages } from './schemaDescriptionMessages';
+import { sandboxExecutionMessages } from './modules/sandboxExecutions';
 
 export type Locale = 'zh-CN' | 'en-US';
 export type MessageKey = keyof typeof messages;
@@ -56,6 +57,7 @@ export const messages = {
   ...skillWorkflowMessages,
   ...skillWorkflowEditorMessages,
   ...schemaDescriptionMessages,
+  ...sandboxExecutionMessages,
   ...uncoveredMessages,
   ...dshPluginMessages,
   ...skillDependencyMessages,
