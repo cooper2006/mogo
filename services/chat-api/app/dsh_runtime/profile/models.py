@@ -85,7 +85,6 @@ class RuntimeProfileSnapshot(BaseModel):
     ) -> dict[str, object]:
         payload: dict[str, object] = {
             "profileVersion": self.profile_version,
-            "subjectUserId": self.subject_user_id,
             "modelInstanceId": self.model_instance_id,
             "modelName": self.model_name,
             "displayName": self.display_name,
