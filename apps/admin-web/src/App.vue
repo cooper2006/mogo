@@ -19,7 +19,7 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue';
 import { zhCN, dateZhCN, enUS, dateEnUS, darkTheme } from 'naive-ui';
-import { useLocale } from '@/composables/i18n';
+import { t, useLocale } from '@/composables/i18n';
 import { useTheme } from '@/composables/theme';
 
 const { locale } = useLocale();

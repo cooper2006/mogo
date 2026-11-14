@@ -42,6 +42,20 @@ function files(dir) {
   })
 }
 
+// A template that calls t() without binding t in <script setup> compiles to
+// `_ctx.t(...)`, which is undefined at runtime and crashes the whole app with
+// "c.t is not a function". Detect the missing binding before it reaches a build.
+function hasTBinding(script) {
+  const patterns = [
+    /import\s*\{[^}]*\bt\b[^}]*\}\s*from\s*['"][^'"]*i18n['"]/, // import { t } from '@/composables/i18n'
+    /\b(?:const|let|var)\s*\{[^}]*\bt\b[^}]*\}\s*=/, // const { t } = useI18n()
+    /\b(?:const|let|var)\s+t\s*=/,
+    /\bfunction\s+t\s*\(/,
+    /\bt\s*:\s*[^,}]+/, // returned from setup(): { t, ... }
+  ]
+  return patterns.some(pattern => pattern.test(script))
+}
+
 for (const app of ['admin-web', 'user-web']) {
   const sourceRoot = path.join(root, 'apps', app, 'src')
   const sourceFiles = files(sourceRoot).filter(file => /\.(ts|tsx|vue)$/.test(file))
@@ -73,12 +87,23 @@ for (const app of ['admin-web', 'user-web']) {
   for (const file of sourceFiles) {
     const source = fs.readFileSync(file, 'utf8')
     if (file.endsWith('.vue')) {
-      const template = source.split(/<script\b/i, 1)[0].replace(/<!--[\s\S]*?-->/g, '')
+      // Blank out the script blocks but keep the line count, so reported line
+      // numbers still match the original file.
+      const scriptBlocks = []
+      const template = source.replace(/<script\b[\s\S]*?<\/script>/gi, block => {
+        scriptBlocks.push(block)
+        return block.replace(/[^\n]/g, '')
+      })
       for (const match of template.matchAll(/(?:^|[\s<])(?:aria-label|title|placeholder)="([^"]*)"/gm)) {
         if (/[\u3400-\u9fff]/u.test(match[1])) failures.push(`${path.relative(root, file)}: hard-coded Chinese template attribute ${JSON.stringify(match[1])}`)
       }
       for (const match of template.matchAll(/>\s*([^<{]*[\u3400-\u9fff][^<{]*)\s*</gu)) {
         failures.push(`${path.relative(root, file)}: hard-coded Chinese template text ${JSON.stringify(match[1].trim())}`)
+      }
+      const tCall = /(?<![\w$.])t\s*\(/.exec(template)
+      if (tCall && !hasTBinding(scriptBlocks.join('\n'))) {
+        const line = template.slice(0, tCall.index).split('\n').length
+        failures.push(`${path.relative(root, file)}:${line}: template calls t() but the component never binds t`)
       }
     }
     const calls = /\bt\(\s*(['"`])((?:\\.|(?!\1)[\s\S])*?)\1/g
