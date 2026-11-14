@@ -284,28 +284,23 @@ onBeforeRouteLeave(() => {
     >
       <template #actions>
         <NSpace>
-          <NButton size="small" @click="refresh(true)">刷新</NButton>
-          <NButton size="small" @click="showDiff = true">变更预览</NButton>
-          <NButton size="small" @click="onReset">恢复默认</NButton>
+          <NButton size="small" @click="refresh(true)">{{ t('刷新') }}</NButton>
+          <NButton size="small" @click="showDiff = true">{{ t('变更预览') }}</NButton>
+          <NButton size="small" @click="onReset">{{ t('恢复默认') }}</NButton>
           <NButton
             size="small"
             type="primary"
             :loading="menuStore.saving"
             :disabled="!dirty"
             @click="onSave"
-          >保存</NButton>
+          >{{ t('保存') }}</NButton>
         </NSpace>
       </template>
     </PageIntro>
 
-    <NAlert type="warning" :bordered="false" style="margin-bottom: 16px">
-      菜单配置只控制<strong>展示</strong>，不是权限：隐藏某个菜单后，直接输入 URL 仍可打开该页面。
-      访问控制由后端接口与角色判定负责。锁定项（工作台 / 菜单管理 / 平台控制台）不可隐藏。
-    </NAlert>
+    <NAlert type="warning" :bordered="false" style="margin-bottom: 16px">{{ t('菜单配置只控制') }}<strong>{{ t('展示') }}</strong>{{ t('，不是权限：隐藏某个菜单后，直接输入 URL 仍可打开该页面。\n      访问控制由后端接口与角色判定负责。锁定项（工作台 / 菜单管理 / 平台控制台）不可隐藏。') }}</NAlert>
 
-    <NAlert v-if="menuStore.loadFailed" type="error" :bordered="false" style="margin-bottom: 16px">
-      菜单配置接口暂不可用，当前展示的是系统默认菜单；此时保存可能失败，请稍后点「刷新」重试。
-    </NAlert>
+    <NAlert v-if="menuStore.loadFailed" type="error" :bordered="false" style="margin-bottom: 16px">{{ t('菜单配置接口暂不可用，当前展示的是系统默认菜单；此时保存可能失败，请稍后点「刷新」重试。') }}</NAlert>
 
     <NCard>
       <template #header>
@@ -314,12 +309,10 @@ onBeforeRouteLeave(() => {
             <NInput
               v-model:value="search"
               clearable
-              placeholder="搜索路径或名称"
+              :placeholder="t('搜索路径或名称')"
               style="width: 240px"
             />
-            <NButton size="small" :type="onlyModified ? 'primary' : 'default'" @click="onlyModified = !onlyModified">
-              仅看已修改
-            </NButton>
+            <NButton size="small" :type="onlyModified ? 'primary' : 'default'" @click="onlyModified = !onlyModified">{{ t('仅看已修改') }}</NButton>
             <NTag size="small" :bordered="false">已修改 {{ modifiedCount }} 项</NTag>
             <span v-if="menuStore.updatedAt" class="menu-meta">上次保存：{{ menuStore.updatedAt }}</span>
           </NSpace>
@@ -339,24 +332,24 @@ onBeforeRouteLeave(() => {
           <div class="menu-row__info">
             <span class="menu-row__title">{{ displayTitle(item.row) }}</span>
             <code class="menu-row__path">{{ item.row.def.key }}</code>
-            <NTag v-if="item.row.def.isGroup" size="small" :bordered="false">分组</NTag>
-            <NTag v-if="item.row.locked" size="small" type="warning" :bordered="false">锁定</NTag>
-            <NTag v-if="item.row.def.platformOnly" size="small" :bordered="false">平台</NTag>
-            <NTag v-if="isModified(item.row)" size="small" type="success" :bordered="false">已修改</NTag>
-            <NTag v-else size="small" :bordered="false">默认</NTag>
-            <NTag v-if="!item.row.visible" size="small" type="error" :bordered="false">已隐藏</NTag>
+            <NTag v-if="item.row.def.isGroup" size="small" :bordered="false">{{ t('分组') }}</NTag>
+            <NTag v-if="item.row.locked" size="small" type="warning" :bordered="false">{{ t('锁定') }}</NTag>
+            <NTag v-if="item.row.def.platformOnly" size="small" :bordered="false">{{ t('平台') }}</NTag>
+            <NTag v-if="isModified(item.row)" size="small" type="success" :bordered="false">{{ t('已修改') }}</NTag>
+            <NTag v-else size="small" :bordered="false">{{ t('默认') }}</NTag>
+            <NTag v-if="!item.row.visible" size="small" type="error" :bordered="false">{{ t('已隐藏') }}</NTag>
           </div>
           <div class="menu-row__controls">
             <NSwitch
               v-model:value="item.row.visible"
               :disabled="item.row.locked"
               size="small"
-              aria-label="菜单显示"
+              :aria-label="t('菜单显示')"
             />
             <NInput
               v-model:value="item.row.labelZh"
               size="small"
-              placeholder="中文名（留空用默认）"
+              :placeholder="t('中文名（留空用默认）')"
               style="width: 170px"
             />
             <NInput
@@ -370,7 +363,7 @@ onBeforeRouteLeave(() => {
               :options="ICON_OPTIONS"
               clearable
               size="small"
-              placeholder="图标"
+              :placeholder="t('图标')"
               style="width: 130px"
             />
             <NButton size="tiny" :disabled="!canMove(item.row, -1)" @click="move(item.row, -1)">↑</NButton>
@@ -379,9 +372,9 @@ onBeforeRouteLeave(() => {
               v-if="isModified(item.row)"
               size="tiny"
               quaternary
-              title="还原本行显示与名称，并把所在分组的顺序恢复默认"
+              :title="t('还原本行显示与名称，并把所在分组的顺序恢复默认')"
               @click="resetRow(item.row)"
-            >还原</NButton>
+            >{{ t('还原') }}</NButton>
           </div>
         </div>
       </div>
@@ -397,9 +390,7 @@ onBeforeRouteLeave(() => {
         </div>
       </template>
       <div v-if="showReadonly" class="mg-card__body">
-        <p class="menu-meta" style="margin: 0 0 12px">
-          以下为隐藏页面与旧路径重定向，仅用于查看现有 URL 与跳转目标，不能编入菜单树。
-        </p>
+        <p class="menu-meta" style="margin: 0 0 12px">{{ t('以下为隐藏页面与旧路径重定向，仅用于查看现有 URL 与跳转目标，不能编入菜单树。') }}</p>
         <NDataTable
           :columns="readonlyColumns"
           :data="menuCatalog.readonly"
@@ -413,7 +404,7 @@ onBeforeRouteLeave(() => {
       </div>
     </NCard>
 
-    <NModal v-model:show="showDiff" title="变更预览" preset="card" style="width: 720px">
+    <NModal v-model:show="showDiff" :title="t('变更预览')" preset="card" style="width: 720px">
       <NEmpty v-if="!diffLines.length" description="当前没有未保存的变更" />
       <NDataTable v-else :columns="[
         { title: '路径', key: 'key', width: 220 },

@@ -2319,9 +2319,7 @@ function formatErrorMessage(raw: string): string {
             <template v-else>
               <div class="rounded-2xl rounded-br-sm bg-blue-50 p-4 shadow-sm">
                 <div v-if="msg.trigger_source === 'scheduled'" class="mb-2 inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-700">
-                  <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-                  定时任务自动发送
-                </div>
+                  <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>{{ t('定时任务自动发送') }}</div>
                 <AnsweredQuestionMessage v-if="msg.question_answer" :entry="msg.question_answer" />
                 <div v-else class="whitespace-pre-wrap leading-7">{{ normalizeUserContent(msg.content) }}</div>
                 <div v-if="msg.images?.length" class="mt-3 flex flex-wrap gap-2">

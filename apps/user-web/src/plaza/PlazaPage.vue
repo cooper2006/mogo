@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../composables/i18n'
 /**
  * /plaza 模板广场页（053-plaza-template-distribution，user-web 门户侧）。
  * 目录（租户内已上架模板）→ 详情（版本序列）→ 克隆入口提示。
@@ -53,19 +54,19 @@ onMounted(load)
 <template>
   <div class="plaza-page">
     <header class="plaza-header">
-      <h1>模板广场</h1>
-      <p>从广场复制模板到你名下，得到可编辑副本；原件只读，不受影响。</p>
+      <h1>{{ t('模板广场') }}</h1>
+      <p>{{ t('从广场复制模板到你名下，得到可编辑副本；原件只读，不受影响。') }}</p>
     </header>
 
     <div class="plaza-filters">
-      <button :class="{ active: assetType === 'all' }" @click="setType('all')">全部</button>
-      <button :class="{ active: assetType === 'employee_template' }" @click="setType('employee_template')">员工模板</button>
-      <button :class="{ active: assetType === 'sop_template' }" @click="setType('sop_template')">SOP 模板</button>
+      <button :class="{ active: assetType === 'all' }" @click="setType('all')">{{ t('全部') }}</button>
+      <button :class="{ active: assetType === 'employee_template' }" @click="setType('employee_template')">{{ t('员工模板') }}</button>
+      <button :class="{ active: assetType === 'sop_template' }" @click="setType('sop_template')">{{ t('SOP 模板') }}</button>
     </div>
 
-    <p v-if="loading" class="plaza-hint">加载中…</p>
+    <p v-if="loading" class="plaza-hint">{{ t('加载中…') }}</p>
     <p v-else-if="error" class="plaza-error">{{ error }}</p>
-    <p v-else-if="filtered.length === 0" class="plaza-hint">暂无模板</p>
+    <p v-else-if="filtered.length === 0" class="plaza-hint">{{ t('暂无模板') }}</p>
 
     <ul v-else class="plaza-grid">
       <li v-for="item in filtered" :key="item.template_id" class="plaza-card">
@@ -79,9 +80,7 @@ onMounted(load)
           <span>上架者：{{ item.owner_id || '—' }}</span>
           <span>分类：{{ item.category || '未分类' }}</span>
         </div>
-        <button class="plaza-clone" @click="cloneHint">
-          复制到我的
-        </button>
+        <button class="plaza-clone" @click="cloneHint">{{ t('复制到我的') }}</button>
       </li>
     </ul>
   </div>

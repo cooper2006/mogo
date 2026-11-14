@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from app.api.principal import ApiPrincipal, require_api_principal
 from app.dsh_runtime.plugin_management.installer import DshPluginInstaller, PluginInstallError
+from app.dsh_runtime.plugin_management.preflight import inspect_plugin_spec
 from app.dsh_runtime.plugin_management.repository import PluginInstallationRepository
-from app.dsh_runtime.plugin_management.source_policy import is_safe_personal_source
+from app.dsh_runtime.plugin_management.source_policy import is_safe_personal_source, is_supported_plugin_source
+from app.dsh_runtime.profile.plugins import MongoPluginCatalog
+from app.dsh_runtime.profile.plugin_skill_selection import selection_id
+from app.dsh_runtime.profile.plugin_command_selection import selection_id as command_selection_id
+from app.product.execution_access import execution_is_allowed
+from app.dsh_runtime.application import dsh_runtime_application
+from app.dsh_runtime.plugin_ui.public_origin import plugin_ui_public_origin
+from app.dsh_runtime.plugin_ui.session_navigation import resolve_conversation
 from app.dsh_runtime.plugin_management.archive_store import delete_archive, save_archive, MAX_ARCHIVE_BYTES
 from app.core.db import get_db
 from app.utils.uploads import read_upload_with_limit
@@ -40,6 +48,158 @@ def _owner(principal: ApiPrincipal, scope: str) -> str:
 
 def _result(data):
     return {"code": 0, "message": "success", "data": data}
+
+
+async def _running_version() -> str:
+    try:
+        return await running_dsh_version()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="dsh_runtime_unavailable") from exc
+
+
+async def _require_personal_execution(principal: ApiPrincipal, owner: str) -> None:
+    if owner and not await execution_is_allowed(
+        main_id=principal.tenant_id, user_id=owner, capability="plugin.runtime",
+    ):
+        raise HTTPException(status_code=403, detail="plugin_runtime_access_denied")
+
+
+@router.get("/personal/selectable-skills")
+async def selectable_plugin_skills(
+    scope: str = "all", keyword: str = "", cursor: int = 0, limit: int = 20,
+    principal: ApiPrincipal = Depends(require_api_principal),
+):
+    if principal.kind != "end_user":
+        raise HTTPException(status_code=403, detail="personal_plugin_user_required")
+    if scope not in {"all", "user", "organization"} or cursor < 0 or not 1 <= limit <= 50:
+        raise HTTPException(status_code=400, detail="invalid_plugin_skill_query")
+    query = keyword.strip().casefold()
+    items = []
+    for plugin in await MongoPluginCatalog().list_enabled(principal.tenant_id, principal.user_id):
+        source_scope = "user" if plugin["source_scope"] == "personal" else "organization"
+        if scope != "all" and scope != source_scope:
+            continue
+        for skill in plugin.get("skills") or []:
+            if skill.get("userInvocable") is not True:
+                continue
+            name = skill["name"]
+            description = skill.get("description") or ""
+            if query and query not in f"{name} {description} {plugin['name']}".casefold():
+                continue
+            items.append({
+                "id": selection_id(plugin["installation_id"], name),
+                "mainId": principal.tenant_id,
+                "name": name,
+                "description": description,
+                "scenario": "",
+                "type": "ordinary",
+                "sourceScope": source_scope,
+                "pluginName": plugin["name"],
+                "enabled": True,
+                "available": True,
+            })
+    page = items[cursor:cursor + limit]
+    next_cursor = cursor + len(page)
+    return _result({"items": page, "nextCursor": str(next_cursor) if next_cursor < len(items) else "",
+                    "hasMore": next_cursor < len(items)})
+
+
+@router.get("/personal/selectable-commands")
+async def selectable_plugin_commands(
+    scope: str = "all", keyword: str = "", cursor: int = 0, limit: int = 20,
+    principal: ApiPrincipal = Depends(require_api_principal),
+):
+    if principal.kind != "end_user":
+        raise HTTPException(status_code=403, detail="personal_plugin_user_required")
+    if scope not in {"all", "user", "organization"} or cursor < 0 or not 1 <= limit <= 50:
+        raise HTTPException(status_code=400, detail="invalid_plugin_command_query")
+    query = keyword.strip().casefold()
+    items = []
+    for plugin in await MongoPluginCatalog().list_enabled(principal.tenant_id, principal.user_id):
+        source_scope = "user" if plugin["source_scope"] == "personal" else "organization"
+        if scope != "all" and scope != source_scope:
+            continue
+        for command in plugin.get("commands") or []:
+            if not command.get("definitionId"):
+                continue
+            name = str(command["name"])
+            description = str(command.get("description") or "")
+            if query and query not in f"{name} {description} {plugin['name']}".casefold():
+                continue
+            items.append({
+                "id": command_selection_id(plugin["installation_id"], name),
+                "mainId": principal.tenant_id,
+                "name": name, "description": description,
+                "scenario": "", "type": "ordinary", "entryKind": "command",
+                "sourceScope": source_scope, "pluginName": plugin["name"],
+                "enabled": True, "available": True,
+            })
+    page = items[cursor:cursor + limit]
+    next_cursor = cursor + len(page)
+    return _result({"items": page, "nextCursor": str(next_cursor) if next_cursor < len(items) else "",
+                    "hasMore": next_cursor < len(items)})
+
+
+@router.get("/personal/execution-access")
+async def personal_plugin_execution_access(
+    principal: ApiPrincipal = Depends(require_api_principal),
+):
+    if principal.kind != "end_user":
+        raise HTTPException(status_code=403, detail="personal_plugin_user_required")
+    allowed = await execution_is_allowed(
+        main_id=principal.tenant_id, user_id=principal.user_id, capability="plugin.runtime",
+    )
+    return _result({"allowed": allowed})
+
+
+@router.post("/personal/{plugin_id}/ui-launch")
+async def launch_plugin_ui(
+    plugin_id: str, request: Request,
+    principal: ApiPrincipal = Depends(require_api_principal),
+):
+    if principal.kind != "end_user":
+        raise HTTPException(status_code=403, detail="personal_plugin_user_required")
+    payload = await request.json()
+    conversation_id = payload.get("conversationId") if isinstance(payload, dict) else None
+    if conversation_id is not None and (not isinstance(conversation_id, str) or len(conversation_id) > 128):
+        raise HTTPException(status_code=400, detail="plugin_ui_session_invalid")
+    ticket, kernel_session_id = await dsh_runtime_application.require_plugin_ui().launch(
+        tenant_id=principal.tenant_id, user_id=principal.user_id, plugin_id=plugin_id,
+        conversation_id=conversation_id,
+    )
+    return _result({"url": f"{plugin_ui_public_origin(request)}/launch?ticket={ticket}",
+                    "kernelSessionId": kernel_session_id})
+
+
+@router.get("/personal/ui-sessions/{kernel_session_id}")
+async def resolve_plugin_ui_session(
+    kernel_session_id: str,
+    principal: ApiPrincipal = Depends(require_api_principal),
+):
+    if principal.kind != "end_user":
+        raise HTTPException(status_code=403, detail="personal_plugin_user_required")
+    conversation_id = await resolve_conversation(
+        get_db(), tenant_id=principal.tenant_id, user_id=principal.user_id,
+        kernel_session_id=kernel_session_id,
+    )
+    return _result({"conversationId": conversation_id})
+
+
+@router.post("/{scope}/preflight")
+async def preflight_plugin(
+    scope: str, body: InstallRequest,
+    principal: ApiPrincipal = Depends(require_api_principal),
+):
+    owner = _owner(principal, scope)
+    await _require_personal_execution(principal, owner)
+    if not is_supported_plugin_source(body.spec):
+        raise HTTPException(status_code=400, detail="plugin_source_must_be_prebuilt")
+    if owner and not is_safe_personal_source(body.spec):
+        raise HTTPException(status_code=400, detail="personal_plugin_source_must_be_public")
+    try:
+        return _result(await inspect_plugin_spec(body.spec))
+    except PluginInstallError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/{scope}")
@@ -108,6 +268,9 @@ async def install_plugin(
     principal: ApiPrincipal = Depends(require_api_principal),
 ):
     owner = _owner(principal, scope)
+    await _require_personal_execution(principal, owner)
+    if not is_supported_plugin_source(body.spec):
+        raise HTTPException(status_code=400, detail="plugin_source_must_be_prebuilt")
     if owner and not is_safe_personal_source(body.spec):
         raise HTTPException(status_code=400, detail="personal_plugin_source_must_be_public")
     try:

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '@/composables/i18n';
 // 053-plaza-template-distribution —— 模板管理页（US1 / US2 / US3）。
 // 上架（032 门禁 + 001 审批接线）、克隆、版本升级入口；i18n 经 messages 表。
 import { computed, h, onMounted, ref } from 'vue';
@@ -139,23 +140,23 @@ onMounted(load);
 <template>
   <div>
     <PageIntro
-      title="模板管理"
+      :title="t('模板管理')"
       description="员工 / SOP 模板上架（032 门禁）、克隆副本与版本升级。"
     />
     <NCard>
       <template #header>
         <NSpace align="center">
-          <span>模板列表</span>
+          <span>{{ t('模板列表') }}</span>
           <NSelect
             v-model:value="assetType"
             :options="typeOptions"
             clearable
-            placeholder="全部类型"
+            :placeholder="t('全部类型')"
             style="width: 160px"
             @update:value="load"
           />
-          <NButton type="primary" @click="showCreate = true">新建模板</NButton>
-          <NButton @click="load">刷新</NButton>
+          <NButton type="primary" @click="showCreate = true">{{ t('新建模板') }}</NButton>
+          <NButton @click="load">{{ t('刷新') }}</NButton>
         </NSpace>
       </template>
       <NEmpty v-if="!loading && templates.length === 0" description="暂无模板" />
@@ -173,27 +174,27 @@ onMounted(load);
             size="small"
             type="primary"
             @click="onPublish(row)"
-          >上架</NButton>
+          >{{ t('上架') }}</NButton>
           <NButton
             v-if="row.state === 'published'"
             size="small"
             type="warning"
             @click="onUnpublish(row)"
-          >下架</NButton>
+          >{{ t('下架') }}</NButton>
           <NButton
             v-if="row.state === 'published'"
             size="small"
             @click="openClone(row)"
-          >克隆</NButton>
+          >{{ t('克隆') }}</NButton>
         </template>
       </NSpace>
       <p v-if="error" style="color: #d03050">{{ error }}</p>
     </NCard>
 
-    <NModal v-model:show="showCreate" title="新建模板" preset="card" style="width: 520px">
+    <NModal v-model:show="showCreate" :title="t('新建模板')" preset="card" style="width: 520px">
       <NForm>
         <NFormItem label="名称">
-          <NInput v-model:value="createForm.name" placeholder="如：合同审查 SOP" />
+          <NInput v-model:value="createForm.name" :placeholder="t('如：合同审查 SOP')" />
         </NFormItem>
         <NFormItem label="类型">
           <NSelect v-model:value="createForm.asset_type" :options="typeOptions" />
@@ -204,26 +205,26 @@ onMounted(load);
       </NForm>
       <template #footer>
         <NSpace justify="end">
-          <NButton @click="showCreate = false">取消</NButton>
-          <NButton type="primary" @click="onCreate">创建</NButton>
+          <NButton @click="showCreate = false">{{ t('取消') }}</NButton>
+          <NButton type="primary" @click="onCreate">{{ t('创建') }}</NButton>
         </NSpace>
       </template>
     </NModal>
 
-    <NModal v-model:show="showClone" title="克隆模板" preset="card" style="width: 520px">
+    <NModal v-model:show="showClone" :title="t('克隆模板')" preset="card" style="width: 520px">
       <p v-if="cloneTarget">将克隆「{{ cloneTarget.name }}」到你名下（副本可改，原件只读）。</p>
       <NForm style="margin-top: 12px">
         <NFormItem label="克隆者 ID">
-          <NInput v-model:value="cloneForm.cloner_id" placeholder="克隆者标识" />
+          <NInput v-model:value="cloneForm.cloner_id" :placeholder="t('克隆者标识')" />
         </NFormItem>
         <NFormItem label="副本名称">
-          <NInput v-model:value="cloneForm.name" placeholder="留空则沿用模板名（自动去重）" />
+          <NInput v-model:value="cloneForm.name" :placeholder="t('留空则沿用模板名（自动去重）')" />
         </NFormItem>
       </NForm>
       <template #footer>
         <NSpace justify="end">
-          <NButton @click="showClone = false">取消</NButton>
-          <NButton type="primary" @click="onClone">克隆</NButton>
+          <NButton @click="showClone = false">{{ t('取消') }}</NButton>
+          <NButton type="primary" @click="onClone">{{ t('克隆') }}</NButton>
         </NSpace>
       </template>
     </NModal>

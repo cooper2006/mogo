@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from typing import Any
 
 from app.core.config import get_settings
@@ -30,6 +31,7 @@ from app.dsh_runtime.profile.store import MongoRuntimeProfileStore
 from app.dsh_runtime.runtime_coordinator import RuntimeCoordinator
 from app.dsh_runtime.desktop_bootstrap import DesktopRuntimeBootstrapService
 from app.dsh_runtime.desktop_binding import DesktopCodeBindingService
+from app.dsh_runtime.plugin_ui.service import PluginUiService
 from app.dsh_runtime.directory_browser import DirectoryBrowserService
 from app.dsh_runtime.transport import HttpKernelHostTransport, configured_runtime_hosts
 from app.enterprise_capabilities.tools import EnterpriseToolRepository, EnterpriseToolService
@@ -55,6 +57,7 @@ class DshRuntimeApplication:
         self.directory_browser: DirectoryBrowserService | None = None
         # 组织级话题准入闸门：服务端回合与桌面回合都必须在模型调用前经过它。
         self.topic_admission: TopicAdmissionService | None = None
+        self.plugin_ui: PluginUiService | None = None
         self.host_healthy = False
         self.host_health_details: list[dict[str, Any]] = []
 
@@ -142,20 +145,27 @@ class DshRuntimeApplication:
             )
         )
         self.topic_admission = TopicAdmissionService(db)
+        coordinator = RuntimeCoordinator(
+            gateway,
+            bindings,
+            SessionAffinityCache(
+                settings.DSH_RUNTIME_REPLICA_URLS and settings.DSH_KERNEL_REDIS_URL or None,
+                ttl_seconds=settings.DSH_SESSION_AFFINITY_CACHE_TTL_SECONDS,
+            ),
+            RuntimeLock(
+                settings.DSH_KERNEL_REDIS_URL or None,
+                ttl_seconds=settings.DSH_RUNTIME_LOCK_TTL_SECONDS,
+            ) if settings.DSH_RUNTIME_DISTRIBUTED_LOCK else None,
+        )
+        self.plugin_ui = PluginUiService(
+            publisher=publisher, coordinator=coordinator,
+            runtime_host_url=settings.DSH_RUNTIME_HOST_URL,
+            runtime_host_token=settings.DSH_RUNTIME_HOST_TOKEN,
+            signing_secret=secret or settings.DSH_RUNTIME_HOST_TOKEN or secrets.token_urlsafe(48),
+        )
         self.chat = DshChatService(
             gateway=gateway,
-            coordinator=RuntimeCoordinator(
-                gateway,
-                bindings,
-                SessionAffinityCache(
-                    settings.DSH_RUNTIME_REPLICA_URLS and settings.DSH_KERNEL_REDIS_URL or None,
-                    ttl_seconds=settings.DSH_SESSION_AFFINITY_CACHE_TTL_SECONDS,
-                ),
-                RuntimeLock(
-                    settings.DSH_KERNEL_REDIS_URL or None,
-                    ttl_seconds=settings.DSH_RUNTIME_LOCK_TTL_SECONDS,
-                ) if settings.DSH_RUNTIME_DISTRIBUTED_LOCK else None,
-            ),
+            coordinator=coordinator,
             conversations=conversations,
             bindings=bindings,
             events=events,
@@ -168,6 +178,8 @@ class DshRuntimeApplication:
         )
 
     async def stop(self) -> None:
+        if self.plugin_ui is not None:
+            await self.plugin_ui.close()
         if self.chat is not None:
             await self.chat.shutdown()
         if self._transport is not None:
@@ -178,6 +190,7 @@ class DshRuntimeApplication:
         self.desktop_bootstrap = None
         self.desktop_bindings = None
         self.topic_admission = None
+        self.plugin_ui = None
         self._transport = None
         self.host_healthy = False
 
@@ -209,6 +222,11 @@ class DshRuntimeApplication:
         self.host_health_details = await self._probe_hosts()
         self.host_healthy = any(detail["healthy"] for detail in self.host_health_details)
         return self.host_healthy
+
+    def require_plugin_ui(self) -> PluginUiService:
+        if self.plugin_ui is None:
+            raise RuntimeError("DSH Plugin UI is not started")
+        return self.plugin_ui
 
     def require_transport(self) -> HttpKernelHostTransport:
         if self._transport is None:

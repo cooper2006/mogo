@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '@/composables/i18n';
 import { computed, h, onMounted, reactive, ref } from 'vue';
 import { NButton, NCard, NDataTable, NInput, NSelect, NSpace, NTag, type DataTableColumns } from 'naive-ui';
 import PageIntro from '@/components/PageIntro.vue';
@@ -120,7 +121,7 @@ onMounted(load);
 <template>
   <div class="page-container">
     <PageIntro
-      title="出站审计日志"
+      :title="t('出站审计日志')"
       description="运行时出站判定（egress.allowed / egress.denied）的审计轨迹：未命中白名单的出站调用被拒并落此记录。"
       :tags="['038 出站沙箱', '审计']"
     />
@@ -129,13 +130,13 @@ onMounted(load);
         <NSelect v-model:value="filters.event" :options="eventOptions" style="width: 160px" @update:value="search" />
         <NInput
           v-model:value="filters.domain"
-          placeholder="按域名过滤"
+          :placeholder="t('按域名过滤')"
           style="width: 220px"
           clearable
           @keyup.enter="search"
           @clear="search"
         />
-        <NButton size="small" type="primary" @click="search">查询</NButton>
+        <NButton size="small" type="primary" @click="search">{{ t('查询') }}</NButton>
       </NSpace>
 
       <p v-if="errorMsg" style="color: #d03050">{{ errorMsg }}</p>
@@ -151,7 +152,7 @@ onMounted(load);
         @update:page="onPageChange"
         @update:page-size="onPageSizeChange"
       />
-      <p v-if="!loading && !errorMsg && rows.length === 0" style="color: #888">暂无审计记录。</p>
+      <p v-if="!loading && !errorMsg && rows.length === 0" style="color: #888">{{ t('暂无审计记录。') }}</p>
     </NCard>
   </div>
 </template>

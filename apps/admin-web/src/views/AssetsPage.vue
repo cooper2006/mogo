@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '@/composables/i18n';
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { NCard, NButton, NTag, NSelect, NEmpty, NAffix } from 'naive-ui';
@@ -155,34 +156,31 @@ onMounted(loadAll);
 
 <template>
   <div class="mg-page">
-    <PageIntro title="资产中心" description="统一查看技能与能力资产的上架、评级与申领状态。" />
+    <PageIntro :title="t('资产中心')" description="统一查看技能与能力资产的上架、评级与申领状态。" />
 
     <NAffix :offset-distance="80">
       <div class="filter-bar">
         <div class="filter-field">
-          <div class="mg-caption">资产类型</div>
+          <div class="mg-caption">{{ t('资产类型') }}</div>
           <NSelect
             v-model:value="assetCategory"
             :options="[{ label: '全部', value: 'all' }, ...categoryOptions]"
             style="width: 160px"
           />
         </div>
-        <div class="summary-line mg-text-2">
-          技能 <strong>{{ categorySummary.skill }}</strong>
-          · MCP <strong>{{ categorySummary.mcp }}</strong>
-          · 工具 <strong>{{ categorySummary.tool }}</strong>
-          · 连接器 <strong>{{ categorySummary.connector }}</strong>
+        <div class="summary-line mg-text-2">{{ t('技能') }}<strong>{{ categorySummary.skill }}</strong>
+          · MCP <strong>{{ categorySummary.mcp }}</strong>{{ t('· 工具') }}<strong>{{ categorySummary.tool }}</strong>{{ t('· 连接器') }}<strong>{{ categorySummary.connector }}</strong>
         </div>
-        <NButton size="small" :loading="loading" @click="loadAll">刷新</NButton>
+        <NButton size="small" :loading="loading" @click="loadAll">{{ t('刷新') }}</NButton>
       </div>
     </NAffix>
 
-    <div v-if="loading" class="state-block mg-text-3">加载中…</div>
+    <div v-if="loading" class="state-block mg-text-3">{{ t('加载中…') }}</div>
 
     <div v-else-if="error" class="state-block state-block--error">
       <div>{{ error }}</div>
       <div class="state-retry">
-        <NButton size="tiny" @click="loadAll">重试</NButton>
+        <NButton size="tiny" @click="loadAll">{{ t('重试') }}</NButton>
       </div>
     </div>
 
@@ -209,15 +207,15 @@ onMounted(loadAll);
             </div>
           </div>
           <div class="asset-tags">
-            <NTag v-if="row.listed" type="success" size="small">已上架</NTag>
-            <NTag v-else type="default" size="small">未上架</NTag>
+            <NTag v-if="row.listed" type="success" size="small">{{ t('已上架') }}</NTag>
+            <NTag v-else type="default" size="small">{{ t('未上架') }}</NTag>
             <NTag v-if="row.level" size="small" :bordered="false">评级 {{ row.level }}</NTag>
           </div>
         </div>
         <div class="asset-actions">
-          <NButton size="tiny" quaternary @click="goTrustRating(row)">评级</NButton>
-          <NButton size="tiny" quaternary @click="goPortalListing(row)">上架</NButton>
-          <NButton size="tiny" quaternary @click="goPortalApproval(row)">申领</NButton>
+          <NButton size="tiny" quaternary @click="goTrustRating(row)">{{ t('评级') }}</NButton>
+          <NButton size="tiny" quaternary @click="goPortalListing(row)">{{ t('上架') }}</NButton>
+          <NButton size="tiny" quaternary @click="goPortalApproval(row)">{{ t('申领') }}</NButton>
         </div>
       </NCard>
     </div>

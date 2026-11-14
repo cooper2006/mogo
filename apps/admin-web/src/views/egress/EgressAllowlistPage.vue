@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '@/composables/i18n';
 import { computed, h, onMounted, reactive, ref } from 'vue';
 import {
   NButton,
@@ -233,7 +234,7 @@ onMounted(load);
 <template>
   <div class="page-container">
     <PageIntro
-      title="出站访问控制"
+      :title="t('出站访问控制')"
       description="出站白名单（platform / tenant / tool 三层并集）：未命中任一层的出站调用一律拒绝（fail-closed），命中/拒绝均落审计。域名后缀匹配覆盖全部子域，可附加路径前缀。"
       :tags="['038 出站沙箱', '默认拒绝', 'SSRF 防护']"
     />
@@ -243,14 +244,12 @@ onMounted(load);
       <NSpace justify="space-between" align="center" style="margin-bottom: 12px">
         <span>允许列表（{{ rows.length }} 条）</span>
         <NSpace>
-          <NButton size="small" @click="load">刷新</NButton>
-          <NButton size="small" type="primary" @click="openCreate">新建条目</NButton>
+          <NButton size="small" @click="load">{{ t('刷新') }}</NButton>
+          <NButton size="small" type="primary" @click="openCreate">{{ t('新建条目') }}</NButton>
         </NSpace>
       </NSpace>
       <NDataTable :columns="columns" :data="rows" :loading="loading" :row-key="(row: EgressRule) => row.entry_id" size="small" />
-      <p v-if="!loading && !errorMsg && rows.length === 0" style="color: #888">
-        暂无白名单条目。空白单时所有出站调用将被拒绝，请先写入必需域名。
-      </p>
+      <p v-if="!loading && !errorMsg && rows.length === 0" style="color: #888">{{ t('暂无白名单条目。空白单时所有出站调用将被拒绝，请先写入必需域名。') }}</p>
     </NCard>
 
     <NModal
@@ -264,26 +263,26 @@ onMounted(load);
           <NSelect v-model:value="form.scope" :options="scopeOptions" :disabled="Boolean(editingId)" />
         </NFormItem>
         <NFormItem label="域名后缀">
-          <NInput v-model:value="form.match_domain" placeholder="如 api.example.com（覆盖其全部子域）" />
+          <NInput v-model:value="form.match_domain" :placeholder="t('如 api.example.com（覆盖其全部子域）')" />
         </NFormItem>
         <NFormItem v-if="form.scope === 'tool'" label="工具 ID">
-          <NInput v-model:value="form.tool_id" placeholder="绑定工具 ID（仅该工具生效）" />
+          <NInput v-model:value="form.tool_id" :placeholder="t('绑定工具 ID（仅该工具生效）')" />
         </NFormItem>
         <NFormItem label="路径前缀">
-          <NInput v-model:value="form.path_prefix" placeholder="可选，如 v1（不填则匹配该域全部路径）" />
+          <NInput v-model:value="form.path_prefix" :placeholder="t('可选，如 v1（不填则匹配该域全部路径）')" />
         </NFormItem>
         <NFormItem label="启用">
           <NSwitch v-model:value="form.enabled" />
         </NFormItem>
         <NFormItem label="说明">
-          <NInput v-model:value="form.note" type="textarea" :rows="2" placeholder="备注（可选）" />
+          <NInput v-model:value="form.note" type="textarea" :rows="2" :placeholder="t('备注（可选）')" />
         </NFormItem>
       </NForm>
       <p v-if="formError" style="color: #d03050">{{ formError }}</p>
       <template #footer>
         <NSpace justify="end">
-          <NButton size="small" @click="showModal = false">取消</NButton>
-          <NButton size="small" type="primary" :loading="saving" @click="submit">保存</NButton>
+          <NButton size="small" @click="showModal = false">{{ t('取消') }}</NButton>
+          <NButton size="small" type="primary" :loading="saving" @click="submit">{{ t('保存') }}</NButton>
         </NSpace>
       </template>
     </NModal>

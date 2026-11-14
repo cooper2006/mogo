@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../../composables/i18n'
 import { computed, ref, watch } from 'vue'
 import { NButton, NCheckbox, NInput, NModal, useMessage } from 'naive-ui'
 import {
@@ -148,9 +149,7 @@ function memberLabel(id: string): string {
     :bordered="false"
     @update:show="close"
   >
-    <p v-if="readonly" class="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-[12px] text-amber-700">
-      只有项目创建者可以管理成员，你可以查看当前成员。
-    </p>
+    <p v-if="readonly" class="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-[12px] text-amber-700">{{ t('只有项目创建者可以管理成员，你可以查看当前成员。') }}</p>
     <div class="flex h-[420px] gap-4">
       <aside class="w-[180px] shrink-0 overflow-y-auto rounded-lg border border-gray-200 p-1.5">
         <button
@@ -164,15 +163,13 @@ function memberLabel(id: string): string {
         >
           <span class="truncate">{{ row.name }}</span>
         </button>
-        <p v-if="!departmentsLoading && departments.length === 0" class="px-2 py-1.5 text-[12px] text-gray-400">
-          暂无部门数据
-        </p>
+        <p v-if="!departmentsLoading && departments.length === 0" class="px-2 py-1.5 text-[12px] text-gray-400">{{ t('暂无部门数据') }}</p>
       </aside>
       <section class="flex min-w-0 flex-1 flex-col">
-        <NInput v-model:value="keyword" size="small" clearable placeholder="搜索姓名 / 账号 / 手机号" @keyup.enter="loadCandidates" @clear="loadCandidates" />
+        <NInput v-model:value="keyword" size="small" clearable :placeholder="t('搜索姓名 / 账号 / 手机号')" @keyup.enter="loadCandidates" @clear="loadCandidates" />
         <div class="mt-2 min-h-0 flex-1 overflow-y-auto rounded-lg border border-gray-200">
-          <p v-if="candidatesLoading" class="px-3 py-4 text-[12px] text-gray-400">加载中…</p>
-          <p v-else-if="candidates.length === 0" class="px-3 py-4 text-[12px] text-gray-400">该部门下没有可选成员</p>
+          <p v-if="candidatesLoading" class="px-3 py-4 text-[12px] text-gray-400">{{ t('加载中…') }}</p>
+          <p v-else-if="candidates.length === 0" class="px-3 py-4 text-[12px] text-gray-400">{{ t('该部门下没有可选成员') }}</p>
           <label
             v-for="item in candidates"
             :key="item.id"
@@ -203,7 +200,7 @@ function memberLabel(id: string): string {
     <template #footer>
       <div class="flex justify-end gap-2">
         <NButton size="small" @click="close">{{ readonly ? '关闭' : '取消' }}</NButton>
-        <NButton v-if="!readonly" size="small" type="primary" :loading="saving" @click="save">保存</NButton>
+        <NButton v-if="!readonly" size="small" type="primary" :loading="saving" @click="save">{{ t('保存') }}</NButton>
       </div>
     </template>
   </NModal>

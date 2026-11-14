@@ -14,7 +14,7 @@ from .docker_engine import DockerEngine
 from .jobs import ScriptJobs
 from .plugin_runtimes import PluginRuntimes
 from .skill_environments import DependencyPreparationError
-from .skill_build_records import SkillBuildRecords
+from .skill_build_records import MAX_LOG_CHARS, SkillBuildRecords
 from .task_containers import TaskContainers
 from .offline_routes import router as offline_router
 from .image_archive_routes import router as image_archive_router
@@ -190,6 +190,36 @@ def skill_environment_status(digest: str, authorization: str | None = Header(def
         return {"status": jobs().environments.status(digest)}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/v1/skill-environments/{digest}/records")
+def skill_environment_records(digest: str, authorization: str | None = Header(default=None)) -> dict:
+    _authorize(authorization)
+    try:
+        return {"items": jobs().environments.records.list(digest)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/v1/skill-environments/{digest}/records/{record_id}")
+def skill_environment_record(digest: str, record_id: str, authorization: str | None = Header(default=None)) -> dict:
+    _authorize(authorization)
+    try:
+        record = jobs().environments.records.get(digest, record_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if record is None:
+        raise HTTPException(status_code=404, detail="Preparation record not found")
+    if record["status"] == "preparing":
+        # 正在构建时把运行中容器的实时日志拼到历史记录尾部。
+        try:
+            live = jobs().environments.live_output(digest)
+            combined = record["log"] + live
+            record["truncated"] = record["truncated"] or len(combined) > MAX_LOG_CHARS
+            record["log"] = combined[-MAX_LOG_CHARS:]
+        except Exception:
+            pass
+    return record
 
 
 @app.put("/v1/settings")

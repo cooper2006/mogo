@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../composables/i18n'
 /**
  * /research 竞品深度调研页（子路由接入墨攻平台，产品经理拍板的部署形态）。
  * 输入竞品名 → 一次交互 → 综合判断 + 四章分栏渲染；数据层见 researchService.ts（mock 先行）。
@@ -53,30 +54,28 @@ async function regenerate() {
 <template>
     <div class="research-page">
         <header class="rp-header">
-            <h1 class="rp-title">竞品深度调研</h1>
-            <p class="rp-subtitle">输入竞品名，一次交互得到 analyst-grade 调研报告：市场情报 · 功能对比 · 财务估值 · 社媒舆情 + 综合判断</p>
+            <h1 class="rp-title">{{ t('竞品深度调研') }}</h1>
+            <p class="rp-subtitle">{{ t('输入竞品名，一次交互得到 analyst-grade 调研报告：市场情报 · 功能对比 · 财务估值 · 社媒舆情 + 综合判断') }}</p>
             <form class="rp-form" @submit.prevent="submit">
                 <input
                     v-model="subject"
                     class="rp-input"
-                    placeholder="例如：钉钉"
+                    :placeholder="t('例如：钉钉')"
                     :disabled="loading"
                     autocomplete="off"
                 />
                 <button class="rp-btn" type="submit" :disabled="!canSubmit">
                     {{ loading ? '调研生成中…' : '开始调研' }}
                 </button>
-                <button v-if="report && !loading" class="rp-btn rp-btn-secondary" type="button" @click="regenerate" :disabled="loading">
-                    再生成
-                </button>
+                <button v-if="report && !loading" class="rp-btn rp-btn-secondary" type="button" @click="regenerate" :disabled="loading">{{ t('再生成') }}</button>
             </form>
             <p v-if="error" class="rp-error">{{ error }}</p>
-            <p v-if="report?.mock" class="rp-mock-badge">mock 数据（001 端到端验收通过后切换真实数据源）</p>
+            <p v-if="report?.mock" class="rp-mock-badge">{{ t('mock 数据（001 端到端验收通过后切换真实数据源）') }}</p>
         </header>
 
         <template v-if="report">
             <section class="rp-judgment">
-                <h2 class="rp-judgment-title">综合判断</h2>
+                <h2 class="rp-judgment-title">{{ t('综合判断') }}</h2>
                 <p class="rp-judgment-verdict">{{ report.judgment.verdict }}</p>
                 <ul class="rp-judgment-points">
                     <li v-for="(p, i) in report.judgment.points" :key="i">{{ p }}</li>
@@ -110,9 +109,7 @@ async function regenerate() {
             </footer>
         </template>
 
-        <section v-else-if="!loading" class="rp-empty">
-            输入竞品名开始；报告将以四章分栏呈现，综合判断置顶。
-        </section>
+        <section v-else-if="!loading" class="rp-empty">{{ t('输入竞品名开始；报告将以四章分栏呈现，综合判断置顶。') }}</section>
     </div>
 </template>
 

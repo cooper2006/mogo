@@ -158,7 +158,7 @@ onMounted(load);
       :description="t('PreToolUse 声明式拦截规则（deny_tool / require_field / observe）；编辑后下一次工具调用即时生效。')"
       :tags="[t('009 钩子拦截'), t('fail-closed')]"
     />
-    <NCard title="新建规则" size="small" style="margin-bottom: 16px">
+    <NCard :title="t('新建规则')" size="small" style="margin-bottom: 16px">
       <NSpace vertical :size="10">
         <NSpace>
           <NSelect v-model:value="form.scope" :options="scopeOptions" style="width: 160px" />
@@ -167,7 +167,7 @@ onMounted(load);
           <NInput
             v-if="form.rule_type === 'require_field'"
             v-model:value="form.fields"
-            placeholder="要求字段（逗号分隔，如 query）"
+            :placeholder="t('要求字段（逗号分隔，如 query）')"
             style="width: 240px"
           />
         </NSpace>
@@ -177,7 +177,7 @@ onMounted(load);
         </NSpace>
       </NSpace>
     </NCard>
-    <NCard title="规则列表" size="small">
+    <NCard :title="t('规则列表')" size="small">
       <p v-if="errorMsg" style="color: #d03050">{{ errorMsg }}</p>
       <NDataTable :columns="columns" :data="rows" :loading="loading" :pagination="{ pageSize: 20 }" size="small" />
     </NCard>

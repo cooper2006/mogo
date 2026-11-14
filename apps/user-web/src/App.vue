@@ -2599,11 +2599,9 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <a href="#main-content" class="skip-link">跳转到主内容</a>
+  <a href="#main-content" class="skip-link">{{ t('跳转到主内容') }}</a>
   <div v-if="isOffline" class="offline-banner fixed top-0 left-0 right-0 z-[9999] flex items-center justify-center gap-2 bg-amber-500 px-4 py-2 text-sm font-medium text-white" role="alert">
-    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
-    网络已断开，部分功能可能不可用
-  </div>
+    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>{{ t('网络已断开，部分功能可能不可用') }}</div>
   <n-config-provider :theme="isDarkTheme ? darkTheme : null" :theme-overrides="naiveThemeOverrides" :locale="naiveLocale" :date-locale="naiveDateLocale">
   <n-message-provider>
   <AppMessageBridge />
@@ -2924,8 +2922,8 @@ onBeforeUnmount(() => {
               <div
                 v-else-if="sessionScheduledIsRunning(session.id)"
                 class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600"
-                aria-label="定时任务正在运行"
-                title="定时任务正在运行"
+                :aria-label="t('定时任务正在运行')"
+                :title="t('定时任务正在运行')"
               >
                 <svg viewBox="0 0 24 24" class="h-3.5 w-3.5 animate-pulse" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
               </div>
@@ -3546,8 +3544,8 @@ onBeforeUnmount(() => {
                     <span
                       v-else-if="sessionScheduledIsRunning(session.id)"
                       class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600"
-                      aria-label="定时任务正在运行"
-                      title="定时任务正在运行"
+                      :aria-label="t('定时任务正在运行')"
+                      :title="t('定时任务正在运行')"
                     >
                       <svg viewBox="0 0 24 24" class="h-3.5 w-3.5 animate-pulse" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
                     </span>

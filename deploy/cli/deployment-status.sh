@@ -24,10 +24,16 @@ movo_record_deployment() {
   if [[ ! "${version}" =~ ^[a-zA-Z0-9._-]+$ ]]; then
     version="unknown"
   fi
+  # 源码版本：优先用当前仓库 HEAD；镜像若带 OCI revision label 会在读取侧覆盖，
+  # 但本地构建通常没有该 label，这里保证「代码版本」页至少有可追溯的 commit。
+  commit="$("${GIT_BIN:-git}" -C "${ROOT_DIR}" rev-parse --short=12 HEAD 2>/dev/null || true)"
+  if [[ ! "${commit}" =~ ^[0-9a-f]{7,40}$ ]]; then
+    commit="unknown"
+  fi
   umask 077
   printf '%s\n' "${images}" > "${images_file}.tmp"
   mv "${images_file}.tmp" "${images_file}"
-  printf '{"upgradedAt":"%s","version":"%s"}\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "${version}" > "${record_file}.tmp"
+  printf '{"upgradedAt":"%s","version":"%s","commit":"%s"}\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "${version}" "${commit}" > "${record_file}.tmp"
   mv "${record_file}.tmp" "${record_file}"
   printf '%s\n' "${fingerprint}" > "${fingerprint_file}"
 }

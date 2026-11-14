@@ -85,9 +85,17 @@ def inventory(engine: DockerEngine) -> dict:
             "startedAt": state.get("StartedAt"),
             "restarts": int(details.get("RestartCount") or 0),
         })
-    revisions = sorted({service["revision"] for service in services if service.get("revision") and service["name"] not in {"mongo", "redis", "weaviate"}})
+    # 本地构建的镜像会把 GIT_SHA 写成 "unknown"（见 admin-api Dockerfile），
+    # 这个占位值不是真实 revision，不能当成唯一源码版本覆盖部署记录。
+    revisions = sorted({
+        service["revision"] for service in services
+        if service.get("revision") and service["revision"] not in {"unknown", ""}
+        and service["name"] not in {"mongo", "redis", "weaviate"}
+    })
     record["revisions"] = revisions
-    record["commit"] = revisions[0] if len(revisions) == 1 else ""
+    # 本地构建镜像往往没有 OCI revision label；此时不要抹掉 deployment.json
+    # 里由部署脚本写入的源码 commit，否则「代码版本」永远显示 unknown。
+    record["commit"] = revisions[0] if len(revisions) == 1 else (record.get("commit") or "")
     record["dshVersion"] = running_dsh_version(engine, str((rows.get("dsh-runtime-host") or {}).get("Id") or ""))
     image_name = os.environ.get("MOVO_SANDBOX_SCRIPT_IMAGE", "").strip()
     script_image = {"image": image_name, "imageId": "", "available": False}

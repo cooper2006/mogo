@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '@/composables/i18n';
 import { h, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { NAlert, NCard, NDataTable, NEmpty, NSpin, NTag, NSpace } from 'naive-ui';
@@ -93,11 +94,8 @@ onMounted(load);
       type="info"
       :show-icon="true"
       style="margin-bottom: 12px"
-    >
-      统一审批内核（056）当前为灰度只读视图：开关
-      <code>APPROVAL_KERNEL_ENABLED</code> 已开启，待办由 R-7 旁路双写产生；若列表为空，说明暂无影子票据。
-    </NAlert>
-    <NCard title="审批中心 · 统一待办" :bordered="false">
+    >{{ t('统一审批内核（056）当前为灰度只读视图：开关') }}<code>APPROVAL_KERNEL_ENABLED</code>{{ t('已开启，待办由 R-7 旁路双写产生；若列表为空，说明暂无影子票据。') }}</NAlert>
+    <NCard :title="t('审批中心 · 统一待办')" :bordered="false">
       <NSpin :show="loading">
         <NDataTable
           :columns="columns"

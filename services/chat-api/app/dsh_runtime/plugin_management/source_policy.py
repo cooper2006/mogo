@@ -16,7 +16,14 @@ def is_fixed_npm_source(spec: str) -> bool:
     return bool(_NPM_VERSION.fullmatch(spec.strip()))
 
 
-def is_safe_personal_source(spec: str) -> bool:
+def is_supported_plugin_source(spec: str) -> bool:
+    """Only finished packages: pinned npm version, github: ref or https tarball.
+
+    Keeps the mogo-side `github:` / `git+https:` support (see
+    is_safe_personal_source) while giving install/preflight a single
+    source-format gate that rejects local paths, shell prefixes and
+    credentials-in-URL. Host safety is enforced by is_safe_personal_source.
+    """
     value = spec.strip()
     if not value or any(ch.isspace() for ch in value) or value.startswith(_UNSAFE_PREFIXES):
         return False
@@ -27,10 +34,19 @@ def is_safe_personal_source(spec: str) -> bool:
     if "://" not in value:
         return is_fixed_npm_source(value)
     parsed = urlsplit(value.removeprefix("git+"))
-    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query:
+    return bool(parsed.scheme == "https" and parsed.hostname
+                and not parsed.username and not parsed.password and not parsed.query)
+
+
+def is_safe_personal_source(spec: str) -> bool:
+    if not is_supported_plugin_source(spec):
         return False
-    host = parsed.hostname.lower()
-    if host == "localhost" or host.endswith((".localhost", ".local", ".internal")):
+    value = spec.strip()
+    if is_fixed_npm_source(value) or value.startswith("github:"):
+        return True
+    parsed = urlsplit(value.removeprefix("git+"))
+    host = (parsed.hostname or "").lower()
+    if not host or host == "localhost" or host.endswith((".localhost", ".local", ".internal")):
         return False
     # fail-open-exempt: 解析失败表示 host 是域名而非 IP 字面量，是正常的允许路径，
     # 不是异常兜底放行；上方已拒绝 localhost/.local/.internal、内嵌凭据/query 且强制 https。

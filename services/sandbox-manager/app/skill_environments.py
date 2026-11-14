@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import threading
@@ -11,8 +12,9 @@ from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError
 from pathlib import Path
 from uuid import uuid4
 
-from .docker_engine import DockerEngine, split_docker_logs
+from .docker_engine import DockerEngine, merged_docker_logs, split_docker_logs
 from .dependency_sources import build_attempts, retryable_failure
+from .skill_build_records import SkillBuildRecords, _safe_log, MAX_LOG_CHARS
 
 
 LOG = logging.getLogger(__name__)
@@ -32,6 +34,7 @@ class SkillEnvironments:
         self.pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mogo-skill-deps")
         self.lock = threading.Lock()
         self.pending: dict[str, Future[str]] = {}
+        self.records = SkillBuildRecords()
 
     def _skill_root(self, digest: str) -> Path:
         if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
@@ -100,11 +103,33 @@ class SkillEnvironments:
             return self.start(digest)
         return "failed" if future.done() and future.exception() else "preparing"
 
+    def live_output(self, digest: str) -> str:
+        """Tail the running build container so the UI can show live progress."""
+        response = self.engine.request("GET", "/containers/json", params={
+            "filters": json.dumps({"label": ["mogo.role=skill-dependency-build", f"mogo.skill_digest={digest}"]}),
+        })
+        containers = response.json()
+        if not containers:
+            return ""
+        raw = self.engine.recent_logs(containers[0]["Id"])
+        return _safe_log(merged_docker_logs(raw).decode(errors="replace"))[-MAX_LOG_CHARS:]
+
+    def _container_output(self, container_id: str, digest: str) -> tuple[bytes, bytes, str]:
+        try:
+            raw = self.engine.logs(container_id)
+            stdout, stderr = split_docker_logs(raw)
+            return stdout, stderr, merged_docker_logs(raw).decode(errors="replace")
+        except Exception:
+            LOG.exception("Skill dependency build output unavailable for %s", digest)
+            return b"", b"", ""
+
     def _build(self, digest: str, image: str) -> str:
         lease = uuid4().hex
         network_id = proxy_id = None
         deadline = time.monotonic() + self._build_timeout()
+        record_id: str | None = None
         try:
+            record_id = self.records.create(digest, self.engine.image_id(self.base_image) or "")
             proxy_id = self.engine.find_compose_service(self.project, "sandbox-egress")
             network_id = self.engine.create_internal_network(f"mogo-deps-{lease}")
             self.engine.connect_network(network_id, proxy_id, ["sandbox-egress"])
@@ -143,6 +168,7 @@ class SkillEnvironments:
             sources = build_attempts()
             for index, source in enumerate(sources):
                 container_id = None
+                output_captured = False
                 try:
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
@@ -151,10 +177,16 @@ class SkillEnvironments:
                     container_id = self.engine.create(f"mogo-deps-{lease}-{index}", payload)
                     self.engine.start(container_id)
                     exit_code = self.engine.wait(container_id, remaining)
+                    stdout, stderr, ordered_output = self._container_output(container_id, digest)
+                    self.records.append_attempt(
+                        digest, record_id, source=source.name, exit_code=exit_code,
+                        output=ordered_output,
+                    )
+                    output_captured = True
                     if exit_code == 0:
                         self.engine.commit(container_id, "mogo-skill-deps", image.rsplit(":", 1)[1])
+                        self.records.finish(digest, record_id, "ready", "Image prepared")
                         return image
-                    stdout, stderr = split_docker_logs(self.engine.logs(container_id))
                     detail = (stderr or stdout)[-4000:].decode(errors="replace")
                     if index < len(sources) - 1 and retryable_failure(detail):
                         LOG.warning("Skill dependency source %s failed; retrying with %s for %s: %s", source.name, sources[index + 1].name, digest, detail)
@@ -162,9 +194,17 @@ class SkillEnvironments:
                     raise RuntimeError(f"Skill dependency installation failed using {source.name}: {detail}")
                 finally:
                     if container_id:
+                        if not output_captured:
+                            _, _, ordered_output = self._container_output(container_id, digest)
+                            self.records.append_attempt(
+                                digest, record_id, source=source.name, exit_code=-1,
+                                output=ordered_output,
+                            )
                         self.engine.remove(container_id)
             raise RuntimeError("Skill dependency installation failed after all sources")
         except Exception:
+            if record_id:
+                self.records.finish(digest, record_id, "failed", "Preparation failed; see sandbox manager logs for infrastructure errors")
             LOG.exception("Skill dependency build failed for %s", digest)
             raise
         finally:
